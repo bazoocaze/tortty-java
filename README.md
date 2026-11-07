@@ -32,9 +32,11 @@ DISPLAY=:99 python3 ../tortty/tools/benchrun.py \
 
 ## Documentação
 
+- [`docs/FEATURES.md`](docs/FEATURES.md) — funcionalidades implementadas.
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — atividades correntes/futuras.
+- [`docs/HISTORY.md`](docs/HISTORY.md) — histórico de atividades.
 - [`BENCHMARKS.md`](BENCHMARKS.md) — medições, condições e comparação com Rust/Python-GTK.
-- [`docs/STATUS.md`](docs/STATUS.md) — estado atual, marcos e pendências.
-- [`docs/EXPERIMENT.md`](docs/EXPERIMENT.md) — plano/histórico congelado do início do experimento.
+- [`AGENTS.md`](AGENTS.md) — regras e ponteiros para agentes.
 
 ## Estrutura
 
