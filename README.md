@@ -22,7 +22,7 @@ Argumentos são repassados ao app, por exemplo:
 
 ## Benchmark
 
-`BENCHMARKS.md` tem a tabela e as condições. O harness oficial fica no repo
+`docs/BENCHMARKS.md` tem a tabela e as condições. O harness oficial fica no repo
 Rust (não modificar):
 
 ```sh
@@ -33,9 +33,10 @@ DISPLAY=:99 python3 ../tortty/tools/benchrun.py \
 ## Documentação
 
 - [`docs/FEATURES.md`](docs/FEATURES.md) — funcionalidades implementadas.
-- [`docs/BACKLOG.md`](docs/BACKLOG.md) — atividades correntes/futuras.
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — atividades correntes/futuras (`B<n>`).
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — limitações aceitas (`L<n>`).
 - [`docs/HISTORY.md`](docs/HISTORY.md) — histórico de atividades.
-- [`BENCHMARKS.md`](BENCHMARKS.md) — medições, condições e comparação com Rust/Python-GTK.
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — medições, condições e comparação com Rust/Python-GTK.
 - [`AGENTS.md`](AGENTS.md) — regras e ponteiros para agentes.
 
 ## Estrutura

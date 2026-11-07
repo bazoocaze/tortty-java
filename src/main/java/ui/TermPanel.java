@@ -30,11 +30,15 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private ChildPty pty;
     private int pressedButton = -1;
+    private boolean ctrlDown;
+    private int selAX = -1, selAY = -1, selBX = -1, selBY = -1;
+    private boolean selecting;
     private java.util.function.BiConsumer<Integer, Integer> onGridChange;
 
     private final java.util.HashMap<Integer, java.awt.Color> colorCache = new java.util.HashMap<>();
     private int lastPaintedCursorY = -1;
     private boolean lastPaintedCursorVisible = false;
+    private boolean blinkOn = true;
     private boolean damagePaintPending;
     private boolean fullPaintPending = true;
     private boolean[] paintRows = new boolean[0];
@@ -55,18 +59,64 @@ public final class TermPanel extends JPanel implements KeyListener {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }
             @Override public void mousePressed(MouseEvent e) {
                 requestFocusInWindow();
+                if (e.getButton() == MouseEvent.BUTTON1 && e.isControlDown()) {
+                    String uri = term.linkAt(cellX(e), cellY(e));
+                    if (uri != null) {
+                        openLink(uri);
+                        return;
+                    }
+                }
+                boolean select = e.getButton() == MouseEvent.BUTTON1
+                        && (term.mouseMode == 0 || e.isShiftDown());
+                if (select) {
+                    int x = cellX(e), y = cellY(e);
+                    if (e.getClickCount() >= 2) {
+                        selectWordOrLine(x, y, e.getClickCount() >= 3);
+                        return;
+                    }
+                    selAX = x; selAY = y; selBX = x; selBY = y;
+                    selecting = true;
+                    pressedButton = -1;
+                    requestFullRepaint();
+                    return;
+                }
                 sendMouse(e, true);
             }
             @Override public void mouseReleased(MouseEvent e) {
+                if (selecting) {
+                    selecting = false;
+                    if (!hasSelection()) clearSelection();
+                    else copySelection();
+                    requestFullRepaint();
+                    return;
+                }
                 sendMouse(e, false);
             }
         });
         addMouseMotionListener(new MouseMotionAdapter() {
-            @Override public void mouseDragged(MouseEvent e) { sendMouseDrag(e); }
+            @Override public void mouseDragged(MouseEvent e) {
+                if (selecting) {
+                    selBX = cellX(e); selBY = cellY(e);
+                    requestFullRepaint();
+                    return;
+                }
+                sendMouseDrag(e);
+            }
             @Override public void mouseMoved(MouseEvent e) { sendMouseMove(e); }
         });
         addMouseWheelListener(e -> sendMouseWheel(e));
         initFonts();
+
+        javax.swing.Timer blink = new javax.swing.Timer(530, e -> {
+            if (!term.cursorBlink || !term.cursorVisible) {
+                if (!blinkOn) { blinkOn = true; repaintCursorRow(); }
+                return;
+            }
+            blinkOn = !blinkOn;
+            repaintCursorRow();
+        });
+        blink.setRepeats(true);
+        blink.start();
     }
 
     public void initFonts() {
@@ -188,17 +238,20 @@ public final class TermPanel extends JPanel implements KeyListener {
             int x = 0;
             while (x < cols) {
                 int i = y * cols + x;
+                boolean sel = isSelected(x, y);
                 int f = fg[i], b = bg[i], a = attr[i];
                 if ((a & Term.INVERSE) != 0) { int t = f; f = b; b = t; }
                 int rf = (f == Color.DEFAULT) ? 0xD6D6D6 : f;
                 int rb = (b == Color.DEFAULT) ? 0x000000 : b;
+                if (sel) { int t = rf; rf = rb; rb = t; }
                 Font font = fontFor(a);
                 int run = x + 1;
                 while (run < cols) {
                     int j = y * cols + run;
+                    boolean jsel = isSelected(run, y);
                     int jf = fg[j], jb = bg[j], ja = attr[j];
                     if ((ja & Term.INVERSE) != 0) { int t = jf; jf = jb; jb = t; }
-                    if (jf != f || jb != b || ja != a) break;
+                    if (jf != f || jb != b || ja != a || jsel != sel) break;
                     run++;
                 }
                 int xPx = x * cellW;
@@ -216,23 +269,38 @@ public final class TermPanel extends JPanel implements KeyListener {
                 if ((a & Term.STRIKE) != 0) {
                     g2.fillRect(xPx, yPx + cellH / 2, runW, 1);
                 }
+                if (ctrlDown) {
+                    g2.setColor(color(0x6CB6FF));
+                    for (int xx = x; xx < run; xx++) {
+                        if (term.linkAt(xx, y) != null) g2.fillRect(xx * cellW, yPx + cellH - 2, cellW, 1);
+                    }
+                }
                 x = run;
             }
         }
 
-        if (term.cursorVisible) {
+        boolean cursorOn = term.cursorVisible && (!term.cursorBlink || blinkOn);
+        if (cursorOn) {
             int cx = term.cx, cy = term.cy;
             boolean rowPainted = full || (cy >= 0 && cy < rows && paintRows[cy]);
             if (cx >= 0 && cx < cols && rowPainted) {
                 int xPx = cx * cellW;
                 int yPx = cy * cellH;
                 g2.setColor(defFg);
-                g2.fillRect(xPx, yPx, Math.max(1, cellW), cellH);
-                int i = cy * cols + cx;
-                char c = text[i];
-                if (c != ' ') {
-                    g2.setColor(defBg);
-                    g2.drawChars(text, i, 1, xPx, yPx + baselineOffset);
+                if (term.cursorShape == 1) {
+                    int bw = Math.max(2, Math.round(cellW / 8f));
+                    g2.fillRect(xPx, yPx, bw, cellH);
+                } else if (term.cursorShape == 2) {
+                    int bh = Math.max(2, Math.round(cellH / 8f));
+                    g2.fillRect(xPx, yPx + cellH - bh, cellW, bh);
+                } else {
+                    g2.fillRect(xPx, yPx, Math.max(1, cellW), cellH);
+                    int i = cy * cols + cx;
+                    char c = text[i];
+                    if (c != ' ') {
+                        g2.setColor(defBg);
+                        g2.drawChars(text, i, 1, xPx, yPx + baselineOffset);
+                    }
                 }
             }
         }
@@ -290,6 +358,21 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     @Override public void keyPressed(KeyEvent e) {
         if (LATENCY) System.err.printf("LAT key %d t=%d%n", e.getKeyCode(), System.nanoTime());
+        boolean wasCtrl = ctrlDown;
+        ctrlDown = e.isControlDown();
+        if (wasCtrl != ctrlDown) requestFullRepaint();
+        if (e.isControlDown() && e.isShiftDown()) {
+            if (e.getKeyCode() == KeyEvent.VK_C) {
+                copySelection();
+                e.consume();
+                return;
+            }
+            if (e.getKeyCode() == KeyEvent.VK_V) {
+                pasteClipboard();
+                e.consume();
+                return;
+            }
+        }
         String seq = null;
         switch (e.getKeyCode()) {
             case KeyEvent.VK_ENTER: seq = "\r"; break;
@@ -331,8 +414,102 @@ public final class TermPanel extends JPanel implements KeyListener {
         }
     }
 
-    @Override public void keyReleased(KeyEvent e) {}
+    @Override public void keyReleased(KeyEvent e) {
+        boolean wasCtrl = ctrlDown;
+        ctrlDown = e.isControlDown();
+        if (wasCtrl != ctrlDown) requestFullRepaint();
+    }
 
+    private void repaintCursorRow() {
+        if (term.cy >= 0 && term.cy < term.rows) {
+            term.dirty[term.cy] = true;
+            repaint();
+        }
+    }
+
+    private int cellX(MouseEvent e) {
+        return Math.max(0, Math.min(term.cols - 1, e.getX() / Math.max(1, cellW())));
+    }
+
+    private int cellY(MouseEvent e) {
+        return Math.max(0, Math.min(term.rows - 1, e.getY() / Math.max(1, cellH())));
+    }
+
+    private boolean hasSelection() {
+        return selAX >= 0 && (selAX != selBX || selAY != selBY);
+    }
+
+    private boolean isSelected(int x, int y) {
+        if (!hasSelection()) return false;
+        int a = selAY * term.cols + selAX;
+        int b = selBY * term.cols + selBX;
+        if (a > b) { int t = a; a = b; b = t; }
+        int p = y * term.cols + x;
+        return p >= a && p <= b;
+    }
+
+    private void clearSelection() {
+        selAX = selAY = selBX = selBY = -1;
+        selecting = false;
+    }
+
+    private void selectWordOrLine(int x, int y, boolean wholeLine) {
+        selecting = false;
+        if (wholeLine) {
+            selAX = 0; selAY = y; selBX = term.cols - 1; selBY = y;
+        } else {
+            int base = y * term.cols;
+            int s = x, e = x;
+            while (s > 0 && !Character.isWhitespace(term.text[base + s - 1])) s--;
+            while (e + 1 < term.cols && !Character.isWhitespace(term.text[base + e + 1])) e++;
+            selAX = s; selAY = y; selBX = e; selBY = y;
+        }
+        requestFullRepaint();
+        copySelection();
+    }
+
+    private String selectionText() {
+        if (!hasSelection()) return "";
+        int c = term.cols;
+        int a = selAY * c + selAX;
+        int b = selBY * c + selBX;
+        if (a > b) { int t = a; a = b; b = t; }
+        int sy = Math.min(term.rows - 1, a / c), sx = Math.min(c - 1, a % c);
+        int ey = Math.min(term.rows - 1, b / c), ex = Math.min(c - 1, b % c);
+        StringBuilder out = new StringBuilder();
+        for (int y = sy; y <= ey; y++) {
+            int from = (y == sy) ? sx : 0;
+            int to = (y == ey) ? ex : c - 1;
+            while (to >= from && term.text[y * c + to] == ' ') to--;
+            if (to >= from) out.append(term.text, y * c + from, to - from + 1);
+            if (y < ey) out.append('\n');
+        }
+        return out.toString();
+    }
+
+    private void copySelection() {
+        String text = selectionText();
+        if (text.isEmpty()) return;
+        try {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(text), null);
+        } catch (Exception e) {
+            System.err.println("tortty-java: clipboard copy failed: " + e);
+        }
+    }
+
+    private void pasteClipboard() {
+        try {
+            Object v = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            if (v == null) return;
+            String s = v.toString().replace("\r\n", "\r").replace('\n', '\r');
+            if (term.bracketed) s = "\u001b[200~" + s + "\u001b[201~";
+            send(s.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            System.err.println("tortty-java: clipboard paste failed: " + e);
+        }
+    }
 
     private void sendMouse(MouseEvent e, boolean press) {
         if (pty == null || term.mouseMode == 0) return;
@@ -403,6 +580,22 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (e.isAltDown()) mod |= 8;
         if (e.isControlDown()) mod |= 16;
         return mod;
+    }
+
+    private void openLink(String uri) {
+        try {
+            java.net.URI u = new java.net.URI(uri);
+            String scheme = u.getScheme();
+            if (scheme == null) return;
+            scheme = scheme.toLowerCase(java.util.Locale.ROOT);
+            if (!(scheme.equals("http") || scheme.equals("https") || scheme.equals("file")
+                    || scheme.equals("ftp") || scheme.equals("mailto"))) return;
+            if (java.awt.Desktop.isDesktopSupported()) {
+                java.awt.Desktop.getDesktop().browse(u);
+            }
+        } catch (Exception e) {
+            System.err.println("tortty-java: cannot open link " + uri + ": " + e);
+        }
     }
 
     private void send(byte[] b) {

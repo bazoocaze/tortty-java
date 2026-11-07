@@ -99,6 +99,7 @@ public final class Main {
         panel.setPty(ptyRef);
 
         // reader -> EDT pump
+        final String[] lastTitle = {"tortty-java"};
         ptyRef.setConsumer(chunk -> SwingUtilities.invokeLater(() -> {
             boolean lat = Boolean.getBoolean("tortty.debug.latency");
             long feedT0 = System.nanoTime();
@@ -107,6 +108,8 @@ public final class Main {
             if (lat) System.err.printf("LAT feed-end t=%d dur=%.3fms%n", System.nanoTime(), (System.nanoTime() - feedT0) / 1e6);
             byte[] replies = term.takeChildOut();
             if (replies.length > 0) ptyRef.write(replies);
+            String wt = term.windowTitle();
+            if (!wt.equals(lastTitle[0])) { lastTitle[0] = wt; frame.setTitle(wt); }
             panel.repaintDamage();
         }));
         ptyRef.start();
@@ -143,7 +146,8 @@ public final class Main {
                     m.put("rows", term.rows);
                     m.put("cell", new int[] { panel.cellW(), panel.cellH() });
                     m.put("cursor", new int[] { term.cx, term.cy });
-                    m.put("title", term.title);
+                    m.put("title", term.windowTitle());
+                    m.put("cwd", term.cwd);
                     m.put("alt", term.alt);
                     return m;
                 }
@@ -192,6 +196,10 @@ public final class Main {
         panel.addFocusListener(new java.awt.event.FocusAdapter() {
             @Override public void focusGained(java.awt.event.FocusEvent e) {
                 panel.requestFullRepaint();
+                if (term.focusEvents && ptyRef != null) ptyRef.write("\u001b[I");
+            }
+            @Override public void focusLost(java.awt.event.FocusEvent e) {
+                if (term.focusEvents && ptyRef != null) ptyRef.write("\u001b[O");
             }
         });
         frame.addWindowListener(new java.awt.event.WindowAdapter() {

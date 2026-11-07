@@ -8,8 +8,7 @@ import java.util.ArrayDeque;
  * Grid + VT parser. Byte-level feed, no String in the hot path (SGR walks the
  * buffer and writes three ints). Minimal port target of tortty's crates/core
  * term: enough for an interactive shell, vim, mc and the doom-fire load. No
- * kitty images, no OSC 8 links, no view (scrollback is kept but never shown in
- * this phase).
+ * kitty images and no scrollback view (history is kept but never shown yet).
  */
 public final class Term {
 
@@ -21,12 +20,17 @@ public final class Term {
     public char[] text;
     public int[] fg, bg;
     public byte[] attr;
+    public int[] link;               // 0 = none, n = links.get(n-1)
 
     public int cx, cy;
     public boolean wrapPending;
     public boolean cursorVisible = true;
+    public int cursorShape;          // 0 block, 1 beam, 2 underline
+    public boolean cursorBlink;
     public boolean decckm;
     public String title = "";
+    public boolean titleExplicit;
+    public String cwd = "";
 
     // modes tracked (used by the debug socket / mc / vim)
     public int mouseMode;
@@ -35,6 +39,7 @@ public final class Term {
     public boolean bracketed;
     public boolean sync;
     public boolean lnm;
+    public boolean focusEvents;
 
     // scroll region (inclusive)
     private int top, bot;
@@ -46,7 +51,7 @@ public final class Term {
 
     // alternate buffer (saved main when in alt)
     private char[] mainText;
-    private int[] mainFg, mainBg;
+    private int[] mainFg, mainBg, mainLink;
     private byte[] mainAttr;
     private int mainX, mainY;
 
@@ -60,9 +65,14 @@ public final class Term {
     public boolean[] dirty;
 
     private static final class Row {
-        final char[] t; final int[] f, b; final byte[] a;
-        Row(char[] t, int[] f, int[] b, byte[] a) { this.t=t; this.f=f; this.b=b; this.a=a; }
+        final char[] t; final int[] f, b, l; final byte[] a;
+        Row(char[] t, int[] f, int[] b, byte[] a, int[] l) { this.t=t; this.f=f; this.b=b; this.a=a; this.l=l; }
     }
+
+    // OSC 8 hyperlinks; repeated URIs share an id.
+    private final java.util.ArrayList<String> links = new java.util.ArrayList<>();
+    private final java.util.HashMap<String, Integer> linkIndex = new java.util.HashMap<>();
+    private int penLink;
 
     // charset (G0)
     private int charsetG0 = Charset.ASCII;
@@ -93,7 +103,7 @@ public final class Term {
 
     private void alloc() {
         int n = cols * rows;
-        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n];
+        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
         dirty = new boolean[rows];
         for (int i = 0; i < n; i++) { text[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; }
         java.util.Arrays.fill(dirty, true);
@@ -106,12 +116,15 @@ public final class Term {
         penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; insert = false;
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
         decckm = false; lnm = false; alt = false;
-        cursorVisible = true; mouseMode = 0; mouseSgr = false; bracketed = false; sync = false;
+        title = ""; titleExplicit = false; cwd = "";
+        cursorVisible = true; cursorShape = 0; cursorBlink = false;
+        mouseMode = 0; mouseSgr = false; bracketed = false; sync = false; focusEvents = false;
         top = 0; bot = rows - 1;
-        mainText = null; mainFg = null; mainBg = null; mainAttr = null;
+        mainText = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
+        links.clear(); linkIndex.clear(); penLink = 0;
         cx = 0; cy = 0; wrapPending = false;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
-        for (int i = 0; i < text.length; i++) { text[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0; }
+        for (int i = 0; i < text.length; i++) { text[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0; link[i] = 0; }
     }
 
     public void resize(int nc, int nr) {
@@ -123,6 +136,7 @@ public final class Term {
         fg = copyGridInt(fg, oldCols, oldRows, nc, nr, DEFAULT);
         bg = copyGridInt(bg, oldCols, oldRows, nc, nr, DEFAULT);
         attr = copyGridByte(attr, oldCols, oldRows, nc, nr, (byte) 0);
+        link = copyGridInt(link, oldCols, oldRows, nc, nr, 0);
         dirty = new boolean[nr];
         java.util.Arrays.fill(dirty, true);
         dirtyAll = true;
@@ -131,6 +145,7 @@ public final class Term {
             mainFg = copyGridInt(mainFg, oldCols, oldRows, nc, nr, DEFAULT);
             mainBg = copyGridInt(mainBg, oldCols, oldRows, nc, nr, DEFAULT);
             mainAttr = copyGridByte(mainAttr, oldCols, oldRows, nc, nr, (byte) 0);
+            mainLink = copyGridInt(mainLink, oldCols, oldRows, nc, nr, 0);
         }
         top = 0; bot = nr - 1;
         if (cx >= nc) cx = nc - 1;
@@ -254,6 +269,7 @@ public final class Term {
                 fg[base + j] = fg[base + j - 1];
                 bg[base + j] = bg[base + j - 1];
                 attr[base + j] = attr[base + j - 1];
+                link[base + j] = link[base + j - 1];
             }
             dirty[cy] = true;
         }
@@ -262,6 +278,7 @@ public final class Term {
         fg[i] = penFg;
         bg[i] = penBg;
         attr[i] = penAttr;
+        link[i] = penLink;
         dirty[cy] = true;
         cx++;
         if (cx >= cols) { cx = cols - 1; wrapPending = true; }
@@ -281,14 +298,15 @@ public final class Term {
             for (int r = 0; r < n; r++) {
                 int off = (top + r) * cols;
                 char[] t = new char[cols];
-                int[] f = new int[cols], b = new int[cols];
+                int[] f = new int[cols], b = new int[cols], l = new int[cols];
                 byte[] a = new byte[cols];
                 System.arraycopy(text, off, t, 0, cols);
                 System.arraycopy(fg, off, f, 0, cols);
                 System.arraycopy(bg, off, b, 0, cols);
                 System.arraycopy(attr, off, a, 0, cols);
+                System.arraycopy(link, off, l, 0, cols);
                 if (hist.size() >= HIST_CAP) hist.pollFirst();
-                hist.addLast(new Row(t, f, b, a));
+                hist.addLast(new Row(t, f, b, a, l));
             }
         }
         for (int r = 0; r < n; r++) {
@@ -298,10 +316,11 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(link, src, link, dst, cols);
             }
             int off = bot * cols;
             for (int c = 0; c < cols; c++) {
-                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0;
+                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
             }
             dirty[bot] = true;
         }
@@ -318,10 +337,11 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(link, src, link, dst, cols);
             }
             int off = top * cols;
             for (int c = 0; c < cols; c++) {
-                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0;
+                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
             }
             dirty[top] = true;
         }
@@ -367,8 +387,51 @@ public final class Term {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < t.length(); i++) if (t.charAt(i) >= 0x20) sb.append(t.charAt(i));
             title = sb.toString();
+            titleExplicit = true;
+        } else if (s.startsWith("7;")) {
+            String p = s.substring(2);
+            try {
+                java.net.URI u = java.net.URI.create(p);
+                if (u.getPath() != null && !u.getPath().isEmpty()) cwd = u.getPath();
+                else cwd = p;
+            } catch (Exception ignored) {
+                cwd = p;
+            }
+        } else if (s.startsWith("8;")) {
+            int sep = s.indexOf(';', 2);
+            if (sep >= 0) {
+                String uri = s.substring(sep + 1);
+                if (uri.isEmpty()) {
+                    penLink = 0;
+                } else {
+                    Integer id = linkIndex.get(uri);
+                    if (id == null) {
+                        links.add(uri);
+                        id = links.size();
+                        linkIndex.put(uri, id);
+                    }
+                    penLink = id;
+                }
+            }
         }
         state = GROUND;
+    }
+
+    /** URI of the OSC 8 link at a cell, or null. */
+    public String linkAt(int x, int y) {
+        if (x < 0 || y < 0 || x >= cols || y >= rows) return null;
+        int id = link[y * cols + x];
+        return (id > 0 && id <= links.size()) ? links.get(id - 1) : null;
+    }
+
+    /** Title shown by the window: OSC 0/2 wins, then basename(cwd). */
+    public String windowTitle() {
+        if (titleExplicit && !title.isEmpty()) return title;
+        if (!cwd.isEmpty()) {
+            String n = new java.io.File(cwd).getName();
+            if (!n.isEmpty()) return n;
+        }
+        return "tortty-java";
     }
 
     private void csiByte(int b) {
@@ -406,6 +469,22 @@ public final class Term {
     private int parseNum(String s) {
         if (s == null || s.isEmpty()) return -1;
         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return -1; }
+    }
+
+    /** First integer in the raw CSI buffer, ignoring intermediates/spaces. */
+    private int csiFirstNumber() {
+        int v = 0;
+        boolean any = false;
+        for (int i = 0; i < csiLen; i++) {
+            int b = csiBuf[i] & 0xff;
+            if (b >= '0' && b <= '9') {
+                any = true;
+                v = v * 10 + (b - '0');
+            } else if (any) {
+                break;
+            }
+        }
+        return any ? v : -1;
     }
 
     private int p0(int npar, int[] params, int i, int def) {
@@ -472,6 +551,22 @@ public final class Term {
                 cx = 0; cy = 0; wrapPending = false;
             }
             case 'm' -> { sgr(); }
+            case 'q' -> {
+                // DECSCUSR: CSI Ps SP q (the space is an intermediate byte here).
+                if (csiLen > 0 && csiBuf[csiLen - 1] == (byte) ' ') {
+                    int v = csiFirstNumber();
+                    switch (v) {
+                        case 0, 1 -> { cursorShape = 0; cursorBlink = true; }
+                        case 2 -> { cursorShape = 0; cursorBlink = false; }
+                        case 3 -> { cursorShape = 2; cursorBlink = true; }
+                        case 4 -> { cursorShape = 2; cursorBlink = false; }
+                        case 5 -> { cursorShape = 1; cursorBlink = true; }
+                        case 6 -> { cursorShape = 1; cursorBlink = false; }
+                        default -> { }
+                    }
+                    if (cy >= 0 && cy < rows) dirty[cy] = true;
+                }
+            }
             case 's' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svWrap = wrapPending; }
             case 'u' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; wrapPending = svWrap; }
             case 'h', 'l' -> {
@@ -481,6 +576,7 @@ public final class Term {
                         int v = params[pi] < 0 ? 0 : params[pi];
                         switch (v) {
                             case 1 -> decckm = on;
+                            case 12 -> { cursorBlink = on; if (cy >= 0 && cy < rows) dirty[cy] = true; }
                             case 25 -> cursorVisible = on;
                             case 47, 1047 -> { if (on) enterAlt(); else exitAlt(); }
                             case 1049 -> {
@@ -494,6 +590,7 @@ public final class Term {
                             case 1000 -> mouseMode = on ? 1 : 0;
                             case 1002 -> mouseMode = on ? 2 : 0;
                             case 1003 -> mouseMode = on ? 3 : 0;
+                            case 1004 -> focusEvents = on;
                             case 1006 -> mouseSgr = on;
                             case 2004 -> bracketed = on;
                             case 2026 -> sync = on;
@@ -616,7 +713,7 @@ public final class Term {
             for (int y = top; y <= bot; y++) {
                 int off = y * cols;
                 for (int x = 0; x < cols; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0;
+                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
                 }
                 dirty[y] = true;
             }
@@ -628,7 +725,7 @@ public final class Term {
                 int off = y * cols;
                 int start = (y == cy) ? cx : 0;
                 for (int x = start; x < cols; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0;
+                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
                 }
                 dirty[y] = true;
             }
@@ -637,7 +734,7 @@ public final class Term {
                 int off = y * cols;
                 int end = (y == cy) ? cx + 1 : cols;
                 for (int x = 0; x < end; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0;
+                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
                 }
                 dirty[y] = true;
             }
@@ -649,7 +746,7 @@ public final class Term {
         int from = 0, to = cols;
         if (mode == 0) from = cx;
         else if (mode == 1) to = cx + 1;
-        for (int x = from; x < to; x++) { text[off+x] = ' '; fg[off+x] = penBg; bg[off+x] = penBg; attr[off+x] = 0; }
+        for (int x = from; x < to; x++) { text[off+x] = ' '; fg[off+x] = penBg; bg[off+x] = penBg; attr[off+x] = 0; link[off+x] = 0; }
         dirty[cy] = true;
     }
 
@@ -664,9 +761,10 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(link, src, link, dst, cols);
             }
             int off = cy * cols;
-            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; }
+            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0; }
             dirty[cy] = true;
         }
         for (int y = cy; y <= bot; y++) dirty[y] = true;
@@ -683,9 +781,10 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(link, src, link, dst, cols);
             }
             int off = bot * cols;
-            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; }
+            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0; }
             dirty[bot] = true;
         }
         for (int y = cy; y <= bot; y++) dirty[y] = true;
@@ -700,9 +799,10 @@ public final class Term {
             fg[base + j] = fg[base + j - n];
             bg[base + j] = bg[base + j - n];
             attr[base + j] = attr[base + j - n];
+            link[base + j] = link[base + j - n];
         }
         for (int j = cx; j < cx + n; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0;
+            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
         }
         dirty[cy] = true;
     }
@@ -716,9 +816,10 @@ public final class Term {
             fg[base + j] = fg[base + j + n];
             bg[base + j] = bg[base + j + n];
             attr[base + j] = attr[base + j + n];
+            link[base + j] = link[base + j + n];
         }
         for (int j = cols - n; j < cols; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0;
+            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
         }
         dirty[cy] = true;
     }
@@ -728,17 +829,17 @@ public final class Term {
         if (n > cols - cx) n = cols - cx;
         int base = cy * cols;
         for (int j = cx; j < cx + n; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0;
+            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
         }
         dirty[cy] = true;
     }
 
     private void enterAlt() {
         if (alt) return;
-        mainText = text; mainFg = fg; mainBg = bg; mainAttr = attr;
+        mainText = text; mainFg = fg; mainBg = bg; mainAttr = attr; mainLink = link;
         mainX = cx; mainY = cy;
         int n = cols * rows;
-        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n];
+        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
         for (int i = 0; i < n; i++) { text[i] = ' '; fg[i] = Color.DEFAULT; bg[i] = Color.DEFAULT; }
         cx = 0; cy = 0; wrapPending = false;
         top = 0; bot = rows - 1;
@@ -748,9 +849,9 @@ public final class Term {
 
     private void exitAlt() {
         if (!alt) return;
-        text = mainText; fg = mainFg; bg = mainBg; attr = mainAttr;
+        text = mainText; fg = mainFg; bg = mainBg; attr = mainAttr; link = mainLink;
         cx = mainX; cy = mainY;
-        mainText = null; mainFg = null; mainBg = null; mainAttr = null;
+        mainText = null; mainFg = null; mainBg = null; mainAttr = null; mainLink = null;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         top = 0; bot = rows - 1;
         alt = false;
