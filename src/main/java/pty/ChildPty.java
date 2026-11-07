@@ -14,6 +14,8 @@ import prof.Prof;
 
 /** Child on a pty: spawn, read on its own thread, resize with SIGWINCH. */
 public final class ChildPty {
+
+    private static final boolean LATENCY = Boolean.getBoolean("tortty.debug.latency");
     private final PtyProcess proc;
     private final OutputStream out;
     private final InputStream in;
@@ -67,6 +69,8 @@ public final class ChildPty {
                 } catch (IOException e) {
                     break;
                 }
+                if (LATENCY) System.err.printf("LAT pty-read t=%d n=%d blocked=%.3fms%n",
+                        System.nanoTime(), n, (System.nanoTime() - t0) / 1e6);
                 if (n <= 0) {
                     if (n < 0) break;
                     continue;

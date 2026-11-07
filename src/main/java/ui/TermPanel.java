@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class TermPanel extends JPanel implements KeyListener {
 
+    private static final boolean LATENCY = Boolean.getBoolean("tortty.debug.latency");
+
     private final Term term;
     private final String familyName;
     private final float fontSizePt;
@@ -30,7 +32,12 @@ public final class TermPanel extends JPanel implements KeyListener {
     private int pressedButton = -1;
     private java.util.function.BiConsumer<Integer, Integer> onGridChange;
 
-    private final java.util.List<String> rowCache = new java.util.ArrayList<>();
+    private final java.util.HashMap<Integer, java.awt.Color> colorCache = new java.util.HashMap<>();
+    private int lastPaintedCursorY = -1;
+    private boolean lastPaintedCursorVisible = false;
+    private boolean damagePaintPending;
+    private boolean fullPaintPending = true;
+    private boolean[] paintRows = new boolean[0];
 
     public TermPanel(Term term, String familyName, float fontSizePt, float dpi) {
         this.term = term;
@@ -99,31 +106,85 @@ public final class TermPanel extends JPanel implements KeyListener {
         return new Dimension(term.cols * cellW(), term.rows * cellH());
     }
 
+    /** Schedule a paint for damaged rows plus the cursor row(s). */
+    public void repaintDamage() {
+        if (term.dirtyAll) {
+            fullPaintPending = true;
+            repaint();
+            return;
+        }
+        boolean any = term.cursorVisible != lastPaintedCursorVisible;
+        if (term.dirty != null) {
+            for (int y = 0; y < term.dirty.length; y++) {
+                if (term.dirty[y]) { any = true; break; }
+            }
+        }
+        if (!any && term.cy != lastPaintedCursorY) any = true;
+        if (!any) return;
+        damagePaintPending = true;
+        repaint();
+    }
+
+    /** Force a full repaint (expose, focus, resize, debug resize). */
+    public void requestFullRepaint() {
+        fullPaintPending = true;
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
-        long t0 = prof.Prof.on() ? System.nanoTime() : 0;
+        long paintT0 = System.nanoTime();
+        if (LATENCY) {
+            int nd = 0;
+            if (term.dirty != null) for (boolean b : term.dirty) if (b) nd++;
+            java.awt.Rectangle cb = g.getClipBounds();
+            System.err.printf("LAT paint-start t=%d dirtyAll=%s dirty=%d clip=%s%n", paintT0, term.dirtyAll, nd, cb);
+        }
+        long t0 = prof.Prof.on() ? paintT0 : 0;
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int w = getWidth(), h = getHeight();
-        g2.setColor(defBg);
-        g2.fillRect(0, 0, w, h);
 
-        int cols = term.cols, rows = term.rows;
-        char[] text = term.text;
-        int[] fg = term.fg;
-        int[] bg = term.bg;
-        byte[] attr = term.attr;
+        final boolean full = fullPaintPending || !damagePaintPending;
+        fullPaintPending = false;
+        damagePaintPending = false;
 
-        while (rowCache.size() < rows) rowCache.add("");
-        for (int y = 0; y < rows; y++) {
-            int off = y * cols;
-            rowCache.set(y, new String(text, off, cols));
+        final int cols = term.cols, rows = term.rows;
+        final int cellW = cellW(), cellH = cellH();
+        final char[] text = term.text;
+        final int[] fg = term.fg;
+        final int[] bg = term.bg;
+        final byte[] attr = term.attr;
+        final int baselineOffset = (int) Math.round(ascent);
+
+        if (full) {
+            g2.setColor(defBg);
+            g2.fillRect(0, 0, w, h);
+        } else {
+            if (paintRows.length < rows) paintRows = new boolean[rows];
+            java.util.Arrays.fill(paintRows, 0, rows, false);
+            if (term.dirty != null) {
+                for (int y = 0; y < rows && y < term.dirty.length; y++) {
+                    if (term.dirty[y]) paintRows[y] = true;
+                }
+            }
+            if (lastPaintedCursorVisible && lastPaintedCursorY >= 0 && lastPaintedCursorY < rows) {
+                paintRows[lastPaintedCursorY] = true;
+            }
+            if (term.cursorVisible && term.cy >= 0 && term.cy < rows) {
+                paintRows[term.cy] = true;
+            }
         }
 
         for (int y = 0; y < rows; y++) {
-            int yPx = (int) Math.round(y * ch);
-            int rowH = (int) Math.round(ch);
+            if (!full && !paintRows[y]) continue;
+            int yPx = y * cellH;
+            if (!full) {
+                g2.setColor(defBg);
+                g2.fillRect(0, yPx, w, cellH);
+            }
+            int baseline = yPx + baselineOffset;
             int x = 0;
             while (x < cols) {
                 int i = y * cols + x;
@@ -132,7 +193,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                 int rf = (f == Color.DEFAULT) ? 0xD6D6D6 : f;
                 int rb = (b == Color.DEFAULT) ? 0x000000 : b;
                 Font font = fontFor(a);
-                int run = x;
+                int run = x + 1;
                 while (run < cols) {
                     int j = y * cols + run;
                     int jf = fg[j], jb = bg[j], ja = attr[j];
@@ -140,22 +201,20 @@ public final class TermPanel extends JPanel implements KeyListener {
                     if (jf != f || jb != b || ja != a) break;
                     run++;
                 }
-                int xPx = (int) Math.round(x * cw);
-                int runW = (int) Math.round(run * cw) - xPx;
-                if (runW < 1) runW = 1;
+                int xPx = x * cellW;
+                int runW = (run - x) * cellW;
                 if (rb != 0x000000) {
-                    g2.setColor(new java.awt.Color(rb));
-                    g2.fillRect(xPx, yPx, runW, rowH);
+                    g2.setColor(color(rb));
+                    g2.fillRect(xPx, yPx, runW, cellH);
                 }
-                g2.setColor(new java.awt.Color(rf));
+                g2.setColor(color(rf));
                 g2.setFont(font);
-                String s = rowCache.get(y).substring(x, run);
-                g2.drawString(s, xPx, (int) Math.round(yPx + ascent));
+                g2.drawChars(text, y * cols + x, run - x, xPx, baseline);
                 if ((a & Term.UNDERLINE) != 0) {
-                    g2.fillRect(xPx, yPx + rowH - 2, runW, 1);
+                    g2.fillRect(xPx, yPx + cellH - 2, runW, 1);
                 }
                 if ((a & Term.STRIKE) != 0) {
-                    g2.fillRect(xPx, yPx + rowH / 2, runW, 1);
+                    g2.fillRect(xPx, yPx + cellH / 2, runW, 1);
                 }
                 x = run;
             }
@@ -163,24 +222,44 @@ public final class TermPanel extends JPanel implements KeyListener {
 
         if (term.cursorVisible) {
             int cx = term.cx, cy = term.cy;
-            if (cx >= 0 && cx < cols && cy >= 0 && cy < rows) {
-                int xPx = (int) Math.round(cx * cw);
-                int yPx = (int) Math.round(cy * ch);
-                int rowH = (int) Math.round(ch);
-                int cellW = (int) Math.round(cw);
+            boolean rowPainted = full || (cy >= 0 && cy < rows && paintRows[cy]);
+            if (cx >= 0 && cx < cols && rowPainted) {
+                int xPx = cx * cellW;
+                int yPx = cy * cellH;
                 g2.setColor(defFg);
-                g2.fillRect(xPx, yPx, Math.max(1, cellW), rowH);
+                g2.fillRect(xPx, yPx, Math.max(1, cellW), cellH);
                 int i = cy * cols + cx;
-                char c = term.text[i];
+                char c = text[i];
                 if (c != ' ') {
                     g2.setColor(defBg);
-                    g2.drawString(String.valueOf(c), xPx, (int) Math.round(yPx + ascent));
+                    g2.drawChars(text, i, 1, xPx, yPx + baselineOffset);
                 }
             }
         }
 
-        term.clearDamage();
-        if (prof.Prof.on()) prof.Prof.addDraw(System.nanoTime() - t0);
+        if (full) {
+            term.clearDamage();
+        } else {
+            if (term.dirty != null) {
+                for (int y = 0; y < rows && y < term.dirty.length; y++) {
+                    if (paintRows[y]) term.dirty[y] = false;
+                }
+            }
+        }
+        lastPaintedCursorY = term.cy;
+        lastPaintedCursorVisible = term.cursorVisible;
+        long paintEnd = System.nanoTime();
+        if (LATENCY) System.err.printf("LAT paint-end t=%d dur=%.3fms%n", paintEnd, (paintEnd - paintT0) / 1e6);
+        if (prof.Prof.on()) prof.Prof.addDraw(paintEnd - t0);
+    }
+
+    private java.awt.Color color(int rgb) {
+        java.awt.Color c = colorCache.get(rgb);
+        if (c == null) {
+            c = new java.awt.Color(rgb);
+            colorCache.put(rgb, c);
+        }
+        return c;
     }
 
     private Font fontFor(int a) {
@@ -210,6 +289,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     @Override public void keyPressed(KeyEvent e) {
+        if (LATENCY) System.err.printf("LAT key %d t=%d%n", e.getKeyCode(), System.nanoTime());
         String seq = null;
         switch (e.getKeyCode()) {
             case KeyEvent.VK_ENTER: seq = "\r"; break;
@@ -326,6 +406,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void send(byte[] b) {
+        if (LATENCY) System.err.printf("LAT send n=%d t=%d%n", b.length, System.nanoTime());
         if (pty != null) pty.write(b);
     }
 

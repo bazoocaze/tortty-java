@@ -100,12 +100,15 @@ public final class Main {
 
         // reader -> EDT pump
         ptyRef.setConsumer(chunk -> SwingUtilities.invokeLater(() -> {
+            boolean lat = Boolean.getBoolean("tortty.debug.latency");
+            long feedT0 = System.nanoTime();
+            if (lat) System.err.printf("LAT feed-start t=%d len=%d%n", feedT0, chunk.length);
             term.feed(chunk, 0, chunk.length);
+            if (lat) System.err.printf("LAT feed-end t=%d dur=%.3fms%n", System.nanoTime(), (System.nanoTime() - feedT0) / 1e6);
             byte[] replies = term.takeChildOut();
             if (replies.length > 0) ptyRef.write(replies);
-            panel.repaint();
+            panel.repaintDamage();
         }));
-        ptyRef.setWake(() -> SwingUtilities.invokeLater(() -> panel.repaint()));
         ptyRef.start();
 
         final boolean[] debugResizing = {false};
@@ -125,6 +128,10 @@ public final class Main {
                     if (ptyRef != null) ptyRef.resize(c, r);
                     panel.revalidate();
                 }
+                panel.requestFullRepaint();
+            }
+            @Override public void componentShown(ComponentEvent e) {
+                panel.requestFullRepaint();
             }
         });
 
@@ -147,7 +154,7 @@ public final class Main {
                         term.resize(cols, rows);
                         if (ptyRef != null) ptyRef.resize(cols, rows);
                         panel.revalidate();
-                        panel.repaint();
+                        panel.requestFullRepaint();
                         frame.pack();
                     } finally {
                         debugResizing[0] = false;
@@ -181,6 +188,20 @@ public final class Main {
             });
             server.start();
         }
+
+        panel.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent e) {
+                panel.requestFullRepaint();
+            }
+        });
+        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowActivated(java.awt.event.WindowEvent e) {
+                panel.requestFullRepaint();
+            }
+            @Override public void windowDeiconified(java.awt.event.WindowEvent e) {
+                panel.requestFullRepaint();
+            }
+        });
 
         panel.requestFocusInWindow();
 
