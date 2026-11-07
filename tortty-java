@@ -1,0 +1,4 @@
+#!/bin/sh
+# tortty-java launcher — exec so the PID benchrun follows is the JVM
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec java -Xms1024m -Xmx1024m -jar "$HERE/target/tortty-java.jar" "$@"

@@ -1,0 +1,22 @@
+# Build output
+target/
+dependency-reduced-pom.xml
+*.class
+
+# Logs and runtime files
+*.log
+*.pid
+hs_err_pid*
+replay_pid*
+
+# Editors / IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
