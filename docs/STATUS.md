@@ -1,4 +1,4 @@
-# STATUS — TorTTY-Java (continuação, 2026-11-07)
+# STATUS — TorTTY-Java (2026-11-07)
 
 ## O que está feito
 
@@ -6,6 +6,9 @@
 Árvore antiga `tortty/` removida (backup em /tmp/opencode/backup).
 
 - Build: `mvn package` PASSA (shade jar em target/tortty-java.jar).
+- Git: repositório inicializado (`main`, commit inicial `92dde3e`); `target/` e
+  `dependency-reduced-pom.xml` ignorados.
+- Fonte padrão: **17 pt** (mesma faixa visual do Rust; célula 14x26).
 - Marco 1 (shell interativo): teclado OK (validado com xdotool no Xvfb :99);
   Tab corrigido com `setFocusTraversalKeysEnabled(false)` (shell + mc).
 - Marco 2 (vim): utilizável (abrir/editar/salvar validado via debug socket).
@@ -23,10 +26,12 @@
 
 ## Arquivos-chave
 
+- `README.md` — como rodar e ponteiros.
 - `src/main/java/debug/DebugServer.java` — socket Unix (JDK 21), 0600.
 - `src/main/java/Main.java` — wiring + handler do socket.
-- `src/main/java/ui/TermPanel.java` — paint em todas as linhas + mouse.
-- `BENCHMARKS.md` — tabela final.
+- `src/main/java/ui/TermPanel.java` — paint em todas as linhas + mouse + teclado.
+- `BENCHMARKS.md` — medições.
+- `docs/EXPERIMENT.md` — plano/histórico congelado do início do experimento.
 
 ## Pendências / riscos
 

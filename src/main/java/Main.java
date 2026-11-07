@@ -20,7 +20,7 @@ public final class Main {
         String debugSocket;
         boolean noVsync;
         boolean prof;
-        float fontSize = 13f;
+        float fontSize = 17f;
         float dpi = -1;
         String family = "DejaVu Sans Mono";
         String cmd;

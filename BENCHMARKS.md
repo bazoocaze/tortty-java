@@ -10,7 +10,7 @@ repo, unchanged). All numbers below have date, condition and governor.
   environment — see note below)
 - Session: Xvfb `:99`, 1280x800x24, no compositor
 - JVM: Temurin 21, heap fixed `-Xms256m -Xmx256m`
-- Font: DejaVu Sans Mono **17 pt** (same visual size as Rust) → cell 14x26 px (Java) / 13.65x26.39 (Rust)
+- Font: DejaVu Sans Mono **17 pt** (default; same visual size as Rust) → cell 14x26 px (Java) / 13.65x26.39 (Rust)
 - Date: 2026-11-07
 - Protocol: 1200 frames, `--no-vsync`, median of 3 shots after discarding the
   first (JIT warmup), one terminal at a time.
