@@ -16,12 +16,17 @@
 - Marco 4 (debug socket + prof + benchrun): implementado; `benchrun.py` completa
   nas duas grades. Draw por dano (só linhas sujas + cursor) reduz o lag do mc.
 - Marco 5 (coleta): mediana de 3 shots (1º descartado) em BENCHMARKS.md.
-  Governador atual: powersave (não foi possível mudar para schedutil).
+  Governador atual: schedutil.
+- Lag visual no X11 real: XRender do Java2D levava ~278 ms/paint (~1,5 fps).
+  Launcher agora usa `-Dsun.java2d.xrender=false`; paint caiu para ~4 ms
+  (~87 paint/s visíveis em 80x24).
 
 ## Números (schedutil, Xvfb :99, fonte 17)
 
-- 61x18: Java 708.2 fps / 30.4 MB/s; Rust (mesma condição) 939.7 fps.
-- 70x21: Java 584.3 fps / 33.3 MB/s; Rust (mesma condição) 702.0 fps.
+- 61x18: Java 710.2 fps gerador / 30.5 MB/s / 104 paint/s visíveis;
+  Rust 905.3 fps gerador / 50 paint/s.
+- 70x21: Java 510.2 fps gerador / 29.1 MB/s / 76 paint/s visíveis;
+  Rust 714.3 fps gerador / 51 paint/s.
 - Célula Java 14x26 (Rust 13.65x26.39), escolhida para casar com o tamanho visual.
 
 ## Arquivos-chave

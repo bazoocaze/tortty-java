@@ -1,4 +1,5 @@
 #!/bin/sh
 # tortty-java launcher — exec so the PID benchrun follows is the JVM
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec java -Xms1024m -Xmx1024m -jar "$HERE/target/tortty-java.jar" "$@"
+# XRender no X11 real fica ordens de grandeza mais lento no Java2D deste ambiente.
+exec java -Xms1024m -Xmx1024m -Dsun.java2d.xrender=false -jar "$HERE/target/tortty-java.jar" "$@"

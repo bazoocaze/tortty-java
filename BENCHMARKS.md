@@ -8,7 +8,8 @@ repo, unchanged). All numbers below have date, condition and governor.
 - CPU: Ryzen 7 4800H, 16 threads
 - Governor: **`schedutil`**
 - Session: Xvfb `:99`, 1280x800x24, no compositor
-- JVM: Temurin 21, heap fixed `-Xms1024m -Xmx1024m`
+- JVM: Temurin 21, heap fixed `-Xms1024m -Xmx1024m`, launcher uses
+  `-Dsun.java2d.xrender=false`
 - Font: DejaVu Sans Mono **17 pt** (default; same visual size as Rust) → cell 14x26 px (Java) / 13.65x26.39 (Rust)
 - Date: 2026-11-07
 - Protocol: 1200 frames, `--no-vsync`, median of 3 shots after discarding the
@@ -20,15 +21,20 @@ was re-measured under the same Xvfb condition for an apples-to-apples table.
 
 ## Local comparison (same condition: schedutil, Xvfb :99)
 
-| grid | terminal | fps | MB/s | draw ms/call | parse ms/call | pty ms/call | cell px |
-|---|---|---|---|---|---|---|---|
-| 61x18 | **Java** | **708.2** | **30.4** | 7.73 | 0.121 | 0.249 | 14x26 |
-| 61x18 | Rust (local) | 939.7 | 40.4 | 3.76 | 0.151 | 0.238 | 13.65x26.39 |
-| 70x21 | **Java** | **584.3** | **33.3** | 10.66 | 0.139 | 0.241 | 14x26 |
-| 70x21 | Rust (local) | 702.0 | 39.4 | 4.03 | 0.152 | 0.244 | 13.65x26.39 |
+| grid | terminal | generator fps | MB/s | draw ms/call | paint/s | parse ms/call | pty ms/call | cell px |
+|---|---|---|---|---|---|---|---|---|
+| 61x18 | **Java** | **710.2** | **30.5** | 2.89 | 104.2 | 0.126 | 0.237 | 14x26 |
+| 61x18 | Rust (local) | 905.3 | 38.9 | 3.69 | 50.0 | 0.134 | 0.205 | 13.65x26.39 |
+| 70x21 | **Java** | **510.2** | **29.1** | 3.46 | 76.4 | 0.135 | 0.245 | 14x26 |
+| 70x21 | Rust (local) | 714.3 | 40.1 | 4.20 | 50.6 | 0.182 | 0.260 | 13.65x26.39 |
 
-Under the same condition Java reaches ~75% of Rust's fps at 61x18 and ~83% at
-70x21; the `draw` cost per call is ~2.1x Rust's at 61x18 and ~2.6x at 70x21.
+`generator fps` is the doom-fire write throughput reported by the harness; it
+is **not** the number of frames the window painted. `paint/s` is
+`draw_calls / elapsed`, i.e. the visible paint rate (Swing coalesces repaints).
+
+Under the same condition Java reaches ~78% of Rust's generator fps at 61x18 and
+~71% at 70x21; Java's `draw` per call is actually lower than Rust's, but it does
+more draw calls. The visible paint rate is ~104/s and ~76/s.
 
 ## Published reference (schedutil, X11 :0, from tortty/docs/BENCHMARKS.md)
 
@@ -43,6 +49,21 @@ Gain of Rust over Python/GTK: 7–9x (61x18) and 9–11x (70x21) in fps/MB/s.
 
 The local table is already under `schedutil`; the remaining difference from the
 published Rust figures is mostly the Xvfb/session condition.
+
+## fps do harness vs fps visível
+
+O `fps` que o `benchrun`/`doomfire` imprime é a taxa com que o **gerador**
+consegue escrever no pty — não quantas vezes a janela pintou. Medição no X11
+real (`:0`, 80x24, fonte 17, 10 s, `--fps 0`):
+
+| condição | gerador | paint/call | paint/s |
+|---|---|---|---|
+| Java2D com XRender (padrão antigo) | 437 fps | 278 ms | **~1,5/s** |
+| Java2D com `-Dsun.java2d.xrender=false` | 453 fps | 3,9 ms | **~87/s** |
+
+Era essa a "câmera lenta": o XRender do X11 real tornava cada `paintComponent`
+~278 ms, embora o gerador escrevesse a centenas de fps. O launcher agora desliga
+o XRender por padrão.
 
 ## Notes
 
