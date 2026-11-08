@@ -7,13 +7,46 @@ import java.nio.charset.StandardCharsets;
 /**
  * Keyboard encoding for the child. AWT gives the event; this class owns the
  * xterm shape: DECCKM arrows, modifiers in the xterm parameter, F13-F24 as
- * F1-F12 with Shift, and the numeric keypad.
+ * F1-F12 with Shift, and the numeric keypad. On top of that, the kitty keyboard
+ * protocol: when the child turns flags on with {@code CSI > u}, keys leave as
+ * {@code CSI code ; mods[:event] [;text] u}, as in tortty's {@code keys.rs}.
  */
 public final class Keys {
+
+    // kitty keyboard protocol flags (CSI > u)
+    public static final int F_DISAMBIGUATE = 1;
+    public static final int F_EVENT_TYPES = 2;
+    public static final int F_ALT_KEYS = 4;
+    public static final int F_ALL_KEYS = 8;
+    public static final int F_TEXT = 16;
+
+    // event types of flag 2
+    public static final int EV_PRESS = 1;
+    public static final int EV_REPEAT = 2;
+    public static final int EV_RELEASE = 3;
 
     private Keys() {}
 
     public static byte[] encode(int keyCode, char keyChar, int modifiers, boolean appCursor) {
+        return encodeEvent(keyCode, keyChar, modifiers, appCursor, 0, EV_PRESS);
+    }
+
+    /**
+     * One key event. {@code kbdFlags} is {@code Term.kbdFlags}; {@code event} is
+     * press, repeat or release. A release only leaves when the child asked for
+     * event types — the legacy path never reports the key going up.
+     */
+    public static byte[] encodeEvent(int keyCode, char keyChar, int modifiers, boolean appCursor,
+                                     int kbdFlags, int event) {
+        if (kbdFlags != 0) {
+            byte[] kitty = kittyEncode(keyCode, keyChar, modifiers, kbdFlags, event);
+            if (kitty != null) return kitty;
+        }
+        if (event == EV_RELEASE) return null;
+        return legacy(keyCode, keyChar, modifiers, appCursor);
+    }
+
+    private static byte[] legacy(int keyCode, char keyChar, int modifiers, boolean appCursor) {
         boolean shift = (modifiers & InputEvent.SHIFT_DOWN_MASK) != 0;
         boolean alt = (modifiers & InputEvent.ALT_DOWN_MASK) != 0;
         boolean ctrl = (modifiers & InputEvent.CTRL_DOWN_MASK) != 0;
@@ -170,5 +203,178 @@ public final class Keys {
 
     private static int modParam(boolean ctrl, boolean alt, boolean shift) {
         return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+    }
+
+    // ------------------------------------------------- kitty keyboard protocol
+
+    /**
+     * A named key in the kitty shape: number and trailer. The trailer is what
+     * changes between {@code CSI 27;5u} (Escape with Ctrl) and {@code CSI 1;5A}
+     * (up arrow with Ctrl); F3 is {@code 1 R}, not xterm's {@code 13 ~}.
+     */
+    private static String[] kittyFunctional(int keyCode) {
+        return switch (keyCode) {
+            case KeyEvent.VK_ESCAPE -> new String[] {"27", "u"};
+            case KeyEvent.VK_ENTER -> new String[] {"13", "u"};
+            case KeyEvent.VK_TAB -> new String[] {"9", "u"};
+            case KeyEvent.VK_BACK_SPACE -> new String[] {"127", "u"};
+            case KeyEvent.VK_SPACE -> new String[] {"32", "u"};
+            case KeyEvent.VK_INSERT -> new String[] {"2", "~"};
+            case KeyEvent.VK_DELETE -> new String[] {"3", "~"};
+            case KeyEvent.VK_LEFT, KeyEvent.VK_KP_LEFT -> new String[] {"1", "D"};
+            case KeyEvent.VK_RIGHT, KeyEvent.VK_KP_RIGHT -> new String[] {"1", "C"};
+            case KeyEvent.VK_UP, KeyEvent.VK_KP_UP -> new String[] {"1", "A"};
+            case KeyEvent.VK_DOWN, KeyEvent.VK_KP_DOWN -> new String[] {"1", "B"};
+            case KeyEvent.VK_PAGE_UP -> new String[] {"5", "~"};
+            case KeyEvent.VK_PAGE_DOWN -> new String[] {"6", "~"};
+            case KeyEvent.VK_HOME -> new String[] {"1", "H"};
+            case KeyEvent.VK_END -> new String[] {"1", "F"};
+            case KeyEvent.VK_F1 -> new String[] {"1", "P"};
+            case KeyEvent.VK_F2 -> new String[] {"1", "Q"};
+            case KeyEvent.VK_F3 -> new String[] {"1", "R"};
+            case KeyEvent.VK_F4 -> new String[] {"1", "S"};
+            case KeyEvent.VK_F5 -> new String[] {"15", "~"};
+            case KeyEvent.VK_F6 -> new String[] {"17", "~"};
+            case KeyEvent.VK_F7 -> new String[] {"18", "~"};
+            case KeyEvent.VK_F8 -> new String[] {"19", "~"};
+            case KeyEvent.VK_F9 -> new String[] {"20", "~"};
+            case KeyEvent.VK_F10 -> new String[] {"21", "~"};
+            case KeyEvent.VK_F11 -> new String[] {"23", "~"};
+            case KeyEvent.VK_F12 -> new String[] {"24", "~"};
+            // F13..F24 have no legacy form: the kitty table gives them their own
+            // numbers, which is why they only travel as `CSI <number> u`.
+            case KeyEvent.VK_F13 -> new String[] {"57376", "u"};
+            case KeyEvent.VK_F14 -> new String[] {"57377", "u"};
+            case KeyEvent.VK_F15 -> new String[] {"57378", "u"};
+            case KeyEvent.VK_F16 -> new String[] {"57379", "u"};
+            case KeyEvent.VK_F17 -> new String[] {"57380", "u"};
+            case KeyEvent.VK_F18 -> new String[] {"57381", "u"};
+            case KeyEvent.VK_F19 -> new String[] {"57382", "u"};
+            case KeyEvent.VK_F20 -> new String[] {"57383", "u"};
+            case KeyEvent.VK_F21 -> new String[] {"57384", "u"};
+            case KeyEvent.VK_F22 -> new String[] {"57385", "u"};
+            case KeyEvent.VK_F23 -> new String[] {"57386", "u"};
+            case KeyEvent.VK_F24 -> new String[] {"57387", "u"};
+            default -> null;
+        };
+    }
+
+    /** The kitty sequence for this event, or null to fall back to the legacy path. */
+    private static byte[] kittyEncode(int keyCode, char keyChar, int modifiers, int flags, int event) {
+        boolean shift = (modifiers & InputEvent.SHIFT_DOWN_MASK) != 0;
+        boolean alt = (modifiers & InputEvent.ALT_DOWN_MASK) != 0;
+        boolean ctrl = (modifiers & InputEvent.CTRL_DOWN_MASK) != 0;
+        boolean meta = (modifiers & InputEvent.META_DOWN_MASK) != 0;
+        boolean dis = (flags & F_DISAMBIGUATE) != 0;
+        boolean evTypes = (flags & F_EVENT_TYPES) != 0;
+        boolean allKeys = (flags & F_ALL_KEYS) != 0;
+
+        // without flag 2 there is no release: the legacy path only knows the press
+        if (event == EV_RELEASE && !evTypes) return null;
+
+        int m = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0) + (meta ? 8 : 0);
+        String text = (flags & F_TEXT) != 0 ? printable(keyChar) : "";
+        Integer ev = evTypes && event != EV_PRESS ? Integer.valueOf(event) : null;
+
+        String[] fn = kittyFunctional(keyCode);
+        if (fn != null) {
+            boolean special = keyCode == KeyEvent.VK_ESCAPE || keyCode == KeyEvent.VK_ENTER
+                    || keyCode == KeyEvent.VK_TAB || keyCode == KeyEvent.VK_BACK_SPACE;
+            // with only flag 2 (events) Ctrl+Space has to stay NUL: that is what
+            // readline and vim expect
+            if (keyCode == KeyEvent.VK_SPACE && !(dis || allKeys)) return null;
+            // without a modifier the legacy path is already right (and respects
+            // DECCKM); with flag 8 every key becomes CSI u
+            if (!special && m == 1 && !allKeys) return null;
+            if (special && m == 1 && !(dis || allKeys)) return null; // classic ESC, CR, TAB, DEL
+            return kittyCsi(fn[0], m, fn[1].charAt(0), ev, text);
+        }
+
+        int cp = character(keyCode, keyChar);
+        if (cp < 0) return null; // modifier, dead key
+        // Ctrl+Shift+a reports the base key, not the uppercase character
+        if (ctrl && cp >= 'A' && cp <= 'Z') cp += 32;
+        if (m == 2 && !allKeys) return null; // Shift+letter is still text
+        if (m == 1 && !allKeys) return null; // plain text
+        if (!(dis || allKeys)) return null;  // modifier without disambiguate: classic xterm
+        // Flag 4 (`97:65:97`): the base key, then the shifted one, then the
+        // base-layout one. Only the ASCII letters carry a known pair here: the
+        // digit row would need the layout, as tortty's keys.rs records.
+        String field = Integer.toString(cp);
+        boolean letter = cp >= 'A' && cp <= 'Z';
+        if ((flags & F_ALT_KEYS) != 0 && shift && letter) {
+            int base = cp + 32;
+            field = base + ":" + cp + ":" + base;
+        }
+        return kittyCsi(field, m, 'u', ev, text);
+    }
+
+    /** Did this event leave as a kitty sequence? (the text must not be sent twice) */
+    public static boolean kitty(int keyCode, char keyChar, int modifiers, int kbdFlags, int event) {
+        return kbdFlags != 0 && kittyEncode(keyCode, keyChar, modifiers, kbdFlags, event) != null;
+    }
+
+    /**
+     * The character the key stands for, as winit's logical key gives it: with
+     * Ctrl the AWT event carries the control byte, so the base key comes from
+     * the key code.
+     */
+    private static int character(int keyCode, char keyChar) {
+        if (keyChar != KeyEvent.CHAR_UNDEFINED && keyChar >= 0x20 && keyChar != 0x7f) {
+            return keyChar;
+        }
+        return baseChar(keyCode);
+    }
+
+    private static int baseChar(int keyCode) {
+        if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_Z) return 'a' + (keyCode - KeyEvent.VK_A);
+        if (keyCode >= KeyEvent.VK_0 && keyCode <= KeyEvent.VK_9) return '0' + (keyCode - KeyEvent.VK_0);
+        return switch (keyCode) {
+            case KeyEvent.VK_SPACE -> ' ';
+            case KeyEvent.VK_MINUS -> '-';
+            case KeyEvent.VK_EQUALS -> '=';
+            case KeyEvent.VK_OPEN_BRACKET -> '[';
+            case KeyEvent.VK_CLOSE_BRACKET -> ']';
+            case KeyEvent.VK_BACK_SLASH -> '\\';
+            case KeyEvent.VK_SEMICOLON -> ';';
+            case KeyEvent.VK_QUOTE -> '\'';
+            case KeyEvent.VK_COMMA -> ',';
+            case KeyEvent.VK_PERIOD -> '.';
+            case KeyEvent.VK_SLASH -> '/';
+            case KeyEvent.VK_BACK_QUOTE -> '`';
+            default -> -1;
+        };
+    }
+
+    /** {@code CSI key ; mods[:event] [;text] trailer}, with no field the child does not need. */
+    private static byte[] kittyCsi(String field, int m, char trailer, Integer event, String text) {
+        StringBuilder out = new StringBuilder("\u001b[");
+        boolean hasText = !text.isEmpty();
+        if (!field.equals("1") || m != 1 || event != null || hasText) out.append(field);
+        if (m != 1 || event != null) {
+            out.append(';');
+            if (m == 1) out.append('1'); // without a modifier the field still exists
+            else out.append(m);
+        }
+        if (event != null) out.append(':').append(event.intValue());
+        if (hasText) {
+            out.append(';');
+            boolean first = true;
+            for (int i = 0; i < text.length(); ) {
+                int c = text.codePointAt(i);
+                i += Character.charCount(c);
+                if (!first) out.append(':');
+                out.append(c);
+                first = false;
+            }
+        }
+        out.append(trailer);
+        return out.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String printable(char keyChar) {
+        if (keyChar == KeyEvent.CHAR_UNDEFINED) return "";
+        if (keyChar < 0x20 || keyChar == 0x7f) return "";
+        return String.valueOf(keyChar);
     }
 }

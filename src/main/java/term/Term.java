@@ -35,6 +35,8 @@ public final class Term {
     public String title = "";
     public boolean titleExplicit;
     public String cwd = "";
+    /** Working directory of the child, kept by the app from /proc (no OSC 7). */
+    public String shellCwd = "";
 
     /** Palette in effect; OSC 4/10/11/12 query and change it. */
     private Theme theme = Theme.defaults();
@@ -138,7 +140,8 @@ public final class Term {
     private boolean useG1 = false;
 
     // parser
-    private static final int GROUND = 0, ESC = 1, CSI = 2, OSC = 3, ESC_ONE = 4, OSC_ST = 5;
+    private static final int GROUND = 0, ESC = 1, CSI = 2, OSC = 3, ESC_ONE = 4, OSC_ST = 5, APC = 6,
+            APC_ST = 7, SKIP = 8, SKIP_ST = 9;
     private int state = GROUND;
     private int charsetTarget = 0;
     private final byte[] csiBuf = new byte[256];
@@ -155,6 +158,21 @@ public final class Term {
     private byte svUl;
     private int svUlColor = DEFAULT;
     private boolean svWrap;
+
+    // kitty keyboard protocol: flags in effect and the push/pop stack (CSI > u).
+    public int kbdFlags;
+    private final int[] kbdStack = new int[64];
+    private int kbdDepth;
+
+    // kitty graphics protocol (APC `ESC _ G … ST`)
+    public final KittyImages images = new KittyImages();
+    private final StringBuilder apcBuf = new StringBuilder();
+    private int cellW = 8, cellH = 16;
+
+    public void setCellSize(int w, int h) {
+        if (w > 0) cellW = w;
+        if (h > 0) cellH = h;
+    }
 
     public Term(int cols, int rows) {
         this.cols = cols; this.rows = rows;
@@ -184,11 +202,13 @@ public final class Term {
         cursorVisible = true; cursorShape = defaultCursorShape; cursorBlink = defaultCursorBlink;
         mouseMode = 0; mouseSgr = false; mouseUtf8 = false; mousePixels = false;
         bracketed = false; sync = false; focusEvents = false;
+        kbdFlags = 0; kbdDepth = 0;
         top = 0; bot = rows - 1;
         mainCp = null; mainCluster = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
         mainUl = null; mainUlColor = null;
         mainWrapped = null;
         links.clear(); linkIndex.clear(); penLink = 0;
+        images.clear();
         viewOff = 0; layoutGen++;
         cx = 0; cy = 0; wrapPending = false;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
@@ -248,6 +268,7 @@ public final class Term {
         }
         hist.clear();
         hist.addAll(nh);
+        images.dropAbove(-hist.size());
         viewOff = Math.min(viewOff, hist.size());
         layoutGen++;
         top = 0; bot = nr - 1;
@@ -426,6 +447,7 @@ public final class Term {
         hist.clear();
         hist.addAll(newHist);
         totalLines = hist.size();
+        images.dropAbove(-hist.size());
         viewOff = 0;
         cy = Math.max(0, Math.min(nr - 1, newCurRow - liveStart));
         cx = Math.max(0, Math.min(nc - 1, newCurCol));
@@ -607,6 +629,15 @@ public final class Term {
                     if (b == '\\') oscEnd();
                     else state = GROUND;
                 }
+                case APC -> apcByte(b);
+                case APC_ST -> {
+                    if (b == '\\') apcEnd();
+                    else { state = APC; apcByte(b); }
+                }
+                case SKIP -> {
+                    if (b == 0x1b) state = SKIP_ST;
+                }
+                case SKIP_ST -> state = (b == '\\') ? GROUND : SKIP;
                 case ESC_ONE -> {
                     // charset designators & friends: swallow one byte
                     if (charsetTarget == 0) {
@@ -749,6 +780,12 @@ public final class Term {
         dirty[py] = true;
     }
 
+    /** Down one line without returning the column (IND, and the image advance). */
+    private void index() {
+        if (cy == bot) scrollUp(1);
+        else if (cy < rows - 1) cy++;
+    }
+
     private void lineFeed() {
         wrapPending = false;
         if (cy == bot) scrollUp(1);
@@ -759,6 +796,10 @@ public final class Term {
     private void scrollUp(int n) {
         if (n <= 0) return;
         if (n > (bot - top + 1)) n = bot - top + 1;
+        // The images move up with the text; a full-screen scroll sends them into
+        // the scrollback, a region scroll has none and drops them.
+        Integer floor = top == 0 ? -(histCap + 1) : null;
+        for (int r = 0; r < n; r++) images.scroll(top, bot, floor);
         if (!alt && top == 0) {
             for (int r = 0; r < n; r++) {
                 int off = (top + r) * cols;
@@ -774,7 +815,11 @@ public final class Term {
                 System.arraycopy(ul, off, u, 0, cols);
                 System.arraycopy(ulColor, off, uc, 0, cols);
                 System.arraycopy(link, off, l, 0, cols);
-                if (hist.size() >= histCap && !hist.isEmpty()) hist.pollFirst();
+                if (hist.size() >= histCap && !hist.isEmpty()) {
+                    hist.pollFirst();
+                    // what was pinned to the row that just left dies with it
+                    images.dropAbove(-hist.size());
+                }
                 if (histCap > 0) hist.addLast(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[top + r]));
                 totalLines++;
             }
@@ -854,7 +899,8 @@ public final class Term {
             case 'c' -> { reset(); state = GROUND; }
             case 'n', 'o' -> state = GROUND; // SS2/SS3
             case 'H' -> state = GROUND; // HTS ignored
-            case 'P', 'X', '^', '_' -> state = OSC; // DCS/APC/PM consume until ST
+            case 'P', 'X', '^' -> state = SKIP; // DCS/PM/SOS consume until ST
+            case '_' -> { state = APC; apcBuf.setLength(0); } // APC: kitty graphics
             case '\\' -> state = GROUND; // ST
             default -> state = GROUND;
         }
@@ -862,6 +908,28 @@ public final class Term {
 
 
     private final StringBuilder oscBuf = new StringBuilder();
+
+    private void apcByte(int b) {
+        if (b == 0x1b) { state = APC_ST; return; }
+        if (b == 7) { apcEnd(); return; } // BEL ends an APC too
+        if (apcBuf.length() < KittyImages.MAX_APC) apcBuf.append((char) b);
+    }
+
+    /** A complete APC arrived: kitty images go through here. */
+    private void apcEnd() {
+        String body = apcBuf.toString();
+        apcBuf.setLength(0);
+        state = GROUND;
+        KittyImages.Result r = images.handle(body, cx, cy, cellW, cellH);
+        for (String resp : r.responses) {
+            try {
+                childOut.write(("\u001b_" + resp + "\u001b\\").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) { }
+        }
+        // without `C=1` the cursor goes down the rows the image took
+        if (r.moveCursor) for (int i = 0; i < r.lines; i++) index();
+        if (r.changed) dirtyAll = true;
+    }
 
     private void oscByte(int b) {
         if (b == 7) { oscEnd(); return; }
@@ -1063,6 +1131,12 @@ public final class Term {
             String n = new java.io.File(cwd).getName();
             if (!n.isEmpty()) return n;
         }
+        // A shell that does not write OSC 7: the app keeps the cwd here from
+        // /proc, as the Rust version does.
+        if (shellCwd != null && !shellCwd.isEmpty()) {
+            String n = new java.io.File(shellCwd).getName();
+            if (!n.isEmpty()) return n;
+        }
         return "tortty-java";
     }
 
@@ -1129,8 +1203,10 @@ public final class Term {
         int npar = 0;
         int i = 0;
         boolean priv = false;
+        char prefix = 0;
         if (csiLen > 0 && (csiBuf[0] == '?' || csiBuf[0] == '>' || csiBuf[0] == '<' || csiBuf[0] == '=' || csiBuf[0] == '!')) {
             i = 1;
+            prefix = (char) csiBuf[0];
             if (csiBuf[0] == '?') priv = true;
         }
         StringBuilder tok = new StringBuilder();
@@ -1199,8 +1275,40 @@ public final class Term {
                     if (cy >= 0 && cy < rows) dirty[cy] = true;
                 }
             }
-            case 's' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
-            case 'u' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
+            case 's' -> {
+                if (prefix == 0) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
+            }
+            // `u` has two owners: SCORC (no prefix) and the kitty keyboard
+            // protocol — `?` queries, `>` pushes, `<` pops, `=` adjusts with
+            // mode 1=replace, 2=add (OR), 3=remove (AND NOT).
+            case 'u' -> {
+                switch (prefix) {
+                    case '?' -> {
+                        String r = String.format(java.util.Locale.ROOT, "\u001b[?%du", kbdFlags);
+                        try { childOut.write(r.getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
+                    }
+                    case '>' -> {
+                        if (kbdDepth < kbdStack.length) kbdStack[kbdDepth++] = kbdFlags;
+                        kbdFlags = p0 >= 0 ? p0 : 0;
+                    }
+                    case '<' -> {
+                        int n = Math.max(1, p0 >= 0 ? p0 : 1);
+                        for (int k = 0; k < n; k++) kbdFlags = kbdDepth > 0 ? kbdStack[--kbdDepth] : 0;
+                    }
+                    case '=' -> {
+                        int flags = p0 >= 0 ? p0 : 0;
+                        int mode = p1 >= 0 ? p1 : 1;
+                        if (mode == 2) kbdFlags |= flags;
+                        else if (mode == 3) kbdFlags &= ~flags;
+                        else kbdFlags = flags;
+                    }
+                    default -> {
+                        cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY);
+                        penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl;
+                        penUlColor = svUlColor; wrapPending = svWrap;
+                    }
+                }
+            }
             case 'h', 'l' -> {
                 boolean on = (fin == 'h');
                 if (priv) {
@@ -1419,6 +1527,7 @@ public final class Term {
                 totalLines = 0;
                 viewOff = 0;
                 layoutGen++;
+                images.clear();
             }
             return;
         }

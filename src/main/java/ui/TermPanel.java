@@ -4,6 +4,7 @@ import term.Term;
 import term.Color;
 import term.Theme;
 import term.WcWidth;
+import term.KittyImages;
 import prof.Prof;
 import pty.ChildPty;
 
@@ -32,6 +33,10 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private ChildPty pty;
     private int pressedButton = -1;
+    // keys held down, so AWT's repeated keyPressed becomes EV_REPEAT under flag 2
+    private final java.util.HashSet<Integer> downKeys = new java.util.HashSet<>();
+    private char kittyTypedChar; // text already sent as `CSI u`, dropped from keyTyped
+    private long kittyTypedNanos;
     private double wheelFrac, scrollFrac;
     private long lastWheelNanos;
     private int lastWheelDir;
@@ -46,8 +51,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     private java.util.function.BiConsumer<Integer, Integer> onGridChange;
 
     private final java.util.HashMap<Integer, java.awt.Color> colorCache = new java.util.HashMap<>();
-    private int lastPaintedCursorX = -1;
-    private int lastPaintedCursorY = -1;
+    private int lastPaintedCursorX = -1;    private int lastPaintedCursorY = -1;
     private boolean lastPaintedCursorVisible = false;
     private boolean blinkOn = true;
     private boolean damagePaintPending;
@@ -56,6 +60,10 @@ public final class TermPanel extends JPanel implements KeyListener {
     private char[] runBuf = new char[0];
     private Font[] fallbackFonts = new Font[0];
     private final java.util.HashMap<Long, Font> glyphFontCache = new java.util.HashMap<>();
+
+    // kitty images: decoded once per (id, version) and dropped when it changes.
+    private final java.util.HashMap<Integer, java.awt.image.BufferedImage> imageCache = new java.util.HashMap<>();
+    private final java.util.HashMap<Integer, Long> imageVersion = new java.util.HashMap<>();
 
     private String toastText;
     private long toastUntil;
@@ -78,6 +86,11 @@ public final class TermPanel extends JPanel implements KeyListener {
         // nunca recebe 0x09 (completion do shell, troca de painel do mc).
         setFocusTraversalKeysEnabled(false);
         addKeyListener(this);
+        addFocusListener(new java.awt.event.FocusAdapter() {
+            // A key that goes down and never comes up (focus went away) must not
+            // turn the next press into a repeat under kitty flag 2.
+            @Override public void focusLost(java.awt.event.FocusEvent e) { downKeys.clear(); }
+        });
         addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }
             @Override public void mousePressed(MouseEvent e) {
@@ -119,6 +132,13 @@ public final class TermPanel extends JPanel implements KeyListener {
                     requestFullRepaint();
                     return;
                 }
+                // Button 2 pastes PRIMARY, as xterm does, unless the child tracks
+                // the mouse and Shift is not asking for the local behaviour.
+                if (e.getButton() == MouseEvent.BUTTON2
+                        && (term.mouseMode == 0 || e.isShiftDown())) {
+                    pastePrimary();
+                    return;
+                }
                 sendMouse(e, true);
             }
             @Override public void mouseReleased(MouseEvent e) {
@@ -129,7 +149,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                 if (selecting) {
                     selecting = false;
                     if (!hasSelection()) clearSelection();
-                    else if (copyOnSelect) copySelection();
+                    else copyOnSelection();
                     requestFullRepaint();
                     return;
                 }
@@ -192,6 +212,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (ch < 1) ch = 1;
         ascent = lm.getAscent();
         initFallbacks(fontPx, avail);
+        term.setCellSize(cellW(), cellH());
         setPreferredSize(new Dimension(term.cols * Math.max(1, (int) Math.round(cw)) + 2 * padding,
                                       term.rows * Math.max(1, (int) Math.round(ch)) + 2 * padding));
     }
@@ -488,6 +509,8 @@ public final class TermPanel extends JPanel implements KeyListener {
             }
         }
 
+        paintImages(g2, padding, cols, rows, cellW, cellH);
+
         boolean cursorOn = term.cursorVisible && term.viewOff() == 0
                 && (!term.cursorBlink || blinkOn);
         if (cursorOn) {
@@ -679,6 +702,11 @@ public final class TermPanel extends JPanel implements KeyListener {
     @Override public void keyTyped(KeyEvent e) {
         char c = e.getKeyChar();
         if (c == KeyEvent.CHAR_UNDEFINED) return;
+        // The key already left as a kitty `CSI ... u` with its text (flag 8/16).
+        if (c == kittyTypedChar && System.nanoTime() - kittyTypedNanos < 20_000_000L) {
+            kittyTypedChar = 0;
+            return;
+        }
         if (e.isControlDown() || e.isMetaDown()) return;
         if (c < 0x20 || c == 0x7f) return;
         term.scrollToBottom();
@@ -740,9 +768,21 @@ public final class TermPanel extends JPanel implements KeyListener {
                 default -> { }
             }
         }
-        byte[] bytes = input.Keys.encode(e.getKeyCode(), e.getKeyChar(),
-                e.getModifiersEx(), term.decckm);
+        int keyCode = e.getKeyCode();
+        // AWT repeats keyPressed while the key is held and never says so; the
+        // set of held keys is what tells a repeat from the first press.
+        int event = downKeys.add(keyCode) ? input.Keys.EV_PRESS : input.Keys.EV_REPEAT;
+        byte[] bytes = input.Keys.encodeEvent(keyCode, e.getKeyChar(),
+                e.getModifiersEx(), term.decckm, term.kbdFlags, event);
         if (bytes != null) {
+            char c = e.getKeyChar();
+            boolean printable = c != KeyEvent.CHAR_UNDEFINED && c >= 0x20 && c != 0x7f;
+            if (printable && input.Keys.kitty(keyCode, c, e.getModifiersEx(), term.kbdFlags, event)) {
+                // The text already travelled inside the `CSI u` sequence; keep
+                // keyTyped from sending it a second time.
+                kittyTypedChar = c;
+                kittyTypedNanos = System.nanoTime();
+            }
             term.scrollToBottom();
             send(bytes);
             e.consume();
@@ -750,13 +790,85 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     @Override public void keyReleased(KeyEvent e) {
+        if (LATENCY) System.err.printf("LAT key-up %d mods=%x ch=%x t=%d%n",
+                e.getKeyCode(), e.getModifiersEx(), (int) e.getKeyChar(), System.nanoTime());
         boolean wasCtrl = ctrlDown;
         ctrlDown = e.isControlDown();
         if (wasCtrl != ctrlDown) requestFullRepaint();
+        downKeys.remove(e.getKeyCode());
+        if (term.kbdFlags != 0) {
+            byte[] bytes = input.Keys.encodeEvent(e.getKeyCode(), e.getKeyChar(),
+                    e.getModifiersEx(), term.decckm, term.kbdFlags, input.Keys.EV_RELEASE);
+            if (bytes != null) send(bytes);
+        }
     }
 
-    private void repaintCursorRow() {
-        if (term.viewOff() == 0 && term.cy >= 0 && term.cy < term.rows) {
+    /** kitty images sit on top of the text, as in the Rust version. */
+    private void paintImages(Graphics2D g2, int pad, int cols, int rows, int cw, int chh) {
+        java.util.List<KittyImages.Placement> list = term.images.placements();
+        if (list.isEmpty()) return;
+        Object oldInterp = g2.getRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION);
+        g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        for (KittyImages.Placement p : list) {
+            int y = p.line + term.viewOff();
+            if (y + p.rows <= 0 || y >= rows) continue; // fully outside the view
+            KittyImages.Image img = term.images.image(p.imageId);
+            if (img == null) continue;
+            java.awt.image.BufferedImage bi = decoded(img);
+            if (bi == null) continue;
+            java.awt.Shape oldClip = g2.getClip();
+            g2.clipRect(pad, pad, cols * cw, rows * chh);
+            g2.drawImage(bi, pad + p.col * cw + p.dx, pad + y * chh + p.dy,
+                    p.cols * cw, p.rows * chh, null);
+            g2.setClip(oldClip);
+        }
+        if (oldInterp != null) g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
+    }
+
+    private java.awt.image.BufferedImage decoded(KittyImages.Image img) {
+        Long v = imageVersion.get(img.id);
+        if (v != null && v.longValue() == img.version) {
+            java.awt.image.BufferedImage c = imageCache.get(img.id);
+            if (c != null) return c;
+        }
+        java.awt.image.BufferedImage bi = decodeImage(img);
+        if (bi == null) return null;
+        if (imageCache.size() > 64) { imageCache.clear(); imageVersion.clear(); }
+        imageCache.put(img.id, bi);
+        imageVersion.put(img.id, img.version);
+        return bi;
+    }
+
+    private static java.awt.image.BufferedImage decodeImage(KittyImages.Image img) {
+        try {
+            if (img.format == KittyImages.FMT_PNG) {
+                return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(img.data));
+            }
+            int w = img.width, h = img.height;
+            boolean rgba = img.format == KittyImages.FMT_RGBA;
+            int bpp = rgba ? 4 : 3;
+            if ((long) w * h * bpp > img.data.length) return null;
+            java.awt.image.BufferedImage bi =
+                    new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            int[] row = new int[w];
+            for (int y = 0; y < h; y++) {
+                int off = y * w * bpp;
+                for (int x = 0; x < w; x++) {
+                    int i = off + x * bpp;
+                    int r = img.data[i] & 0xff, g = img.data[i + 1] & 0xff, b = img.data[i + 2] & 0xff;
+                    int alpha = rgba ? (img.data[i + 3] & 0xff) : 255;
+                    row[x] = (alpha << 24) | (r << 16) | (g << 8) | b;
+                }
+                bi.setRGB(0, y, w, 1, row, 0, w);
+            }
+            return bi;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void repaintCursorRow() {        if (term.viewOff() == 0 && term.cy >= 0 && term.cy < term.rows) {
             term.dirty[term.cy] = true;
             repaint();
         }
@@ -817,7 +929,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             selAX = s; selAbsAY = abs; selBX = e; selAbsBY = abs;
         }
         requestFullRepaint();
-        if (copyOnSelect) copySelection();
+        copyOnSelection();
     }
 
     private String selectionText() {
@@ -858,20 +970,47 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void copySelection() {
+        setClipboard(false);
+    }
+
+    /**
+     * PRIMARY follows the selection, as in the Rust version: button 2 pastes it
+     * and an app that only reads the selection still finds the text.
+     */
+    private void copyOnSelection() {
+        setClipboard(true);
+        if (copyOnSelect) setClipboard(false);
+    }
+
+    private void setClipboard(boolean primary) {
         String text = selectionText();
         if (text.isEmpty()) return;
         try {
-            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new java.awt.datatransfer.StringSelection(text), null);
+            java.awt.datatransfer.Clipboard cb = primary
+                    ? java.awt.Toolkit.getDefaultToolkit().getSystemSelection()
+                    : java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (cb == null) return; // PRIMARY is X11-only.
+            cb.setContents(new java.awt.datatransfer.StringSelection(text), null);
         } catch (Exception e) {
             System.err.println("tortty-java: clipboard copy failed: " + e);
         }
     }
 
     private void pasteClipboard() {
+        paste(false);
+    }
+
+    private void pastePrimary() {
+        paste(true);
+    }
+
+    private void paste(boolean primary) {
         try {
-            Object v = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+            java.awt.datatransfer.Clipboard cb = primary
+                    ? java.awt.Toolkit.getDefaultToolkit().getSystemSelection()
+                    : java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (cb == null) return;
+            Object v = cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
             if (v == null) return;
             term.scrollToBottom();
             String s = v.toString().replace("\r\n", "\r").replace('\n', '\r');

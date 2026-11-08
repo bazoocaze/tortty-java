@@ -43,10 +43,18 @@ public final class ChildPty {
     }
 
     public ChildPty(String cmd, int cols, int rows) throws IOException {
-        this(cmd, null, cols, rows);
+        this(cmd, null, cols, rows, null);
     }
 
     public ChildPty(String cmd, String shell, int cols, int rows) throws IOException {
+        this(cmd, shell, cols, rows, null);
+    }
+
+    /**
+     * @param dir working directory for the child; {@code null} keeps the JVM's
+     *            own, and a new tab passes the cwd the previous one reported.
+     */
+    public ChildPty(String cmd, String shell, int cols, int rows, String dir) throws IOException {
         this.cols = cols; this.rows = rows;
         String[] command;
         if (cmd != null) {
@@ -68,8 +76,8 @@ public final class ChildPty {
         builder.setConsole(false);
         builder.setInitialColumns(cols);
         builder.setInitialRows(rows);
-        String dir = System.getProperty("user.dir");
-        if (dir != null && !dir.isEmpty()) builder.setDirectory(dir);
+        String workDir = (dir != null && !dir.isEmpty()) ? dir : System.getProperty("user.dir");
+        if (workDir != null && !workDir.isEmpty()) builder.setDirectory(workDir);
         this.proc = builder.start();
         this.in = proc.getInputStream();
         this.out = proc.getOutputStream();
@@ -140,6 +148,16 @@ public final class ChildPty {
 
     public boolean childExited() {
         try { return !proc.isAlive(); } catch (Exception e) { return closed; }
+    }
+
+    /** Working directory of the child, read from /proc; null when it is gone. */
+    public String cwd() {
+        try {
+            return java.nio.file.Files.readSymbolicLink(
+                    java.nio.file.Paths.get("/proc/" + proc.pid() + "/cwd")).toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public void destroy() {

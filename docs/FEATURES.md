@@ -31,7 +31,19 @@ Features implemented in the Java version of TorTTY.
 - Reflow on resize: soft-wrapped paragraphs (history included) are joined and
   rewrapped at the new width, preserving colours/attributes/underline/links and
   not splitting a wide pair.
-- Replies to the child for DA/CPR.
+- DCS/PM/SOS are consumed and discarded; APC carries the kitty graphics
+  protocol (see below).
+- kitty keyboard protocol: `CSI > u` push, `CSI < u` pop, `CSI = u` set/OR/AND
+  NOT, and `CSI ? u` query the flags. Flags 1 (disambiguate), 2 (event types,
+  press/repeat/release), 4 (alternate keys for the ASCII letters), 8 (all keys
+  as `CSI u`) and 16 (associated text) are honoured; a key the child did not ask
+  for keeps the legacy xterm shape.
+- kitty graphics (images): `a=t`/`a=T`/`a=p`/`a=d`/`a=q`, `f=24` RGB, `f=32`
+  RGBA, `f=100` PNG, `m=1` chunks, `o=z` zlib, `t=d/f/t` (direct, file, temp
+  file), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The image follows the scroll
+  into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
+  is out.
+- Replies to the child for DA/CPR, the kitty flags and the graphics OK/ENOENT.
 
 ## PTY
 
@@ -49,21 +61,29 @@ Features implemented in the Java version of TorTTY.
 - Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End,
   PageUp/PageDown, Insert/Delete, F1–F24, keypad, Ctrl+letter and Ctrl
   one-offs, Alt as ESC prefix. Modifiers travel in the xterm parameter
-  (`Ctrl+←` is `CSI 1;5D`); F13–F24 are F1–F12 with Shift.
+  (`Ctrl+←` is `CSI 1;5D`); F13–F24 are F1–F12 with Shift, or their own kitty
+  numbers when the child asked for the kitty protocol.
 - Mouse: X10, UTF-8 `?1005`, SGR `?1006`, pixel coordinates `?1016`, buttons
   1–3, drag, motion, and wheel. The wheel reads history when the child is not
   tracking the mouse (or with Shift); a detent and a touchpad fraction are
   distinguished, and the fraction accumulates until it completes a notch.
 - Visible selection (drag, double-click on word, triple-click on line) with
-  inversion, including history; copies on release when `copy_on_select` is on
-  and with Ctrl+Shift+C.
-- Paste with Ctrl+Shift+V, respecting bracketed paste.
+  inversion, including history. The PRIMARY selection is set on release (button
+  2 pastes it); the CLIPBOARD is set with `copy_on_select` or Ctrl+Shift+C.
+- Paste with Ctrl+Shift+V (CLIPBOARD) or the middle button (PRIMARY), both
+  respecting bracketed paste.
 - OSC 8 links: Ctrl underlines links and Ctrl+click opens `http/https/file/ftp/mailto`.
 - `BEL` and OSC 9/777 show a bottom-right toast (queue, 8 s timeout) and a
   visual/audible bell selected by the config.
 - Configurable mono font; default DejaVu Sans Mono 17 pt; per-glyph fallback to
   CJK and symbol fonts. Colour emoji is not rendered by Java2D (see `L13`).
 - Window padding and fg/bg/cursor palette from the config.
+- Tabs: one pty, term and panel per tab; Ctrl+Shift+T opens (inheriting the
+  shell's cwd from `/proc`), Ctrl+Shift+W closes, Ctrl+Shift+1..9 selects. The
+  tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`)
+  with a `•` marker when a background tab received a notification, and the
+  window title mirrors the active tab. A dead shell closes its tab; the last
+  one closes the app.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler
@@ -71,8 +91,9 @@ Features implemented in the Java version of TorTTY.
 - Unix JSON socket per line, 0600 permission.
 - Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`.
 - `state` also reports `history`, `view`, `bells`, `notifs`, `notif`, `sync`,
-  and the mouse protocol flags; `screen` returns the visible rows (history
-  included).
+  the mouse protocol flags, `kbd_flags`, `images`/`placements`, and
+  `tabs`/`active`/`titles`; `screen` returns the visible rows of the active tab
+  (history included) and `resize` applies to every tab.
 - `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
 
 ## Configuration

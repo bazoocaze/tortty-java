@@ -101,3 +101,36 @@ the cursor row is repainted on horizontal-only output. No row is marked dirty in
 **Verification.** `mvn -q package`; Xvfb `:99` with zsh: `ABCDEF` + 3×Left moves
 the block to `D` at column 36, typing inserts `ABCXDEF`, 2×Right returns to the
 end; vim `-u NONE -N` smoke test with Right/Left.
+
+## 2026-11-08 — fourth batch from Rust (B17–B20)
+
+**Context.** Four features picked from the Rust version for daily use and for
+the protocols apps already speak: PRIMARY, the kitty keyboard protocol, kitty
+images, and tabs.
+
+**Implemented.**
+- `B17` PRIMARY on selection release, `Ctrl+Shift+C` for CLIPBOARD, button 2
+  pastes PRIMARY (bracketed paste respected). PRIMARY is X11-only and guarded.
+- `B18` kitty keyboard protocol in `Keys`/`Term`: `CSI > u`/`< u`/`= u`/`? u`
+  with a 64-deep stack, flags 1/2/4/8/16, `EV_PRESS`/`EV_REPEAT`/`EV_RELEASE`
+  (the AWT repeat is derived from the held-key set), F13–F24 own numbers, and
+  keyTyped suppressed when the text already travelled inside `CSI u`.
+- `B19` kitty graphics in `term.KittyImages` + an APC state in the parser:
+  `a=t/T/p/d/q`, `f=24/32/100`, `m=1`, `o=z`, `t=d/f/t`, `i/c/r/X/Y/C/q`;
+  placements live on screen lines (negative = history), follow the scroll, die
+  with the scrollback and with `ED 3`; the panel decodes once per `(id, version)`
+  and draws on top of the text.
+- `B20` tabs: one pty/term/panel per tab in a `JTabbedPane`, `Ctrl+Shift+T/W`,
+  `Ctrl+Shift+1..9`, cwd inherited from the shell's `/proc/<pid>/cwd`, the title
+  from `/proc` when the shell writes no OSC 7, a `•` badge for a background
+  notification, a dead shell closing its tab, and the debug socket following the
+  active tab.
+
+**Verification.** `mvn -q package`; headless checks for the images (PNG, RGBA,
+`t=t` delete, `o=z`, `ED 3`, scroll); Xvfb `:99` probes for the kitty keys
+(flags 1, 3, 5, 9, 13, 25, query/pop), PRIMARY and button 2 read back by a second
+JVM, images drawn/scrolled/reappearing via Shift+PageUp, tabs created/switched/
+badged/closed with cwd inherited, `vim -u NONE -N` edit-and-save, and doom-fire
+757.5 fps / 32.6 MB/s (was 720.1).
+
+**Limitations.** `L8` resolved; `L7` narrowed to workspaces/splits; `L16` added.
