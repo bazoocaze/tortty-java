@@ -83,3 +83,21 @@ replies and modes; Xvfb `:99` screenshot of the five underlines and red `58`;
 `cat -v` probes for `CSI 1;5D`; SGR/X10/pixel mouse probes; doom-fire 720.1 fps.
 
 **Limitations.** `L14` resolved; `L15` added (AWT drops horizontal wheel/extra buttons).
+
+## 2026-11-08 — B16 cursor repaint on horizontal moves
+
+**Context.** In zsh, Up/Down navigated the history but Left/Right did nothing
+visually, while vim was fine.
+
+**Cause.** ZLE only sends `CSI C`/`CSI D`/`CSI G` (or `CR`) to move the cursor;
+it repaints no cell. `TermPanel.repaintDamage` compared the cursor row only, so
+a horizontal move left the block drawn at the old cell. vim rewrites the cell
+under the cursor, which is why it looked fine there.
+
+**Implemented.** `B16`: damage repaint now also compares the cursor column, and
+the cursor row is repainted on horizontal-only output. No row is marked dirty in
+`Term`, so the cost stays one row per move.
+
+**Verification.** `mvn -q package`; Xvfb `:99` with zsh: `ABCDEF` + 3×Left moves
+the block to `D` at column 36, typing inserts `ABCXDEF`, 2×Right returns to the
+end; vim `-u NONE -N` smoke test with Right/Left.

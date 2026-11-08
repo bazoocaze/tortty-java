@@ -46,6 +46,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     private java.util.function.BiConsumer<Integer, Integer> onGridChange;
 
     private final java.util.HashMap<Integer, java.awt.Color> colorCache = new java.util.HashMap<>();
+    private int lastPaintedCursorX = -1;
     private int lastPaintedCursorY = -1;
     private boolean lastPaintedCursorVisible = false;
     private boolean blinkOn = true;
@@ -369,7 +370,9 @@ public final class TermPanel extends JPanel implements KeyListener {
                 if (term.dirty[y]) { any = true; break; }
             }
         }
-        if (!any && term.cy != lastPaintedCursorY) any = true;
+        // A child that only moves the cursor (CSI C/D/G, CR) damages no row, so
+        // the block would stay painted at its old cell. Compare both axes.
+        if (!any && (term.cx != lastPaintedCursorX || term.cy != lastPaintedCursorY)) any = true;
         if (!any) return;
         damagePaintPending = true;
         repaint();
@@ -531,6 +534,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                 }
             }
         }
+        lastPaintedCursorX = term.cx;
         lastPaintedCursorY = term.cy;
         lastPaintedCursorVisible = term.cursorVisible;
         long paintEnd = System.nanoTime();

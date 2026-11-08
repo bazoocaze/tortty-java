@@ -42,7 +42,8 @@ Features implemented in the Java version of TorTTY.
 
 ## UI / input
 
-- Swing painting by same-style runs, with per-line damage and cursor repaint.
+- Swing painting by same-style runs, with per-line damage and cursor repaint;
+  a cursor-only move (no cell written) still repaints the cursor row.
 - Full repaint on expose, focus, resize, and show.
 - Block, beam, or underline cursor, with blink.
 - Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End,
