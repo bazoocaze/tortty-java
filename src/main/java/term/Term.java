@@ -22,6 +22,8 @@ public final class Term {
     public static final int WIDE_CONT = 0;
     public int[] fg, bg;
     public byte[] attr;
+    public byte[] ul;                // underline style 0..5 (0 = none)
+    public int[] ulColor;            // underline colour, or DEFAULT
     public int[] link;               // 0 = none, n = links.get(n-1)
 
     public int cx, cy;
@@ -34,9 +36,15 @@ public final class Term {
     public boolean titleExplicit;
     public String cwd = "";
 
+    /** Palette in effect; OSC 4/10/11/12 query and change it. */
+    private Theme theme = Theme.defaults();
+    public void setTheme(Theme t) { if (t != null) theme = t; }
+
     // modes tracked (used by the debug socket / mc / vim)
     public int mouseMode;
     public boolean mouseSgr;
+    public boolean mouseUtf8;
+    public boolean mousePixels;
     public boolean alt;
     public boolean bracketed;
     public boolean sync;
@@ -58,13 +66,16 @@ public final class Term {
     // pen
     private int penFg = DEFAULT, penBg = DEFAULT;
     private byte penAttr;
+    private byte penUl;
+    private int penUlColor = DEFAULT;
     private boolean insert;
 
     // alternate buffer (saved main when in alt)
     private int[] mainCp;
     private String[] mainCluster;
     private int[] mainFg, mainBg, mainLink;
-    private byte[] mainAttr;
+    private byte[] mainAttr, mainUl;
+    private int[] mainUlColor;
     private boolean[] mainWrapped;
     private int mainX, mainY;
 
@@ -98,18 +109,22 @@ public final class Term {
     public boolean[] rowWrapped;
 
     private static final class Row {
-        final int[] t; final String[] cl; final int[] f, b, l; final byte[] a;
+        final int[] t; final String[] cl; final int[] f, b, l; final byte[] a, u;
+        final int[] uc;
         final boolean wrapped;
-        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l) {
-            this(t, cl, f, b, a, l, false);
+        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l, byte[] u, int[] uc) {
+            this(t, cl, f, b, a, l, u, uc, false);
         }
-        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l, boolean wrapped) {
-            this.t=t; this.cl=cl; this.f=f; this.b=b; this.a=a; this.l=l; this.wrapped=wrapped;
+        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l,
+            byte[] u, int[] uc, boolean wrapped) {
+            this.t=t; this.cl=cl; this.f=f; this.b=b; this.a=a; this.l=l;
+            this.u=u; this.uc=uc; this.wrapped=wrapped;
         }
     }
 
     private static final class Cell {
         int cp; String cl; int fg, bg, link; byte attr;
+        byte ul; int ulColor;
     }
 
     // OSC 8 hyperlinks; repeated URIs share an id.
@@ -137,6 +152,8 @@ public final class Term {
     private int svX, svY;
     private int svFg = DEFAULT, svBg = DEFAULT;
     private byte svAttr;
+    private byte svUl;
+    private int svUlColor = DEFAULT;
     private boolean svWrap;
 
     public Term(int cols, int rows) {
@@ -148,6 +165,8 @@ public final class Term {
         int n = cols * rows;
         cp = new int[n]; cluster = new String[n];
         fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
+        ul = new byte[n]; ulColor = new int[n];
+        java.util.Arrays.fill(ulColor, DEFAULT);
         dirty = new boolean[rows];
         rowWrapped = new boolean[rows];
         for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; }
@@ -158,14 +177,16 @@ public final class Term {
     }
 
     public void reset() {
-        penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; insert = false;
+        penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; penUl = 0; penUlColor = DEFAULT; insert = false;
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
         decckm = false; lnm = false; alt = false;
         title = ""; titleExplicit = false; cwd = "";
         cursorVisible = true; cursorShape = defaultCursorShape; cursorBlink = defaultCursorBlink;
-        mouseMode = 0; mouseSgr = false; bracketed = false; sync = false; focusEvents = false;
+        mouseMode = 0; mouseSgr = false; mouseUtf8 = false; mousePixels = false;
+        bracketed = false; sync = false; focusEvents = false;
         top = 0; bot = rows - 1;
         mainCp = null; mainCluster = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
+        mainUl = null; mainUlColor = null;
         mainWrapped = null;
         links.clear(); linkIndex.clear(); penLink = 0;
         viewOff = 0; layoutGen++;
@@ -173,7 +194,8 @@ public final class Term {
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         java.util.Arrays.fill(rowWrapped, false);
         for (int i = 0; i < cp.length; i++) {
-            cp[i] = ' '; cluster[i] = null; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0; link[i] = 0;
+            cp[i] = ' '; cluster[i] = null; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0;
+            ul[i] = 0; ulColor[i] = DEFAULT; link[i] = 0;
         }
     }
 
@@ -191,6 +213,8 @@ public final class Term {
         fg = copyGridInt(fg, oldCols, oldRows, nc, nr, DEFAULT);
         bg = copyGridInt(bg, oldCols, oldRows, nc, nr, DEFAULT);
         attr = copyGridByte(attr, oldCols, oldRows, nc, nr, (byte) 0);
+        ul = copyGridByte(ul, oldCols, oldRows, nc, nr, (byte) 0);
+        ulColor = copyGridInt(ulColor, oldCols, oldRows, nc, nr, DEFAULT);
         link = copyGridInt(link, oldCols, oldRows, nc, nr, 0);
         rowWrapped = copyBool(rowWrapped, oldRows, nr);
         dirty = new boolean[nr];
@@ -202,6 +226,8 @@ public final class Term {
             mainFg = copyGridInt(mainFg, oldCols, oldRows, nc, nr, DEFAULT);
             mainBg = copyGridInt(mainBg, oldCols, oldRows, nc, nr, DEFAULT);
             mainAttr = copyGridByte(mainAttr, oldCols, oldRows, nc, nr, (byte) 0);
+            mainUl = copyGridByte(mainUl, oldCols, oldRows, nc, nr, (byte) 0);
+            mainUlColor = copyGridInt(mainUlColor, oldCols, oldRows, nc, nr, DEFAULT);
             mainLink = copyGridInt(mainLink, oldCols, oldRows, nc, nr, 0);
             mainWrapped = copyBool(mainWrapped, oldRows, nr);
         }
@@ -216,6 +242,8 @@ public final class Term {
                     copyGridInt(r.b, oldCols, 1, nc, 1, DEFAULT),
                     copyGridByte(r.a, oldCols, 1, nc, 1, (byte) 0),
                     copyGridInt(r.l, oldCols, 1, nc, 1, 0),
+                    copyGridByte(r.u, oldCols, 1, nc, 1, (byte) 0),
+                    copyGridInt(r.uc, oldCols, 1, nc, 1, DEFAULT),
                     r.wrapped));
         }
         hist.clear();
@@ -232,7 +260,8 @@ public final class Term {
 
     private static boolean blankCell(Row r, int j) {
         return r.t[j] == ' ' && (r.cl == null || r.cl[j] == null)
-                && r.b[j] == DEFAULT && r.a[j] == 0 && r.l[j] == 0;
+                && r.b[j] == DEFAULT && r.a[j] == 0 && r.l[j] == 0
+                && r.u[j] == 0 && r.uc[j] == DEFAULT;
     }
 
     private static boolean blankRow(Row r) {
@@ -242,10 +271,12 @@ public final class Term {
 
     private static Row blankRow(int width) {
         int[] t = new int[width], f = new int[width], b = new int[width], l = new int[width];
+        int[] uc = new int[width];
         java.util.Arrays.fill(t, ' ');
         java.util.Arrays.fill(f, DEFAULT);
         java.util.Arrays.fill(b, DEFAULT);
-        return new Row(t, new String[width], f, b, new byte[width], l, false);
+        java.util.Arrays.fill(uc, DEFAULT);
+        return new Row(t, new String[width], f, b, new byte[width], l, new byte[width], uc, false);
     }
 
     /**
@@ -264,15 +295,18 @@ public final class Term {
         for (int y = 0; y < oldRows; y++) {
             int off = y * oldCols;
             int[] t = new int[oldCols], f = new int[oldCols], b = new int[oldCols], l = new int[oldCols];
+            int[] uc = new int[oldCols];
             String[] cl = new String[oldCols];
-            byte[] a = new byte[oldCols];
+            byte[] a = new byte[oldCols], u = new byte[oldCols];
             System.arraycopy(cp, off, t, 0, oldCols);
             System.arraycopy(cluster, off, cl, 0, oldCols);
             System.arraycopy(fg, off, f, 0, oldCols);
             System.arraycopy(bg, off, b, 0, oldCols);
             System.arraycopy(attr, off, a, 0, oldCols);
+            System.arraycopy(ul, off, u, 0, oldCols);
+            System.arraycopy(ulColor, off, uc, 0, oldCols);
             System.arraycopy(link, off, l, 0, oldCols);
-            all.add(new Row(t, cl, f, b, a, l, rowWrapped[y]));
+            all.add(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[y]));
         }
 
         java.util.ArrayList<java.util.ArrayList<Cell>> paragraphs = new java.util.ArrayList<>();
@@ -292,6 +326,7 @@ public final class Term {
                 Cell c = new Cell();
                 c.cp = r.t[j]; c.cl = r.cl[j];
                 c.fg = r.f[j]; c.bg = r.b[j]; c.link = r.l[j]; c.attr = r.a[j];
+                c.ul = r.u[j]; c.ulColor = r.uc[j];
                 cur.add(c);
             }
             if (!r.wrapped) {
@@ -315,18 +350,20 @@ public final class Term {
                 if (e == s) e = Math.min(cells.size(), s + 1);
                 starts.add(s);
                 int[] t = new int[nc], f = new int[nc], b = new int[nc], l = new int[nc];
+                int[] uc = new int[nc];
                 String[] cl = new String[nc];
-                byte[] a = new byte[nc];
+                byte[] a = new byte[nc], u = new byte[nc];
                 java.util.Arrays.fill(t, ' ');
                 java.util.Arrays.fill(f, DEFAULT);
                 java.util.Arrays.fill(b, DEFAULT);
+                java.util.Arrays.fill(uc, DEFAULT);
                 for (int j = 0; j < e - s; j++) {
                     Cell c = cells.get(s + j);
                     t[j] = c.cp; cl[j] = c.cl; f[j] = c.fg; b[j] = c.bg;
-                    a[j] = c.attr; l[j] = c.link;
+                    a[j] = c.attr; l[j] = c.link; u[j] = c.ul; uc[j] = c.ulColor;
                 }
                 boolean last = e >= cells.size();
-                out.add(new Row(t, cl, f, b, a, l, !last));
+                out.add(new Row(t, cl, f, b, a, l, u, uc, !last));
                 if (last) break;
                 s = e;
             }
@@ -366,9 +403,12 @@ public final class Term {
         bg = new int[nc * nr];
         attr = new byte[nc * nr];
         link = new int[nc * nr];
+        ul = new byte[nc * nr];
+        ulColor = new int[nc * nr];
         java.util.Arrays.fill(cp, ' ');
         java.util.Arrays.fill(fg, DEFAULT);
         java.util.Arrays.fill(bg, DEFAULT);
+        java.util.Arrays.fill(ulColor, DEFAULT);
         rowWrapped = new boolean[nr];
         for (int y = 0; y < nr; y++) {
             Row r = live.get(y);
@@ -378,6 +418,8 @@ public final class Term {
             System.arraycopy(r.f, 0, fg, off, nc);
             System.arraycopy(r.b, 0, bg, off, nc);
             System.arraycopy(r.a, 0, attr, off, nc);
+            System.arraycopy(r.u, 0, ul, off, nc);
+            System.arraycopy(r.uc, 0, ulColor, off, nc);
             System.arraycopy(r.l, 0, link, off, nc);
             rowWrapped[y] = r.wrapped;
         }
@@ -512,6 +554,16 @@ public final class Term {
         return r != null ? r.a : attr;
     }
 
+    public byte[] lineUl(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.u : ul;
+    }
+
+    public int[] lineUlColor(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.uc : ulColor;
+    }
+
     public int[] lineLink(int y) {
         Row r = historyRow(absoluteLine(y));
         return r != null ? r.l : link;
@@ -639,11 +691,14 @@ public final class Term {
                 fg[base + j] = fg[base + j - w];
                 bg[base + j] = bg[base + j - w];
                 attr[base + j] = attr[base + j - w];
+                ul[base + j] = ul[base + j - w];
+                ulColor[base + j] = ulColor[base + j - w];
                 link[base + j] = link[base + j - w];
             }
             for (int j = cx; j < cx + w; j++) {
                 cp[base + j] = ' '; cluster[base + j] = null;
-                fg[base + j] = penFg; bg[base + j] = penBg; attr[base + j] = penAttr; link[base + j] = 0;
+                fg[base + j] = penFg; bg[base + j] = penBg; attr[base + j] = penAttr;
+                ul[base + j] = penUl; ulColor[base + j] = penUlColor; link[base + j] = 0;
             }
             dirty[cy] = true;
         }
@@ -653,6 +708,8 @@ public final class Term {
         fg[i] = penFg;
         bg[i] = penBg;
         attr[i] = penAttr;
+        ul[i] = penUl;
+        ulColor[i] = penUlColor;
         link[i] = penLink;
         if (w == 2) {
             cp[i + 1] = WIDE_CONT;
@@ -660,6 +717,8 @@ public final class Term {
             fg[i + 1] = penFg;
             bg[i + 1] = penBg;
             attr[i + 1] = penAttr;
+            ul[i + 1] = penUl;
+            ulColor[i + 1] = penUlColor;
             link[i + 1] = penLink;
         }
         dirty[cy] = true;
@@ -705,16 +764,18 @@ public final class Term {
                 int off = (top + r) * cols;
                 int[] t = new int[cols];
                 String[] cl = new String[cols];
-                int[] f = new int[cols], b = new int[cols], l = new int[cols];
-                byte[] a = new byte[cols];
+                int[] f = new int[cols], b = new int[cols], l = new int[cols], uc = new int[cols];
+                byte[] a = new byte[cols], u = new byte[cols];
                 System.arraycopy(cp, off, t, 0, cols);
                 System.arraycopy(cluster, off, cl, 0, cols);
                 System.arraycopy(fg, off, f, 0, cols);
                 System.arraycopy(bg, off, b, 0, cols);
                 System.arraycopy(attr, off, a, 0, cols);
+                System.arraycopy(ul, off, u, 0, cols);
+                System.arraycopy(ulColor, off, uc, 0, cols);
                 System.arraycopy(link, off, l, 0, cols);
                 if (hist.size() >= histCap && !hist.isEmpty()) hist.pollFirst();
-                if (histCap > 0) hist.addLast(new Row(t, cl, f, b, a, l, rowWrapped[top + r]));
+                if (histCap > 0) hist.addLast(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[top + r]));
                 totalLines++;
             }
         }
@@ -731,13 +792,16 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(ul, src, ul, dst, cols);
+                System.arraycopy(ulColor, src, ulColor, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
                 rowWrapped[y] = rowWrapped[y + 1];
             }
             int off = bot * cols;
             for (int c = 0; c < cols; c++) {
                 cp[off + c] = ' '; cluster[off + c] = null;
-                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
+                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0;
+                ul[off + c] = 0; ulColor[off + c] = DEFAULT; link[off + c] = 0;
             }
             rowWrapped[bot] = false;
             dirty[bot] = true;
@@ -756,13 +820,16 @@ public final class Term {
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
+                System.arraycopy(ul, src, ul, dst, cols);
+                System.arraycopy(ulColor, src, ulColor, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
                 rowWrapped[y] = rowWrapped[y - 1];
             }
             int off = top * cols;
             for (int c = 0; c < cols; c++) {
                 cp[off + c] = ' '; cluster[off + c] = null;
-                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
+                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0;
+                ul[off + c] = 0; ulColor[off + c] = DEFAULT; link[off + c] = 0;
             }
             rowWrapped[top] = false;
             dirty[top] = true;
@@ -779,8 +846,8 @@ public final class Term {
             case '*' -> { state = ESC_ONE; charsetTarget = 2; }
             case '+' -> { state = ESC_ONE; charsetTarget = 3; }
             case '#' -> { state = ESC_ONE; charsetTarget = 4; }
-            case '7' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svWrap = wrapPending; state = GROUND; }
-            case '8' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; wrapPending = svWrap; state = GROUND; }
+            case '7' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; state = GROUND; }
+            case '8' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; state = GROUND; }
             case 'D' -> { if (cy == bot) scrollUp(1); else if (cy < rows - 1) cy++; state = GROUND; }
             case 'E' -> { cx = 0; if (cy == bot) scrollUp(1); else if (cy < rows - 1) cy++; state = GROUND; }
             case 'M' -> { if (cy == top) scrollDown(1); else if (cy > 0) cy--; state = GROUND; }
@@ -810,6 +877,8 @@ public final class Term {
             for (int i = 0; i < t.length(); i++) if (t.charAt(i) >= 0x20) sb.append(t.charAt(i));
             title = sb.toString();
             titleExplicit = true;
+        } else if (s.startsWith("4;")) {
+            oscPalette(s.substring(2));
         } else if (s.startsWith("7;")) {
             String p = s.substring(2);
             try {
@@ -819,6 +888,20 @@ public final class Term {
             } catch (Exception ignored) {
                 cwd = p;
             }
+        } else if (s.startsWith("10;") || s.startsWith("11;") || s.startsWith("12;")) {
+            int which = s.startsWith("10") ? 10 : (s.startsWith("11") ? 11 : 12);
+            oscColor(which, s.substring(3));
+        } else if (s.equals("10") || s.equals("11") || s.equals("12")) {
+            int which = s.equals("10") ? 10 : (s.equals("11") ? 11 : 12);
+            oscColor(which, "");
+        } else if (s.equals("104") || s.startsWith("104;")) {
+            oscResetPalette(s.length() > 3 ? s.substring(4) : "");
+        } else if (s.equals("110") || s.startsWith("110;")) {
+            resetThemeColor(10);
+        } else if (s.equals("111") || s.startsWith("111;")) {
+            resetThemeColor(11);
+        } else if (s.equals("112") || s.startsWith("112;")) {
+            resetThemeColor(12);
         } else if (s.startsWith("8;")) {
             int sep = s.indexOf(';', 2);
             if (sep >= 0) {
@@ -854,6 +937,93 @@ public final class Term {
     private static String utf8(String s) {
         return new String(s.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1),
                 java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** OSC 4: {@code index;?} queries the palette, {@code index;color} defines it. */
+    private void oscPalette(String arg) {
+        int sep = arg.indexOf(';');
+        if (sep < 0) return;
+        int idx = parseNum(arg.substring(0, sep));
+        if (idx < 0 || idx > 15) return;
+        String spec = arg.substring(sep + 1);
+        if (spec.equals("?")) {
+            replyColor(4, idx, theme.palette[idx] & 0xFFFFFF);
+        } else {
+            int c = parseOscColor(spec);
+            if (c >= 0) { theme.palette[idx] = c; dirtyAll = true; }
+        }
+    }
+
+    /** OSC 10/11/12: foreground, background and cursor — query or define. */
+    private void oscColor(int which, String arg) {
+        int current = which == 10 ? theme.fg : (which == 11 ? theme.bg : theme.cursor);
+        if (arg.equals("?")) {
+            replyColor(which, -1, current & 0xFFFFFF);
+            return;
+        }
+        int c = parseOscColor(arg);
+        if (c < 0) return;
+        if (which == 10) theme.fg = c;
+        else if (which == 11) theme.bg = c;
+        else theme.cursor = c;
+        dirtyAll = true;
+    }
+
+    private void oscResetPalette(String arg) {
+        if (arg.isEmpty()) {
+            for (int i = 0; i < 16; i++) theme.palette[i] = Color.PALETTE16[i];
+        } else {
+            for (String part : arg.split(";")) {
+                int i = parseNum(part);
+                if (i >= 0 && i < 16) theme.palette[i] = Color.PALETTE16[i];
+            }
+        }
+        dirtyAll = true;
+    }
+
+    private void resetThemeColor(int which) {
+        Theme d = Theme.defaults();
+        if (which == 10) theme.fg = d.fg;
+        else if (which == 11) theme.bg = d.bg;
+        else theme.cursor = d.cursor;
+        dirtyAll = true;
+    }
+
+    private void replyColor(int which, int idx, int rgb) {
+        int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        String body = (idx >= 0)
+                ? String.format(java.util.Locale.ROOT, "4;%d;rgb:%02x%02x/%02x%02x/%02x%02x",
+                        idx, r, r, g, g, b, b)
+                : String.format(java.util.Locale.ROOT, "%d;rgb:%02x%02x/%02x%02x/%02x%02x",
+                        which, r, r, g, g, b, b);
+        try {
+            childOut.write(("\u001b]" + body + "\u001b\\").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {}
+    }
+
+    /** {@code #RRGGBB} or {@code rgb:RR/GG/BB}, with 1, 2 or 4 hex digits per channel. */
+    private static int parseOscColor(String spec) {
+        if (spec == null) return -1;
+        String s = spec.trim();
+        if (s.startsWith("#")) {
+            if (s.length() != 7) return -1;
+            try { return Integer.parseInt(s.substring(1), 16) & 0xFFFFFF; }
+            catch (NumberFormatException e) { return -1; }
+        }
+        if (!s.startsWith("rgb:")) return -1;
+        String[] p = s.substring(4).split("/");
+        if (p.length != 3) return -1;
+        int[] v = new int[3];
+        for (int i = 0; i < 3; i++) {
+            try {
+                if (p[i].length() == 4) v[i] = Integer.parseInt(p[i].substring(0, 2), 16);
+                else if (p[i].length() == 1 || p[i].length() == 2) v[i] = Integer.parseInt(p[i], 16);
+                else return -1;
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return Color.rgb(v[0], v[1], v[2]);
     }
 
     private void notify(String text) {
@@ -1029,8 +1199,8 @@ public final class Term {
                     if (cy >= 0 && cy < rows) dirty[cy] = true;
                 }
             }
-            case 's' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svWrap = wrapPending; }
-            case 'u' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; wrapPending = svWrap; }
+            case 's' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
+            case 'u' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
             case 'h', 'l' -> {
                 boolean on = (fin == 'h');
                 if (priv) {
@@ -1042,18 +1212,20 @@ public final class Term {
                             case 25 -> cursorVisible = on;
                             case 47, 1047 -> { if (on) enterAlt(); else exitAlt(); }
                             case 1049 -> {
-                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svWrap = wrapPending; enterAlt(); }
-                                else { exitAlt(); cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; wrapPending = svWrap; }
+                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; enterAlt(); }
+                                else { exitAlt(); cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
                             }
                             case 1048 -> {
-                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svWrap = wrapPending; }
-                                else { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; wrapPending = svWrap; }
+                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
+                                else { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
                             }
                             case 1000 -> mouseMode = on ? 1 : 0;
                             case 1002 -> mouseMode = on ? 2 : 0;
                             case 1003 -> mouseMode = on ? 3 : 0;
                             case 1004 -> focusEvents = on;
+                            case 1005 -> mouseUtf8 = on;
                             case 1006 -> mouseSgr = on;
+                            case 1016 -> mousePixels = on;
                             case 2004 -> bracketed = on;
                             case 2026 -> sync = on;
                             default -> {}
@@ -1119,32 +1291,44 @@ public final class Term {
                 params[npar++] = parseNum(tok.toString());
             }
         }
-        if (npar == 0) { penFg = Color.DEFAULT; penBg = Color.DEFAULT; penAttr = 0; return; }
+        if (npar == 0) {
+            penFg = Color.DEFAULT; penBg = Color.DEFAULT; penAttr = 0;
+            penUl = 0; penUlColor = DEFAULT;
+            return;
+        }
         int idx = 0;
         while (idx < npar) {
             int v = params[idx] < 0 ? 0 : params[idx];
             idx++;
             switch (v) {
-                case 0 -> { penFg = Color.DEFAULT; penBg = Color.DEFAULT; penAttr = 0; }
+                case 0 -> {
+                    penFg = Color.DEFAULT; penBg = Color.DEFAULT; penAttr = 0;
+                    penUl = 0; penUlColor = DEFAULT;
+                }
                 case 1 -> penAttr |= 0x01;
                 case 2 -> penAttr |= 0x02;
                 case 3 -> penAttr |= 0x04;
                 case 4 -> {
-                    penAttr |= 0x08;
+                    int style = 1;
                     if (idx < npar && sep[idx] == ':') {
-                        int style = params[idx] < 0 ? 0 : params[idx];
+                        style = params[idx] < 0 ? 0 : params[idx];
                         idx++;
-                        // 4:0 removes it; 4:2..4:5 are styles, drawn as single for now.
-                        if (style == 0) penAttr &= ~0x08;
+                    }
+                    if (style == 0) {
+                        penAttr &= ~0x08;
+                        penUl = 0;
+                    } else {
+                        penAttr |= 0x08;
+                        penUl = (byte) Math.max(1, Math.min(5, style));
                     }
                 }
                 case 5, 6 -> penAttr |= 0x20;
                 case 7 -> penAttr |= 0x10;
                 case 9 -> penAttr |= 0x40;
-                case 21 -> penAttr |= 0x08;
+                case 21 -> { penAttr |= 0x08; penUl = 2; }
                 case 22 -> penAttr &= ~(0x01 | 0x02);
                 case 23 -> penAttr &= ~0x04;
-                case 24 -> penAttr &= ~0x08;
+                case 24 -> { penAttr &= ~0x08; penUl = 0; }
                 case 25 -> penAttr &= ~0x20;
                 case 27 -> penAttr &= ~0x10;
                 case 29 -> penAttr &= ~0x40;
@@ -1173,11 +1357,25 @@ public final class Term {
                         idx = npar;
                     }
                 }
-                case 58, 59 -> {
-                    if (idx < npar && (params[idx] == 5 || params[idx] == 2)) {
-                        idx += (params[idx] == 2) ? 4 : 2;
+                case 58 -> {
+                    if (idx < npar) {
+                        int kind = params[idx] < 0 ? 0 : params[idx];
+                        if (kind == 5) {
+                            int ci = (idx + 1 < npar && params[idx + 1] >= 0) ? params[idx + 1] : 0;
+                            idx += 2;
+                            penUlColor = Math.max(0, Math.min(255, ci));
+                        } else if (kind == 2) {
+                            int r = (idx + 1 < npar && params[idx + 1] >= 0) ? params[idx + 1] : 0;
+                            int g = (idx + 2 < npar && params[idx + 2] >= 0) ? params[idx + 2] : 0;
+                            int b = (idx + 3 < npar && params[idx + 3] >= 0) ? params[idx + 3] : 0;
+                            idx += 4;
+                            penUlColor = Color.TRUECOLOR | Color.rgb(r, g, b);
+                        } else {
+                            idx = npar;
+                        }
                     }
                 }
+                case 59 -> penUlColor = DEFAULT;
                 default -> {
                     if (v >= 30 && v <= 37) penFg = v - 30;
                     else if (v >= 40 && v <= 47) penBg = v - 40;
@@ -1190,7 +1388,8 @@ public final class Term {
 
     private void blankCell(int i) {
         cp[i] = ' '; cluster[i] = null;
-        fg[i] = DEFAULT; bg[i] = penBg; attr[i] = 0; link[i] = 0;
+        fg[i] = DEFAULT; bg[i] = penBg; attr[i] = 0;
+        ul[i] = 0; ulColor[i] = DEFAULT; link[i] = 0;
     }
 
     private void blankRange(int from, int n) {
@@ -1203,6 +1402,8 @@ public final class Term {
         System.arraycopy(fg, src, fg, dst, n);
         System.arraycopy(bg, src, bg, dst, n);
         System.arraycopy(attr, src, attr, dst, n);
+        System.arraycopy(ul, src, ul, dst, n);
+        System.arraycopy(ulColor, src, ulColor, dst, n);
         System.arraycopy(link, src, link, dst, n);
     }
 
@@ -1292,6 +1493,8 @@ public final class Term {
         System.arraycopy(fg, base + cx, fg, base + cx + n, cols - cx - n);
         System.arraycopy(bg, base + cx, bg, base + cx + n, cols - cx - n);
         System.arraycopy(attr, base + cx, attr, base + cx + n, cols - cx - n);
+        System.arraycopy(ul, base + cx, ul, base + cx + n, cols - cx - n);
+        System.arraycopy(ulColor, base + cx, ulColor, base + cx + n, cols - cx - n);
         System.arraycopy(link, base + cx, link, base + cx + n, cols - cx - n);
         blankRange(base + cx, n);
         dirty[cy] = true;
@@ -1306,6 +1509,8 @@ public final class Term {
         System.arraycopy(fg, base + cx + n, fg, base + cx, cols - cx - n);
         System.arraycopy(bg, base + cx + n, bg, base + cx, cols - cx - n);
         System.arraycopy(attr, base + cx + n, attr, base + cx, cols - cx - n);
+        System.arraycopy(ul, base + cx + n, ul, base + cx, cols - cx - n);
+        System.arraycopy(ulColor, base + cx + n, ulColor, base + cx, cols - cx - n);
         System.arraycopy(link, base + cx + n, link, base + cx, cols - cx - n);
         blankRange(base + cols - n, n);
         dirty[cy] = true;
@@ -1322,12 +1527,15 @@ public final class Term {
     private void enterAlt() {
         if (alt) return;
         mainCp = cp; mainCluster = cluster;
-        mainFg = fg; mainBg = bg; mainAttr = attr; mainLink = link;
+        mainFg = fg; mainBg = bg; mainAttr = attr;
+        mainUl = ul; mainUlColor = ulColor; mainLink = link;
         mainWrapped = rowWrapped;
         mainX = cx; mainY = cy;
         int n = cols * rows;
         cp = new int[n]; cluster = new String[n];
         fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
+        ul = new byte[n]; ulColor = new int[n];
+        java.util.Arrays.fill(ulColor, Color.DEFAULT);
         rowWrapped = new boolean[rows];
         for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = Color.DEFAULT; bg[i] = Color.DEFAULT; }
         cx = 0; cy = 0; wrapPending = false;
@@ -1340,11 +1548,13 @@ public final class Term {
     private void exitAlt() {
         if (!alt) return;
         cp = mainCp; cluster = mainCluster;
-        fg = mainFg; bg = mainBg; attr = mainAttr; link = mainLink;
+        fg = mainFg; bg = mainBg; attr = mainAttr;
+        ul = mainUl; ulColor = mainUlColor; link = mainLink;
         rowWrapped = mainWrapped;
         cx = mainX; cy = mainY;
         mainCp = null; mainCluster = null;
-        mainFg = null; mainBg = null; mainAttr = null; mainLink = null; mainWrapped = null;
+        mainFg = null; mainBg = null; mainAttr = null;
+        mainUl = null; mainUlColor = null; mainLink = null; mainWrapped = null;
         viewOff = 0; layoutGen++;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         top = 0; bot = rows - 1;

@@ -67,3 +67,19 @@ history, CJK/emoji, reflow and toast; `vim` smoke test; doom-fire 61x18 at
 
 **Limitations.** `L1`, `L2`, `L10`, `L11`, `L12` resolved; `L13` (colour emoji)
 and `L14` (underline styles) added.
+
+## 2026-11-08 — third batch from Rust (B11–B15)
+
+**Context.** Low-risk batch: keyboard, synchronized output, underline, OSC colours, mouse.
+
+**Implemented.** `B11` xterm modifiers, F13–F24, keypad and Ctrl one-offs. `B12`
+`?2026` holds painting until the close (200 ms ceiling). `B13` SGR `4:2`–`4:5`
+and `58/59` styles/colour per cell. `B14` OSC 4/10/11/12 query/set with
+104/110/111/112 resets. `B15` mouse X10/`?1005`/`?1006`/`?1016`, touchpad
+accumulation, and buttons 8/9 when AWT delivers them.
+
+**Verification.** Headless checks for keys, underline/history/reflow/alt, OSC
+replies and modes; Xvfb `:99` screenshot of the five underlines and red `58`;
+`cat -v` probes for `CSI 1;5D`; SGR/X10/pixel mouse probes; doom-fire 720.1 fps.
+
+**Limitations.** `L14` resolved; `L15` added (AWT drops horizontal wheel/extra buttons).

@@ -7,7 +7,7 @@ package term;
  */
 public final class Theme {
 
-    public final int fg, bg, cursor;
+    public int fg, bg, cursor;
     public final int[] palette = new int[256];
 
     public Theme(int fg, int bg, int cursor, int[] palette16) {

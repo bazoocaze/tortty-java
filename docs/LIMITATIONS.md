@@ -13,7 +13,8 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 | L8 | No kitty/sixel/iTerm2 images | `icat` and similar do not draw |
 | L9 | No scrollback search | large history is not searchable |
 | L13 | No colour emoji: Java2D does not draw the colour tables; non-BMP emoji fall back to monochrome or tofu | emoji may look monochrome or missing |
-| L14 | SGR `4:2`–`4:5` styles and underline colour (`58`) are parsed but drawn as a single underline | diagnostic undercurls are not distinct |
+| L15 | AWT does not deliver horizontal wheel or extra buttons (`8`/`9`, back/forward) | those gestures do nothing; the code maps button numbers `4`/`5` if a platform ever delivers them |
 
 `L1`, `L2`, `L10`, `L11`, and `L12` were resolved by `B6`–`B10` on 2026-11-07;
-`L6` was resolved by `B5` on the same day. The ids are not reused.
+`L6` was resolved by `B5` on the same day; `L14` was resolved by `B13` on
+2026-11-08. The ids are not reused.

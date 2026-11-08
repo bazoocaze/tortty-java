@@ -88,12 +88,19 @@ public final class Main {
         final Theme theme = cfg.theme();
 
         final Term term = new Term(o.cols, o.rows);
+        term.setTheme(theme);
         term.setScrollbackLimit(cfg.scrollback);
         term.defaultCursorShape = cfg.cursorShape;
         term.defaultCursorBlink = cfg.cursorBlink;
         term.cursorShape = cfg.cursorShape;
         term.cursorBlink = cfg.cursorBlink;
         final TermPanel panel = new TermPanel(term, cfg.fontFamily, cfg.fontSize, dpi, theme);
+        // ?2026 holds the paint until the close; the ceiling keeps an app that
+        // forgets the close from freezing the screen.
+        final javax.swing.Timer syncTimer = new javax.swing.Timer(200, ev -> {
+            if (term.sync) panel.requestFullRepaint();
+        });
+        syncTimer.setRepeats(false);
         panel.setPadding(cfg.windowPaddingWidth);
         panel.setBellMode(cfg.bell);
         panel.setCopyOnSelect(cfg.copyOnSelect);
@@ -131,6 +138,7 @@ public final class Main {
             boolean lat = Boolean.getBoolean("tortty.debug.latency");
             long feedT0 = System.nanoTime();
             if (lat) System.err.printf("LAT feed-start t=%d len=%d%n", feedT0, chunk.length);
+            boolean wasSync = term.sync;
             term.feed(chunk, 0, chunk.length);
             if (lat) System.err.printf("LAT feed-end t=%d dur=%.3fms%n", System.nanoTime(), (System.nanoTime() - feedT0) / 1e6);
             byte[] replies = term.takeChildOut();
@@ -138,7 +146,13 @@ public final class Main {
             String wt = term.windowTitle();
             if (!wt.equals(lastTitle[0])) { lastTitle[0] = wt; frame.setTitle(wt); }
             panel.checkNotifications();
-            panel.repaintDamage();
+            if (term.sync) {
+                syncTimer.restart();
+            } else {
+                syncTimer.stop();
+                if (wasSync) panel.requestFullRepaint();
+                else panel.repaintDamage();
+            }
         }));
         ptyRef.start();
 
@@ -188,6 +202,11 @@ public final class Main {
                     m.put("bells", term.bells);
                     m.put("notifs", term.notifs);
                     m.put("notif", term.notifText);
+                    m.put("sync", term.sync);
+                    m.put("mouse_mode", term.mouseMode);
+                    m.put("mouse_sgr", term.mouseSgr);
+                    m.put("mouse_utf8", term.mouseUtf8);
+                    m.put("mouse_pixels", term.mousePixels);
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {
@@ -279,7 +298,9 @@ public final class Main {
         term.cursorBlink = c.cursorBlink;
         panel.setBellMode(c.bell);
         panel.setCopyOnSelect(c.copyOnSelect);
-        panel.setTheme(c.theme());
+        Theme liveTheme = c.theme();
+        term.setTheme(liveTheme);
+        panel.setTheme(liveTheme);
         panel.setPadding(c.windowPaddingWidth);
         panel.setFontConfig(c.fontFamily, c.fontSize);
         int nc = panel.gridCols();

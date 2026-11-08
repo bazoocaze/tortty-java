@@ -36,6 +36,13 @@ Under the same condition Java reaches ~76% of Rust's generator fps at 61x18 and
 ~79% at 70x21; Java's `draw` per call is actually lower than Rust's, but it does
 more draw calls. The visible paint rate is ~95/s and ~53/s.
 
+## After B11–B15 (2026-11-08, same condition)
+
+Median of 3 shots, 1200 frames, 61x18, font 17: **720.1 fps**, **30.9 MB/s**,
+draw **2.49 ms/call**, parse 0.13 ms/call, pty 0.23 ms/call. This is inside the
+B6–B10 range (691.2 fps / 29.7 MB/s); no regression from the underline arrays
+or the paint gate.
+
 ## Published reference (schedutil, X11 :0, from tortty/docs/BENCHMARKS.md)
 
 | grid | terminal | fps | MB/s | draw ms/call |

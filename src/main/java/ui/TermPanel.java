@@ -22,9 +22,6 @@ public final class TermPanel extends JPanel implements KeyListener {
     private float fontSizePt;
     private final float dpi;
     private Theme theme;
-    private java.awt.Color defBg;
-    private java.awt.Color defFg;
-    private java.awt.Color cursorColor;
     private int padding;
     private int bellMode;
     private boolean copyOnSelect = true;
@@ -35,6 +32,9 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private ChildPty pty;
     private int pressedButton = -1;
+    private double wheelFrac, scrollFrac;
+    private long lastWheelNanos;
+    private int lastWheelDir;
     private boolean ctrlDown;
     private int selAX = -1, selBX = -1;
     private long selAbsAY = -1, selAbsBY = -1;
@@ -71,7 +71,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         this.theme = theme;
         setTheme(theme);
         setOpaque(true);
-        setBackground(defBg);
+        setBackground(new java.awt.Color(theme.bg));
         setFocusable(true);
         // Sem isto o Swing consome Tab para navegação de foco e o terminal
         // nunca recebe 0x09 (completion do shell, troca de painel do mc).
@@ -246,11 +246,8 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     public void setTheme(Theme t) {
         this.theme = t;
-        this.defBg = new java.awt.Color(t.bg);
-        this.defFg = new java.awt.Color(t.fg);
-        this.cursorColor = new java.awt.Color(t.cursor);
         colorCache.clear();
-        setBackground(defBg);
+        setBackground(new java.awt.Color(t.bg));
         requestFullRepaint();
     }
 
@@ -409,7 +406,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         final int baselineOffset = (int) Math.round(ascent);
 
         if (full) {
-            g2.setColor(defBg);
+            g2.setColor(color(theme.bg));
             g2.fillRect(0, 0, w, h);
         } else {
             if (paintRows.length < rows) paintRows = new boolean[rows];
@@ -431,7 +428,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             if (!full && !paintRows[y]) continue;
             int yPx = padding + y * cellH;
             if (!full) {
-                g2.setColor(defBg);
+                g2.setColor(color(theme.bg));
                 g2.fillRect(padding, yPx, cols * cellW, cellH);
             }
             int[] cps = term.lineCp(y);
@@ -440,12 +437,15 @@ public final class TermPanel extends JPanel implements KeyListener {
             int[] fg = term.lineFg(y);
             int[] bg = term.lineBg(y);
             byte[] attr = term.lineAttr(y);
+            byte[] ul = term.lineUl(y);
+            int[] ulColor = term.lineUlColor(y);
             int baseline = yPx + baselineOffset;
             int x = 0;
             while (x < cols) {
                 int i = off + x;
                 boolean sel = isSelected(x, y);
                 int f = fg[i], b = bg[i], a = attr[i];
+                int uStyle = ul[i], uColor = ulColor[i];
                 int rf = theme.resolve(f, theme.fg);
                 int rb = theme.resolve(b, theme.bg);
                 if ((a & Term.INVERSE) != 0) { int t = rf; rf = rb; rb = t; }
@@ -455,7 +455,8 @@ public final class TermPanel extends JPanel implements KeyListener {
                 while (run < cols) {
                     int j = off + run;
                     boolean jsel = isSelected(run, y);
-                    if (fg[j] != f || bg[j] != b || attr[j] != a || jsel != sel) break;
+                    if (fg[j] != f || bg[j] != b || attr[j] != a
+                            || ul[j] != uStyle || ulColor[j] != uColor || jsel != sel) break;
                     run++;
                 }
                 int xPx = padding + x * cellW;
@@ -467,8 +468,9 @@ public final class TermPanel extends JPanel implements KeyListener {
                 g2.setColor(color(rf));
                 g2.setFont(font);
                 drawCells(g2, cps, cls, off + x, run - x, xPx, baseline, font, a);
-                if ((a & Term.UNDERLINE) != 0) {
-                    g2.fillRect(xPx, yPx + cellH - 2, runW, 1);
+                if (uStyle != 0) {
+                    drawUnderline(g2, xPx, yPx, runW, cellH, uStyle,
+                            color(theme.resolve(uColor, rf)));
                 }
                 if ((a & Term.STRIKE) != 0) {
                     g2.fillRect(xPx, yPx + cellH / 2, runW, 1);
@@ -497,7 +499,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                 int wcells = Math.max(1, Math.min(cols - cx, WcWidth.width(term.cp[i])));
                 int xPx = padding + cx * cellW;
                 int yPx = padding + cy * cellH;
-                g2.setColor(cursorColor);
+                g2.setColor(color(theme.cursor));
                 if (term.cursorShape == 1) {
                     int bw = Math.max(2, Math.round(cellW / 8f));
                     g2.fillRect(xPx, yPx, bw, cellH);
@@ -508,7 +510,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                     g2.fillRect(xPx, yPx, wcells * cellW, cellH);
                     String s = Term.cellString(term.cp, term.cluster, i);
                     if (!s.equals(" ")) {
-                        g2.setColor(defBg);
+                        g2.setColor(color(theme.bg));
                         g2.setFont(glyphFont(fontFor(term.attr[i]), term.cp[i], term.attr[i]));
                         g2.drawString(s, xPx, yPx + baselineOffset);
                     }
@@ -589,6 +591,40 @@ public final class TermPanel extends JPanel implements KeyListener {
         }
     }
 
+    private void drawUnderline(Graphics2D g2, int x, int y, int w, int h,
+                               int style, java.awt.Color c) {
+        int wy = y + h - 2;
+        Stroke old = g2.getStroke();
+        g2.setColor(c);
+        switch (style) {
+            case 2 -> {
+                g2.fillRect(x, wy - 2, w, 1);
+                g2.fillRect(x, wy, w, 1);
+            }
+            case 3 -> {
+                java.awt.geom.Path2D.Float p = new java.awt.geom.Path2D.Float();
+                p.moveTo(x, wy);
+                for (int i = 2; i <= w; i += 2) {
+                    p.lineTo(x + i, wy + (((i / 2) & 1) == 0 ? 1 : -1));
+                }
+                g2.setStroke(new BasicStroke(1f));
+                g2.draw(p);
+            }
+            case 4 -> {
+                g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT,
+                        BasicStroke.JOIN_MITER, 1f, new float[] {1f, 2f}, 0f));
+                g2.drawLine(x, wy, x + w, wy);
+            }
+            case 5 -> {
+                g2.setStroke(new BasicStroke(1f, BasicStroke.CAP_BUTT,
+                        BasicStroke.JOIN_MITER, 1f, new float[] {4f, 2f}, 0f));
+                g2.drawLine(x, wy, x + w, wy);
+            }
+            default -> g2.fillRect(x, wy, w, 1);
+        }
+        g2.setStroke(old);
+    }
+
     private void drawCells(Graphics2D g2, int[] cps, String[] cls, int off, int n,
                            int xPx, int baseline, Font font, int attr) {
         if (runBuf.length < n) runBuf = new char[n];
@@ -639,7 +675,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     @Override public void keyTyped(KeyEvent e) {
         char c = e.getKeyChar();
         if (c == KeyEvent.CHAR_UNDEFINED) return;
-        if (e.isControlDown()) return;
+        if (e.isControlDown() || e.isMetaDown()) return;
         if (c < 0x20 || c == 0x7f) return;
         term.scrollToBottom();
         byte[] bytes;
@@ -700,44 +736,11 @@ public final class TermPanel extends JPanel implements KeyListener {
                 default -> { }
             }
         }
-        String seq = null;
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_ENTER: seq = "\r"; break;
-            case KeyEvent.VK_BACK_SPACE: seq = "\u007f"; break;
-            case KeyEvent.VK_TAB: seq = e.isShiftDown() ? "\u001b[Z" : "\t"; break;
-            case KeyEvent.VK_ESCAPE: seq = "\u001b"; break;
-            case KeyEvent.VK_UP: seq = term.decckm ? "\u001bOA" : "\u001b[A"; break;
-            case KeyEvent.VK_DOWN: seq = term.decckm ? "\u001bOB" : "\u001b[B"; break;
-            case KeyEvent.VK_RIGHT: seq = term.decckm ? "\u001bOC" : "\u001b[C"; break;
-            case KeyEvent.VK_LEFT: seq = term.decckm ? "\u001bOD" : "\u001b[D"; break;
-            case KeyEvent.VK_HOME: seq = term.decckm ? "\u001bOH" : "\u001b[H"; break;
-            case KeyEvent.VK_END: seq = term.decckm ? "\u001bOF" : "\u001b[F"; break;
-            case KeyEvent.VK_PAGE_UP: seq = "\u001b[5~"; break;
-            case KeyEvent.VK_PAGE_DOWN: seq = "\u001b[6~"; break;
-            case KeyEvent.VK_INSERT: seq = "\u001b[2~"; break;
-            case KeyEvent.VK_DELETE: seq = "\u001b[3~"; break;
-            case KeyEvent.VK_F1: seq = "\u001bOP"; break;
-            case KeyEvent.VK_F2: seq = "\u001bOQ"; break;
-            case KeyEvent.VK_F3: seq = "\u001bOR"; break;
-            case KeyEvent.VK_F4: seq = "\u001bOS"; break;
-            case KeyEvent.VK_F5: seq = "\u001b[15~"; break;
-            case KeyEvent.VK_F6: seq = "\u001b[17~"; break;
-            case KeyEvent.VK_F7: seq = "\u001b[18~"; break;
-            case KeyEvent.VK_F8: seq = "\u001b[19~"; break;
-            case KeyEvent.VK_F9: seq = "\u001b[20~"; break;
-            case KeyEvent.VK_F10: seq = "\u001b[21~"; break;
-            case KeyEvent.VK_F11: seq = "\u001b[23~"; break;
-            case KeyEvent.VK_F12: seq = "\u001b[24~"; break;
-        }
-        if (e.isControlDown() && !e.isAltDown()) {
-            int k = e.getKeyCode();
-            if (k >= KeyEvent.VK_A && k <= KeyEvent.VK_Z) {
-                seq = String.valueOf((char) (k - KeyEvent.VK_A + 1));
-            } else if (k == KeyEvent.VK_SPACE) seq = "\u0000";
-        }
-        if (seq != null) {
+        byte[] bytes = input.Keys.encode(e.getKeyCode(), e.getKeyChar(),
+                e.getModifiersEx(), term.decckm);
+        if (bytes != null) {
             term.scrollToBottom();
-            send(seq.getBytes(StandardCharsets.UTF_8));
+            send(bytes);
             e.consume();
         }
     }
@@ -877,66 +880,108 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private void sendMouse(MouseEvent e, boolean press) {
         if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
-        int cx = cellX(e), cy = cellY(e);
-        int button;
-        switch (e.getButton()) {
-            case MouseEvent.BUTTON1 -> button = 0;
-            case MouseEvent.BUTTON2 -> button = 1;
-            case MouseEvent.BUTTON3 -> button = 2;
-            default -> { return; }
-        }
-        int mod = modifiers(e);
-        int code = button + mod;
+        int button = mouseButton(e.getButton());
+        if (button < 0) return;
         if (press) pressedButton = button; else pressedButton = -1;
-        if (term.mouseSgr) {
-            String seq = press
-                    ? String.format("\u001b[<%d;%d;%dM", code, cx + 1, cy + 1)
-                    : String.format("\u001b[<%d;%d;%dm", code, cx + 1, cy + 1);
-            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
+        sendMouseEvent(e, button, press, false);
     }
 
     private void sendMouseDrag(MouseEvent e) {
         if (pty == null || term.mouseMode < 2 || pressedButton < 0 || !insideGrid(e)) return;
-        int cx = cellX(e), cy = cellY(e);
-        int mod = modifiers(e);
-        int code = pressedButton + 32 + mod;
-        if (term.mouseSgr) {
-            String seq = String.format("\u001b[<%d;%d;%dM", code, cx + 1, cy + 1);
-            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
+        sendMouseEvent(e, pressedButton, true, true);
     }
 
     private void sendMouseMove(MouseEvent e) {
         if (pty == null || term.mouseMode < 3 || !insideGrid(e)) return;
-        int cx = cellX(e), cy = cellY(e);
-        int mod = modifiers(e);
-        int code = 35 + mod; // motion, no button
-        if (term.mouseSgr) {
-            String seq = String.format("\u001b[<%d;%d;%dM", code, cx + 1, cy + 1);
-            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
+        sendMouseEvent(e, 3, true, true);
     }
 
     private void sendMouseWheel(java.awt.event.MouseWheelEvent e) {
+        double raw = -e.getPreciseWheelRotation(); // up is positive
+        if (raw == 0.0 || !Double.isFinite(raw)) return;
         if (!term.inAltScreen() && term.historySize() > 0
                 && (term.mouseMode == 0 || e.isShiftDown() || term.viewOff() > 0)) {
-            int lines = e.getWheelRotation() * 3;
-            if (lines != 0) {
-                term.scrollView(-lines);
+            double lines = Math.abs(raw) == 1.0 ? raw * 3.0 : raw;
+            scrollFrac += lines;
+            int n = (int) scrollFrac;
+            if (n != 0) {
+                scrollFrac -= n;
+                term.scrollView(n);
                 requestFullRepaint();
             }
             return;
         }
         if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
-        int cx = cellX(e), cy = cellY(e);
-        int button = e.getWheelRotation() < 0 ? 64 : 65;
-        int mod = modifiers(e);
-        int code = button + mod;
-        if (term.mouseSgr) {
-            String seq = String.format("\u001b[<%d;%d;%dM", code, cx + 1, cy + 1);
-            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        int n = wheelNotches(raw);
+        if (n == 0) return;
+        int button = n > 0 ? 64 : 65;
+        for (int i = 0; i < Math.abs(n); i++) sendMouseEvent(e, button, true, false);
+    }
+
+    /** One event is not one notch on a touchpad; a detent is, and X11 repeats it. */
+    private int wheelNotches(double raw) {
+        if (Math.abs(raw) == 1.0) {
+            long now = System.nanoTime();
+            int dir = raw > 0 ? 1 : -1;
+            boolean repeated = lastWheelDir == dir && now - lastWheelNanos < 10_000_000L;
+            lastWheelNanos = now;
+            lastWheelDir = dir;
+            return repeated ? 0 : dir;
         }
+        if (wheelFrac * raw < 0) wheelFrac = 0;
+        wheelFrac += raw;
+        int n = (int) wheelFrac;
+        wheelFrac -= n;
+        return n;
+    }
+
+    private void sendMouseEvent(MouseEvent e, int button, boolean press, boolean motion) {
+        if (pty == null) return;
+        int mod = modifiers(e);
+        int code = button | mod;
+        if (motion) code |= 32;
+        boolean sgr = term.mouseSgr || term.mousePixels;
+        int x, y;
+        if (term.mousePixels) {
+            x = Math.max(0, Math.min(term.cols * cellW() - 1, e.getX() - padding));
+            y = Math.max(0, Math.min(term.rows * cellH() - 1, e.getY() - padding));
+        } else {
+            x = cellX(e);
+            y = cellY(e);
+        }
+        if (sgr) {
+            String seq = String.format("\u001b[<%d;%d;%d%c", code, x + 1, y + 1, press ? 'M' : 'm');
+            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return;
+        }
+        if (!press) code = 3 | mod;
+        int max = term.mouseUtf8 ? 2014 : 222;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(12);
+        out.write(0x1b); out.write('['); out.write('M');
+        out.write(32 + (code & 0xff));
+        mouseCoord(out, Math.min(x, max) + 33, term.mouseUtf8);
+        mouseCoord(out, Math.min(y, max) + 33, term.mouseUtf8);
+        send(out.toByteArray());
+    }
+
+    private static void mouseCoord(java.io.ByteArrayOutputStream out, int v, boolean utf8) {
+        if (utf8) {
+            byte[] b = new String(Character.toChars(v)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            out.write(b, 0, b.length);
+        } else {
+            out.write(v & 0xff);
+        }
+    }
+
+    private static int mouseButton(int awtButton) {
+        return switch (awtButton) {
+            case MouseEvent.BUTTON1 -> 0;
+            case MouseEvent.BUTTON2 -> 1;
+            case MouseEvent.BUTTON3 -> 2;
+            case 4 -> 128; // back
+            case 5 -> 129; // forward
+            default -> -1;
+        };
     }
 
     private int modifiers(MouseEvent e) {
