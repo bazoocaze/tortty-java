@@ -1,21 +1,21 @@
 # LIMITATIONS
 
-Limitações aceitas ou ainda não resolvidas. Trabalho planejado fica em
-`BACKLOG.md` (`B<n>`); aqui o id é `L<n>`. Limitações já vencidas devem sair daqui
-e ir para o `HISTORY.md` (provavelmente via uma atividade de `BACKLOG`).
+Accepted or still unresolved limitations. Planned work lives in `BACKLOG.md`
+(`B<n>`); here the id is `L<n>`. Limitations already overcome must leave here and
+go to `HISTORY.md` (probably through a `BACKLOG` activity).
 
-| id | limitação | consequência |
+| id | limitation | consequence |
 |---|---|---|
-| L1 | Scrollback é mantido em memória, mas não há visualização/navegação nem scrollbar | só a tela corrente é visível; o histórico não é alcançável |
-| L2 | Sem largura de célula dupla (CJK/emoji) e sem combinação de acentos separados | alinhamento errado e acentos podem virar células próprias |
-| L3 | Sem shaping/ligaduras e sem IME/composição | texto complexo e entrada CJK não são suportados |
-| L4 | Limite de 16 ms/vsync não implementado | `--no-vsync` é instrumento de benchmark; a pintura segue o Swing |
-| L5 | Integração específica de Unix | socket AF_UNIX, `$SHELL`, `/tmp`, `Xft.dpi` e fontes X11 não são portáveis como estão |
-| L7 | Sem abas, workspaces ou splits | uma janela = um pty |
-| L8 | Sem imagens kitty/sixel/iTerm2 | `icat` e similares não desenham |
-| L9 | Sem busca no scrollback | histórico grande não é pesquisável |
-| L10 | Sem arquivo de configuração/recarga a quente | ajustes só por CLI e constantes do código |
-| L11 | Sem notificações OSC 9/777, sino visual e indicador | apps não conseguem chamar atenção fora do título |
-| L12 | Sem reflow no resize | linhas longas são cortadas/preenchidas, não reorganizadas |
+| L1 | Scrollback is kept in memory, but there is no view/navigation or scrollbar | only the current screen is visible; history is unreachable |
+| L2 | No double-width cell (CJK/emoji) and no combining of separate accents | wrong alignment and accents may become their own cells |
+| L3 | No shaping/ligatures and no IME/composition | complex text and CJK input are not supported |
+| L4 | 16 ms/vsync limit not implemented | `--no-vsync` is a benchmark instrument; painting follows Swing |
+| L5 | Unix-specific integration | AF_UNIX socket, `$SHELL`, `/tmp`, `Xft.dpi`, and X11 fonts are not portable as they are |
+| L7 | No tabs, workspaces, or splits | one window = one pty |
+| L8 | No kitty/sixel/iTerm2 images | `icat` and similar do not draw |
+| L9 | No scrollback search | large history is not searchable |
+| L10 | No config file/hot reload | adjustments only via CLI and code constants |
+| L11 | No OSC 9/777 notifications, visual bell, or badge | apps cannot get attention outside the title |
+| L12 | No reflow on resize | long lines are cut/padded, not reorganized |
 
-`L6` foi resolvido por `B5` em 2026-11-07; o id não é reutilizado.
+`L6` was resolved by `B5` on 2026-11-07; the id is not reused.

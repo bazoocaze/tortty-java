@@ -1,30 +1,30 @@
 # TorTTY-Java
 
-Port mínimo funcional do terminal TorTTY para **Java 21 + Swing**.
-Parser VT, pty via pty4j, teclado/mouse xterm e tela alternativa.
+Minimal functional port of the TorTTY terminal to **Java 21 + Swing**.
+VT parser, pty via pty4j, xterm keyboard/mouse, and alternate screen.
 
-Este projeto é uma implementação experimental criada a partir da versão principal do TorTTY (em Rust). O objetivo da versão Java é avaliar o comportamento de funcionalidades da versão principal, correntes ou futuras, bem como a análise de desempenho.
+This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behavior of features from the main version, current or future, as well as performance analysis.
 
-## Rodar
+## Running
 
 ```sh
 ./run.sh
 ```
 
-O script usa **zsh** como shell do terminal, compila o jar se necessário
-(`mvn package`) e executa `target/tortty-java.jar`. Requer JDK 21 e Maven.
+The script uses **zsh** as the terminal shell, compiles the jar if necessary
+(`mvn package`), and runs `target/tortty-java.jar`. Requires JDK 21 and Maven.
 
-Argumentos são repassados ao app, por exemplo:
+Arguments are passed to the app, for example:
 
 ```sh
 ./run.sh --font-size 17
 ./run.sh --debug-socket /tmp/tortty.sock
 ```
 
-## Documentação
+## Documentation
 
-- [`docs/FEATURES.md`](docs/FEATURES.md) — funcionalidades implementadas.
-- [`docs/BACKLOG.md`](docs/BACKLOG.md) — atividades correntes/futuras.
-- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — limitações da implementação.
-- [`docs/HISTORY.md`](docs/HISTORY.md) — histórico de atividades.
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — medições, condições e comparação com outras implementações do TorTTY.
+- [`docs/FEATURES.md`](docs/FEATURES.md) — implemented features.
+- [`docs/BACKLOG.md`](docs/BACKLOG.md) — current/future activities.
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — implementation limitations.
+- [`docs/HISTORY.md`](docs/HISTORY.md) — activity history.
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — measurements, conditions, and comparison with other TorTTY implementations.

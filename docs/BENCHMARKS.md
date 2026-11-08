@@ -1,7 +1,7 @@
 # BENCHMARKS — TorTTY-Java
 
 Doom-fire load (`tools/benchrun.py` + `tools/doomfire.py` from the reference
-repo, unchanged). All numbers below have date, condition and governor.
+repo, unchanged). All numbers below have date, condition, and governor.
 
 ## Machine and condition
 
@@ -50,20 +50,20 @@ Gain of Rust over Python/GTK: 7–9x (61x18) and 9–11x (70x21) in fps/MB/s.
 The local table is already under `schedutil`; the remaining difference from the
 published Rust figures is mostly the Xvfb/session condition.
 
-## fps do harness vs fps visível
+## Harness fps vs visible fps
 
-O `fps` que o `benchrun`/`doomfire` imprime é a taxa com que o **gerador**
-consegue escrever no pty — não quantas vezes a janela pintou. Medição no X11
-real (`:0`, 80x24, fonte 17, 10 s, `--fps 0`):
+The `fps` printed by `benchrun`/`doomfire` is the rate at which the **generator**
+can write to the pty — not how many times the window painted. Measurement on
+real X11 (`:0`, 80x24, font 17, 10 s, `--fps 0`):
 
-| condição | gerador | paint/call | paint/s |
+| condition | generator | paint/call | paint/s |
 |---|---|---|---|
-| Java2D com XRender (padrão antigo) | 437 fps | 278 ms | **~1,5/s** |
-| Java2D com `-Dsun.java2d.xrender=false` | 453 fps | 3,9 ms | **~87/s** |
+| Java2D with XRender (old default) | 437 fps | 278 ms | **~1.5/s** |
+| Java2D with `-Dsun.java2d.xrender=false` | 453 fps | 3.9 ms | **~87/s** |
 
-Era essa a "câmera lenta": o XRender do X11 real tornava cada `paintComponent`
-~278 ms, embora o gerador escrevesse a centenas de fps. O launcher agora desliga
-o XRender por padrão.
+That was the "slow motion": XRender on real X11 made each `paintComponent`
+~278 ms, even though the generator wrote at hundreds of fps. The launcher now
+disables XRender by default.
 
 ## Notes
 

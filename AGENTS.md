@@ -1,25 +1,26 @@
 # AGENTS
 
-TorTTY-Java: emulador de terminal em Java 21 + Swing. Este projeto é uma implementação experimental criada a partir da versão principal do TorTTY (em Rust). O objetivo da versão Java é avaliar o comportamento de funcionalidades da versão principal, correntes ou futuras, bem como a análise de desempenho.
+TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behavior of features from the main version, current or future, as well as performance analysis.
 
-## Antes de mexer
+## Before changing
 
-- `docs/FEATURES.md` — o que já existe.
-- `docs/BACKLOG.md` — o que fazer (corrente/futuro).
-- `docs/LIMITATIONS.md` — limitações aceitas, id `L<n>`.
-- `docs/HISTORY.md` — o que já foi feito.
-- `docs/BENCHMARKS.md` — medições e protocolo de benchmark.
+- `docs/FEATURES.md` — what already exists.
+- `docs/BACKLOG.md` — what to do (current/future).
+- `docs/LIMITATIONS.md` — accepted limitations, id `L<n>`.
+- `docs/HISTORY.md` — what has already been done.
+- `docs/BENCHMARKS.md` — measurements and benchmark protocol.
 
-## Regras
+## Rules
 
-- Build: `mvn package`; rodar: `./run.sh` (zsh).
-- Não matar processo por nome (`pkill`); usar PID file `/tmp/tortty-java.pid`.
-- Testes visuais em Xvfb `:99`, não na tela do dono.
-- Benchmark: fonte 17, seguir o protocolo de `docs/BENCHMARKS.md`.
-- Manter os docs concisos; atualizar `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` quando mudar o escopo.
-- Commits: conventional commits, máximo de 3 linhas.
+- Build: `mvn package`; run: `./run.sh` (zsh).
+- Do not kill processes by name (`pkill`); use PID file `/tmp/tortty-java.pid`.
+- Visual tests in Xvfb `:99`, not on the owner's screen.
+- Benchmark: font 17, follow the protocol in `docs/BENCHMARKS.md`.
+- Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
+- Commits: conventional commits, maximum of 3 lines.
+- File names, symbols, commits, comments, and text in English.
 
-## Rodar
+## Run
 
 ```sh
 ./run.sh

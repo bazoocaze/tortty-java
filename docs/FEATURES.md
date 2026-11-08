@@ -1,56 +1,56 @@
 # FEATURES
 
-Funcionalidades implementadas na versão Java do TorTTY.
+Features implemented in the Java version of TorTTY.
 
-## Terminal / parser VT
+## Terminal / VT parser
 
-- Parser incremental byte a byte (`Term.feed`) com estados ground, ESC, CSI, OSC.
-- UTF-8 incremental com substituição por U+FFFD.
-- SGR 16 cores, 256 cores e truecolor (`38;2`/`48;2`), incluindo subparâmetros `:`.
-- Atributos: negrito, fraco, itálico, sublinhado, piscante, inverso, riscado.
-- DEC graphics G0/G1 (`ESC(0`, `ESC)0`) para box-drawing do mc.
-- OSC 0/2 (título), 7 (cwd e fallback de título) e 8 (link por célula).
-- Cursor block/beam/underline via DECSCUSR (`CSI Ps SP q`) e blink via `?12`.
-- Tela alternativa (`?47`, `?1047`, `?1049`) e cursor salvo/restaurado.
-- Região de scroll (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.
-- Modos: DECCKM, cursor visível (`?25`), LNM, bracketed paste (`?2004`), sync (`?2026`), focus reporting (`?1004`), mouse (`?1000/1002/1003/1006`).
-- Scrollback em anel (mantido em memória; sem visualização ainda).
-- Respostas ao filho para DA/CPR.
+- Byte-by-byte incremental parser (`Term.feed`) with ground, ESC, CSI, and OSC states.
+- Incremental UTF-8 with U+FFFD replacement.
+- SGR 16 colors, 256 colors, and truecolor (`38;2`/`48;2`), including `:` subparameters.
+- Attributes: bold, faint, italic, underline, blink, inverse, strike.
+- DEC graphics G0/G1 (`ESC(0`, `ESC)0`) for mc box-drawing.
+- OSC 0/2 (title), 7 (cwd and title fallback), and 8 (per-cell link).
+- Block/beam/underline cursor via DECSCUSR (`CSI Ps SP q`) and blink via `?12`.
+- Alternate screen (`?47`, `?1047`, `?1049`) and saved/restored cursor.
+- Scroll region (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.
+- Modes: DECCKM, visible cursor (`?25`), LNM, bracketed paste (`?2004`), sync (`?2026`), focus reporting (`?1004`), mouse (`?1000/1002/1003/1006`).
+- Ring scrollback (kept in memory; no view yet).
+- Replies to the child for DA/CPR.
 
 ## PTY
 
-- Spawn via pty4j, com `TERM=xterm-256color` e `COLORTERM=truecolor`.
-- Reader thread com fila de chunks e exit watcher.
+- Spawn via pty4j, with `TERM=xterm-256color` and `COLORTERM=truecolor`.
+- Reader thread with chunk queue and exit watcher.
 - Resize via `TIOCSWINSZ`/`setWinSize`.
-- Shell configurável (`--cmd`) ou `$SHELL`/`/bin/sh`.
+- Configurable shell (`--cmd`) or `$SHELL`/`/bin/sh`.
 
-## UI / entrada
+## UI / input
 
-- Pintura Swing por runs de mesmo estilo, com damage por linha e repaint do cursor.
-- Repaint completo em expose, foco, resize e show.
-- Cursor em bloco, beam ou underline, com blink.
-- Teclado: texto, Enter, Backspace, Tab/Shift+Tab, Esc, setas, Home/End, PageUp/PageDown, Insert/Delete, F1–F12, Ctrl+letra, Alt como prefixo ESC.
-- Mouse SGR: press/release, drag, motion e wheel.
-- Seleção visível (arrastar, duplo clique na palavra, triplo na linha) com inversão; copia ao soltar e com Ctrl+Shift+C.
-- Colagem com Ctrl+Shift+V, respeitando bracketed paste.
-- Links OSC 8: Ctrl sublinha os links e Ctrl+clique abre `http/https/file/ftp/mailto`.
-- Fonte mono configurável; padrão DejaVu Sans Mono 17 pt; fallback para Monospaced.
-- Launcher desativa XRender no X11 real (`-Dsun.java2d.xrender=false`) para evitar paint lento.
+- Swing painting by same-style runs, with per-line damage and cursor repaint.
+- Full repaint on expose, focus, resize, and show.
+- Block, beam, or underline cursor, with blink.
+- Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End, PageUp/PageDown, Insert/Delete, F1–F12, Ctrl+letter, Alt as ESC prefix.
+- Mouse SGR: press/release, drag, motion, and wheel.
+- Visible selection (drag, double-click on word, triple-click on line) with inversion; copies on release and with Ctrl+Shift+C.
+- Paste with Ctrl+Shift+V, respecting bracketed paste.
+- OSC 8 links: Ctrl underlines links and Ctrl+click opens `http/https/file/ftp/mailto`.
+- Configurable mono font; default DejaVu Sans Mono 17 pt; fallback to Monospaced.
+- Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler
 
-- Socket Unix JSON por linha, permissão 0600.
-- Verbos: `state`, `resize`, `write`, `prof`, `screen`, `quit`.
-- Contadores `draw`, `parse` e `pty` no formato consumido pelo `benchrun.py`.
+- Unix JSON socket per line, 0600 permission.
+- Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`.
+- `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
 
-## CLI / build / operação
+## CLI / build / operation
 
 - Args: `--debug-socket`, `--no-vsync`, `--prof`, `--font-size`, `--font-family`, `--dpi`, `--cmd`, `--cols`, `--rows`.
-- Maven + jar shaded (`target/tortty-java.jar`).
-- `./run.sh` usa zsh e compila se o jar não existir.
-- PID file em `/tmp/tortty-java.pid`.
-- Benchmarks reproduzíveis via `tools/benchrun.py` do repo Rust.
+- Maven + shaded jar (`target/tortty-java.jar`).
+- `./run.sh` uses zsh and compiles if the jar does not exist.
+- PID file at `/tmp/tortty-java.pid`.
+- Reproducible benchmarks via `tools/benchrun.py` from the Rust repo.
 
-## Limitações
+## Limitations
 
-Ver [`LIMITATIONS.md`](LIMITATIONS.md) (`L1`–`L12`; `L6` resolvido por `B5`).
+See [`LIMITATIONS.md`](LIMITATIONS.md) (`L1`–`L12`; `L6` resolved by `B5`).

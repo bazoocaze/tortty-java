@@ -1,7 +1,7 @@
 # BACKLOG
 
-Atividades correntes e futuras. Ordem = menor dificuldade primeiro. Id `B<n>`.
-Atividades concluídas não ficam aqui; devem ir para o `HISTORY.md`.
+Current and future activities. Order = least difficult first. Id `B<n>`.
+Completed activities do not stay here; they must go to `HISTORY.md`.
 
-_Nenhum item corrente. As atividades `B1`–`B5` foram concluídas em 2026-11-07
-(ver [`HISTORY.md`](HISTORY.md))._
+_No current items. Activities `B1`–`B5` were completed on 2026-11-07
+(see [`HISTORY.md`](HISTORY.md))._

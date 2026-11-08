@@ -1,48 +1,49 @@
 # HISTORY
 
-Histórico conciso de atividades passadas. Máximo de 10 linhas por atividade.
+Concise history of past activities. Maximum of 10 lines per activity.
 
-## 2026-11-07 — experimento Java
+## 2026-11-07 — Java experiment
 
-**Contexto.** Validar se Java 21 + Swing era viável para um port mínimo do
-TorTTY (Rust) e comparar o desempenho sob o mesmo harness (`benchrun.py` +
-`doomfire.py`), com os critérios de vim, mc e doom-fire.
+**Context.** Validate whether Java 21 + Swing was viable for a minimal port of
+TorTTY (Rust) and compare performance under the same harness (`benchrun.py` +
+`doomfire.py`), with the criteria of vim, mc, and doom-fire.
 
-**Atividades.**
+**Activities.**
 
-- Projeto Maven único, parser VT + grid, PTY via pty4j, UI Swing.
-- Socket de debug e profiler (`draw`/`parse`/`pty`) compatíveis com o benchrun.
-- Correções: Tab consumido pelo foco do Swing; lag do mc por repintar todas as
-  linhas; XRender do Java2D tornando o paint ~278 ms no X11 real.
-- Benchmarks com fonte 17 e governador `schedutil`; tabela em `docs/BENCHMARKS.md`.
+- Single Maven project, VT parser + grid, PTY via pty4j, Swing UI.
+- Debug socket and profiler (`draw`/`parse`/`pty`) compatible with benchrun.
+- Fixes: Tab consumed by Swing focus; mc lag from repainting all lines; Java2D
+  XRender making paint ~278 ms on real X11.
+- Benchmarks with font 17 and `schedutil` governor; table in `docs/BENCHMARKS.md`.
 
-**Resultado.** vim e mc utilizáveis; doom-fire completo. Java ficou em ~71–78%
-do Rust local no throughput do gerador (710/510 fps vs 905/714 fps) e com paint
-visível de ~104/76 fps. O experimento inicial foi concluído; o projeto continua
-como implementação experimental para avaliar funcionalidades e desempenho da
-versão Rust.
+**Result.** vim and mc usable; doom-fire complete. Java reached ~71–78% of local
+Rust in generator throughput (710/510 fps vs 905/714 fps) and visible paint of
+~104/76 fps. The initial experiment was completed; the project continues as an
+experimental implementation to evaluate features and performance of the Rust
+version.
 
-**Commits principais.** `92dde3e` (inicial), `110ddf5` (docs/README, fonte 17),
-`77543ee` (damage repaint/lag do mc), `85691de` (XRender/fps visível).
+**Main commits.** `92dde3e` (initial), `110ddf5` (docs/README, font 17),
+`77543ee` (damage repaint/mc lag), `85691de` (XRender/visible fps).
 
-## 2026-11-07 — primeiras funcionalidades do Rust
+## 2026-11-07 — first features from Rust
 
-**Contexto.** Na sequência do experimento inicial, o `BENCHMARKS.md` foi movido
-para `docs/BENCHMARKS.md` e o backlog recebeu cinco funcionalidades do TorTTY
-Rust, da mais simples para a mais trabalhosa (`B1`–`B5`).
+**Context.** Following the initial experiment, `BENCHMARKS.md` was moved to
+`docs/BENCHMARKS.md` and the backlog received five features from TorTTY Rust,
+from simplest to hardest (`B1`–`B5`).
 
-**Implementado.**
+**Implemented.**
 
-- `B1` focus reporting (`?1004`): `CSI I`/`CSI O` no ganho/perda de foco.
-- `B2` DECSCUSR (`CSI Ps SP q`) com block/beam/underline e blink (`?12`).
-- `B3` OSC 7: cwd e título de fallback com `basename(cwd)`.
-- `B4` OSC 8: URI por célula, sublinhado com Ctrl e abertura com Ctrl+clique.
-- `B5` seleção e clipboard: arrastar, duplo/triplo clique, inversão,
-  Ctrl+Shift+C/V e bracketed paste.
+- `B1` focus reporting (`?1004`): `CSI I`/`CSI O` on focus gain/loss.
+- `B2` DECSCUSR (`CSI Ps SP q`) with block/beam/underline and blink (`?12`).
+- `B3` OSC 7: cwd and fallback title with `basename(cwd)`.
+- `B4` OSC 8: URI per cell, underline with Ctrl, and open with Ctrl+click.
+- `B5` selection and clipboard: drag, double/triple click, inversion,
+  Ctrl+Shift+C/V, and bracketed paste.
 
-**Verificação.** `mvn -q package`; teste headless do parser (OSC 7/8, DECSCUSR,
-`?12`, `?1004`); no Xvfb `:99`, o título `teste` via OSC 7, a seleção/cópia de
-`alpha beta`, o cursor beam visível e as sequências `^[[I`/`^[[O` no filho.
+**Verification.** `mvn -q package`; headless parser test (OSC 7/8, DECSCUSR,
+`?12`, `?1004`); in Xvfb `:99`, the title `teste` via OSC 7, the selection/copy
+of `alpha beta`, the visible beam cursor, and the `^[[I`/`^[[O` sequences in the
+child.
 
-**Limitações.** `L6` (seleção/clipboard) foi resolvido; as demais continuam em
+**Limitations.** `L6` (selection/clipboard) was resolved; the rest remain in
 [`LIMITATIONS.md`](LIMITATIONS.md).
