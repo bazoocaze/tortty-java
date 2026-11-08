@@ -25,6 +25,7 @@ import term.Theme;
 import ui.TermPanel;
 import config.Config;
 import config.ConfigWatcher;
+import state.Session;
 
 public final class Main {
 
@@ -38,6 +39,7 @@ public final class Main {
         Integer scrollback;
         String configPath;
         String cmd;
+        boolean noState;
         int cols = 80, rows = 24;
 
         static Opts parse(String[] args) {
@@ -54,6 +56,7 @@ public final class Main {
                     case "--config" -> o.configPath = args[++i];
                     case "--dpi" -> o.dpi = Float.parseFloat(args[++i]);
                     case "--cmd" -> o.cmd = args[++i];
+                    case "--no-state" -> o.noState = true;
                     case "--cols" -> o.cols = Integer.parseInt(args[++i]);
                     case "--rows" -> o.rows = Integer.parseInt(args[++i]);
                     default -> System.err.println("tortty-java: ignoring arg " + args[i]);
@@ -161,6 +164,9 @@ public final class Main {
         private final java.util.List<Workspace> workspaces = new java.util.ArrayList<>();
         private int ws = -1;
         private int nextCard;
+        private Session session = new Session();
+        private final java.awt.Rectangle normalBounds = new java.awt.Rectangle();
+        private boolean maximized;
         private boolean debugResizing;
         /** Clicks on the chrome must not take the keyboard from the terminal. */
         private boolean syncingBar;
@@ -181,6 +187,7 @@ public final class Main {
             for (String err : cfg.errors) System.err.println("tortty-java: config: " + err);
             o.applyTo(cfg);
             theme = cfg.theme();
+            session = o.noState ? new Session() : Session.load();
 
             frame = new JFrame("tortty-java");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -195,11 +202,31 @@ public final class Main {
             root.add(host, BorderLayout.CENTER);
             frame.setContentPane(root);
             bindKeys();
-            newWorkspace(null, true);
+            restore();
 
             frame.pack();
-            frame.setLocationByPlatform(true);
+            if (session.w >= Session.MIN_W && session.h >= Session.MIN_H) {
+                frame.setSize(session.w, session.h);
+            }
+            if (session.x != Session.NO_POS && session.y != Session.NO_POS) {
+                frame.setLocation(session.x, session.y);
+            } else {
+                frame.setLocationByPlatform(true);
+            }
+            if (session.maximized) frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
             frame.setVisible(true);
+            rememberGeometry();
+            frame.addComponentListener(new ComponentAdapter() {
+                @Override public void componentResized(ComponentEvent e) { rememberGeometry(); }
+                @Override public void componentMoved(ComponentEvent e) { rememberGeometry(); }
+            });
+            frame.addWindowStateListener(e -> {
+                maximized = (e.getNewState() & JFrame.MAXIMIZED_BOTH) != 0;
+                rememberGeometry();
+            });
+            // written for every way out: the close button, `exit` in the last
+            // shell and `quit` on the debug socket all end in System.exit
+            Runtime.getRuntime().addShutdownHook(new Thread(this::saveSession, "state-save"));
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override public void windowActivated(java.awt.event.WindowEvent e) {
                     forEachTab(t -> t.panel.requestFullRepaint());
@@ -255,6 +282,14 @@ public final class Main {
          * so a new workspace opens where the old one was (`B21`).
          */
         private void newWorkspace(String cwd, boolean first) {
+            Workspace w = addWorkspace();
+            ws = workspaces.size() - 1;
+            showWorkspace();
+            newTab(w, cwd, first);
+        }
+
+        /** Registers a workspace and its pane; the caller adds the tabs. */
+        private Workspace addWorkspace() {
             Workspace w = new Workspace();
             w.card = "ws" + (++nextCard);
             w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -262,9 +297,79 @@ public final class Main {
             w.pane.addChangeListener(e -> tabSelected(w));
             workspaces.add(w);
             host.add(w.pane, w.card);
-            ws = workspaces.size() - 1;
+            return w;
+        }
+
+        // ----------------------------------------------------------- B22 state
+
+        /** Reopens the workspaces, names and directories of the last session. */
+        private void restore() {
+            boolean any = false;
+            if (!session.workspaces.isEmpty()) {
+                for (Session.Mem m : session.workspaces) {
+                    Workspace w = addWorkspace();
+                    w.name = m.name == null ? "" : m.name;
+                    for (String cwd : m.cwds) {
+                        // a directory that is gone is not fatal: the tab opens
+                        // on the shell's own, like a new one
+                        String dir = cwd != null && !cwd.isEmpty()
+                                && java.nio.file.Files.isDirectory(Paths.get(cwd)) ? cwd : null;
+                        newTab(w, dir, false);
+                    }
+                    if (w.tabs.isEmpty()) newTab(w, null, false);
+                    w.active = Math.max(0, Math.min(w.active, w.tabs.size() - 1));
+                    w.pane.setSelectedIndex(w.active);
+                    any = true;
+                }
+            }
+            if (!any) {
+                newWorkspace(null, true);
+                return;
+            }
+            ws = Math.max(0, Math.min(session.ws, workspaces.size() - 1));
+            Workspace f = front();
+            if (f != null) {
+                f.active = Math.max(0, Math.min(session.tab, f.tabs.size() - 1));
+                f.pane.setSelectedIndex(f.active);
+            }
             showWorkspace();
-            newTab(w, cwd, first);
+        }
+
+        /** Keeps the bounds the window has when it is not maximized. */
+        private void rememberGeometry() {
+            if (maximized || frame == null) return;
+            java.awt.Rectangle b = frame.getBounds();
+            if (b.width >= Session.MIN_W && b.height >= Session.MIN_H) normalBounds.setBounds(b);
+        }
+
+        private Session snapshot() {
+            Session s = new Session();
+            if (normalBounds.width > 0) {
+                s.x = normalBounds.x;
+                s.y = normalBounds.y;
+                s.w = normalBounds.width;
+                s.h = normalBounds.height;
+            }
+            s.maximized = maximized;
+            s.ws = Math.max(0, ws);
+            Workspace f = front();
+            s.tab = f == null ? 0 : Math.max(0, f.active);
+            for (Workspace w : workspaces) {
+                Session.Mem m = new Session.Mem();
+                m.name = w.name;
+                for (Tab t : w.tabs) m.cwds.add(cwdOf(t));
+                s.workspaces.add(m);
+            }
+            return s;
+        }
+
+        /** Reads only the model, so the shutdown hook is safe. */
+        private void saveSession() {
+            if (o.noState) return;
+            try {
+                snapshot().save();
+            } catch (Exception ignored) {
+            }
         }
 
         /** Switches the pane in front; the parked ones keep their ptys running. */

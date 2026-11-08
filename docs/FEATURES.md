@@ -122,8 +122,16 @@ Features implemented in the Java version of TorTTY.
 
 ## CLI / build / operation
 
+- Session (`B22`): the window geometry (position, size, maximized kept apart
+  from the normal size) and the layout of the last run — workspace names, the
+  directory of each tab, and which workspace and tab were in front — in
+  `$XDG_STATE_HOME/tortty-java/window.json`. Written for every way out (the close
+  button, `exit` in the last shell, `quit` on the socket); a directory that is
+  gone opens the tab on the shell's default, and a crooked file only means
+  "default window". `--no-state` ignores the file and does not write it.
 - Args: `--config`, `--debug-socket`, `--no-vsync`, `--prof`, `--font-size`,
-  `--font-family`, `--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`.
+  `--font-family`, `--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`,
+  `--no-state`.
 - Maven + shaded jar (`target/tortty-java.jar`).
 - `./run.sh` uses zsh and compiles if the jar does not exist.
 - PID file at `/tmp/tortty-java.pid`.

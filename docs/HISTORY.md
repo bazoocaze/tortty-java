@@ -197,3 +197,30 @@ entry, click on a workspace button then typing landing in the terminal, grid
 24→22 rows while the toolbar is up, `exit` in the front workspace promoting the
 parked one, and doom-fire 687–757 fps (median ~701 fps / 30.1 MB/s) under load
 3.3, inside the previous spread.
+
+## 2026-11-08 — session state (B22)
+
+**Context.** Nothing survived a run: the window opened at the packed size and
+every start began with one tab in the repository directory, while the Rust
+version keeps both geometry (`J2`–`J6`) and layout (`M-I`).
+
+**Implemented** (`state/Session.java`, `Main.java`).
+- `$XDG_STATE_HOME/tortty-java/window.json` (falling back to `~/.local/state`)
+  with the geometry — position, size, maximized kept apart from the normal size —
+  and the layout: workspace names, the cwd of each tab (read from `/proc`, so it
+  is the directory the shell was in) and the workspace/tab in front.
+- Written for every way out through a shutdown hook, which reads only the model:
+  the close button, `exit` in the last shell and `quit` on the socket all save.
+  Written through `window.json.tmp` and an atomic move.
+- A directory that no longer exists opens the tab on the shell's default; a
+  crooked or unreadable file means "default window", never an error. The geometry
+  below 320x200 is discarded.
+- `--no-state` neither reads nor writes the file (the tests and the benchmark use
+  it so one run cannot leak into the next).
+
+**Verification.** `mvn package`; Xvfb `:99` with a throw-away `XDG_STATE_HOME` —
+three workspaces named and in different directories reopened with the same names,
+directories, front workspace and front tab; a tab directory deleted from the
+file; a crooked file opening at the default; maximized saved and restored with
+the normal size intact; two restart cycles with no size creep; `--no-state`
+leaving the file byte-identical.
