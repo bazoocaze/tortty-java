@@ -350,12 +350,15 @@ public final class Main {
                 if (lat) System.err.printf("LAT feed-end t=%d dur=%.3fms%n", System.nanoTime(), (System.nanoTime() - feedT0) / 1e6);
                 byte[] replies = term.takeChildOut();
                 if (replies.length > 0 && t.pty != null) t.pty.write(replies);
-                if (activeTab() == t) syncFrameTitle();
-                else if (!t.badge && term.notifs != t.ackedNotifs) {
+                if (activeTab() == t) {
+                    syncFrameTitle();
+                    // a background tab keeps a badge instead of a toast, as in
+                    // the Rust version
+                    t.panel.checkNotifications();
+                } else if (!t.badge && term.notifs != t.ackedNotifs) {
                     t.badge = true;
                     updateTitles();
                 }
-                t.panel.checkNotifications();
                 if (term.sync) {
                     t.syncTimer.restart();
                 } else {
