@@ -19,7 +19,12 @@ Arguments are passed to the app, for example:
 ```sh
 ./run.sh --font-size 17
 ./run.sh --debug-socket /tmp/tortty.sock
+./run.sh --config ~/.config/tortty-java/tortty.conf
 ```
+
+The optional config file is read from
+`$XDG_CONFIG_HOME/tortty-java/tortty.conf` (or `~/.config/...`) and reloads on
+edit; see [`docs/CONFIG.md`](docs/CONFIG.md).
 
 ## Installing the desktop shortcut
 
@@ -44,6 +49,7 @@ Both entries launch `run.sh` from this checkout. If you move the repository, run
 ## Documentation
 
 - [`docs/FEATURES.md`](docs/FEATURES.md) — implemented features.
+- [`docs/CONFIG.md`](docs/CONFIG.md) — configuration keys and hot reload.
 - [`docs/BACKLOG.md`](docs/BACKLOG.md) — current/future activities.
 - [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — implementation limitations.
 - [`docs/HISTORY.md`](docs/HISTORY.md) — activity history.

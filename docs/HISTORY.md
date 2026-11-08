@@ -47,3 +47,23 @@ child.
 
 **Limitations.** `L6` (selection/clipboard) was resolved; the rest remain in
 [`LIMITATIONS.md`](LIMITATIONS.md).
+
+## 2026-11-07 — second batch from Rust (B6–B10)
+
+**Context.** Approved the next five features, ordered by relevance: history,
+configuration, wide cells, reflow, and attention.
+
+**Implemented.**
+- `B6` scrollback view and scrollbar, with wheel/keys and copy through history.
+- `B7` kitty-format config, palette/theme, padding, CLI precedence and hot reload.
+- `B8` wide cells, non-BMP code points, combining clusters and per-glyph fallback.
+- `B9` paragraph reflow on resize, preserving styles and not splitting wide pairs.
+- `B10` `BEL`/OSC 9/777 notifications, toast queue, and visual/audible bell.
+
+**Verification.** `mvn -q package`; headless checks for scrollback, reflow, wide
+cells, colours and OSC 9/777; Xvfb `:99` screenshots for config hot reload,
+history, CJK/emoji, reflow and toast; `vim` smoke test; doom-fire 61x18 at
+~691 fps (1200 frames, median of 3 after warmup).
+
+**Limitations.** `L1`, `L2`, `L10`, `L11`, `L12` resolved; `L13` (colour emoji)
+and `L14` (underline styles) added.

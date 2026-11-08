@@ -16,8 +16,10 @@ public final class Term {
     public static final byte BOLD = 1, FAINT = 2, ITALIC = 4, UNDERLINE = 8, INVERSE = 16, BLINK = 32, STRIKE = 64;
     public int cols, rows;
 
-    // current screen
-    public char[] text;
+    // current screen: code point per cell (0 = continuation of a wide cell)
+    public int[] cp;
+    public String[] cluster;         // full grapheme cluster when it needs > 1 code point
+    public static final int WIDE_CONT = 0;
     public int[] fg, bg;
     public byte[] attr;
     public int[] link;               // 0 = none, n = links.get(n-1)
@@ -41,6 +43,15 @@ public final class Term {
     public boolean lnm;
     public boolean focusEvents;
 
+    // attention: BEL and OSC 9/777 notifications
+    public long bells, bellSeq;
+    public long notifs, notifSeq;
+    public String notifText = "";
+
+    // default cursor preference from the configuration
+    public int defaultCursorShape = 0;
+    public boolean defaultCursorBlink = false;
+
     // scroll region (inclusive)
     private int top, bot;
 
@@ -50,23 +61,55 @@ public final class Term {
     private boolean insert;
 
     // alternate buffer (saved main when in alt)
-    private char[] mainText;
+    private int[] mainCp;
+    private String[] mainCluster;
     private int[] mainFg, mainBg, mainLink;
     private byte[] mainAttr;
+    private boolean[] mainWrapped;
     private int mainX, mainY;
 
-    // scrollback (simple ring, no view)
-    private static final int HIST_CAP = 1000;
+    // scrollback: history rows plus a view offset (0 = live bottom)
+    private static final int HIST_CAP = 10000;
+    private int histCap = HIST_CAP;
     private final ArrayDeque<Row> hist = new ArrayDeque<>();
+    /** 0 = live bottom; n = the view is n lines above it. */
+    private int viewOff;
+    /** Absolute index of the first live-screen row (history grows this). */
+    private long totalLines;
+    /** Bumped when the grid layout changes and old anchors stop being valid. */
+    private long layoutGen;
     public int scrollback() { return hist.size(); }
+    public int historySize() { return hist.size(); }
+    public void setScrollbackLimit(int n) {
+        histCap = Math.max(0, Math.min(100000, n));
+        boolean dropped = false;
+        while (hist.size() > histCap) { hist.pollFirst(); dropped = true; }
+        if (dropped) layoutGen++;
+        viewOff = Math.min(viewOff, hist.size());
+    }
+    public int viewOff() { return viewOff; }
+    public long totalLines() { return totalLines; }
+    public long layoutGen() { return layoutGen; }
 
     // damage
     public boolean dirtyAll = true;
     public boolean[] dirty;
+    /** True when the row was soft-wrapped into the next one (reflow input). */
+    public boolean[] rowWrapped;
 
     private static final class Row {
-        final char[] t; final int[] f, b, l; final byte[] a;
-        Row(char[] t, int[] f, int[] b, byte[] a, int[] l) { this.t=t; this.f=f; this.b=b; this.a=a; this.l=l; }
+        final int[] t; final String[] cl; final int[] f, b, l; final byte[] a;
+        final boolean wrapped;
+        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l) {
+            this(t, cl, f, b, a, l, false);
+        }
+        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l, boolean wrapped) {
+            this.t=t; this.cl=cl; this.f=f; this.b=b; this.a=a; this.l=l; this.wrapped=wrapped;
+        }
+    }
+
+    private static final class Cell {
+        int cp; String cl; int fg, bg, link; byte attr;
     }
 
     // OSC 8 hyperlinks; repeated URIs share an id.
@@ -80,7 +123,7 @@ public final class Term {
     private boolean useG1 = false;
 
     // parser
-    private static final int GROUND = 0, ESC = 1, CSI = 2, OSC = 3, ESC_ONE = 4;
+    private static final int GROUND = 0, ESC = 1, CSI = 2, OSC = 3, ESC_ONE = 4, OSC_ST = 5;
     private int state = GROUND;
     private int charsetTarget = 0;
     private final byte[] csiBuf = new byte[256];
@@ -103,9 +146,11 @@ public final class Term {
 
     private void alloc() {
         int n = cols * rows;
-        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
+        cp = new int[n]; cluster = new String[n];
+        fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
         dirty = new boolean[rows];
-        for (int i = 0; i < n; i++) { text[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; }
+        rowWrapped = new boolean[rows];
+        for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; }
         java.util.Arrays.fill(dirty, true);
         dirtyAll = true;
         top = 0; bot = rows - 1;
@@ -117,36 +162,66 @@ public final class Term {
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
         decckm = false; lnm = false; alt = false;
         title = ""; titleExplicit = false; cwd = "";
-        cursorVisible = true; cursorShape = 0; cursorBlink = false;
+        cursorVisible = true; cursorShape = defaultCursorShape; cursorBlink = defaultCursorBlink;
         mouseMode = 0; mouseSgr = false; bracketed = false; sync = false; focusEvents = false;
         top = 0; bot = rows - 1;
-        mainText = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
+        mainCp = null; mainCluster = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
+        mainWrapped = null;
         links.clear(); linkIndex.clear(); penLink = 0;
+        viewOff = 0; layoutGen++;
         cx = 0; cy = 0; wrapPending = false;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
-        for (int i = 0; i < text.length; i++) { text[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0; link[i] = 0; }
+        java.util.Arrays.fill(rowWrapped, false);
+        for (int i = 0; i < cp.length; i++) {
+            cp[i] = ' '; cluster[i] = null; fg[i] = DEFAULT; bg[i] = DEFAULT; attr[i] = 0; link[i] = 0;
+        }
     }
 
     public void resize(int nc, int nr) {
         if (nc <= 0 || nr <= 0) return;
         if (nc == cols && nr == rows) return;
+        if (!alt) {
+            resizeMain(nc, nr);
+            return;
+        }
         int oldCols = cols, oldRows = rows;
         cols = nc; rows = nr;
-        text = copyGrid(text, oldCols, oldRows, nc, nr, ' ');
+        cp = copyGridInt(cp, oldCols, oldRows, nc, nr, ' ');
+        cluster = copyGridStr(cluster, oldCols, oldRows, nc, nr);
         fg = copyGridInt(fg, oldCols, oldRows, nc, nr, DEFAULT);
         bg = copyGridInt(bg, oldCols, oldRows, nc, nr, DEFAULT);
         attr = copyGridByte(attr, oldCols, oldRows, nc, nr, (byte) 0);
         link = copyGridInt(link, oldCols, oldRows, nc, nr, 0);
+        rowWrapped = copyBool(rowWrapped, oldRows, nr);
         dirty = new boolean[nr];
         java.util.Arrays.fill(dirty, true);
         dirtyAll = true;
-        if (alt && mainText != null) {
-            mainText = copyGrid(mainText, oldCols, oldRows, nc, nr, ' ');
+        if (alt && mainCp != null) {
+            mainCp = copyGridInt(mainCp, oldCols, oldRows, nc, nr, ' ');
+            mainCluster = copyGridStr(mainCluster, oldCols, oldRows, nc, nr);
             mainFg = copyGridInt(mainFg, oldCols, oldRows, nc, nr, DEFAULT);
             mainBg = copyGridInt(mainBg, oldCols, oldRows, nc, nr, DEFAULT);
             mainAttr = copyGridByte(mainAttr, oldCols, oldRows, nc, nr, (byte) 0);
             mainLink = copyGridInt(mainLink, oldCols, oldRows, nc, nr, 0);
+            mainWrapped = copyBool(mainWrapped, oldRows, nr);
         }
+        // History rows were captured at the old width; crop/pad them too so
+        // the view can show them after a resize.
+        java.util.ArrayDeque<Row> nh = new java.util.ArrayDeque<>(hist.size());
+        for (Row r : hist) {
+            nh.addLast(new Row(
+                    copyGridInt(r.t, oldCols, 1, nc, 1, ' '),
+                    copyGridStr(r.cl, oldCols, 1, nc, 1),
+                    copyGridInt(r.f, oldCols, 1, nc, 1, DEFAULT),
+                    copyGridInt(r.b, oldCols, 1, nc, 1, DEFAULT),
+                    copyGridByte(r.a, oldCols, 1, nc, 1, (byte) 0),
+                    copyGridInt(r.l, oldCols, 1, nc, 1, 0),
+                    r.wrapped));
+        }
+        hist.clear();
+        hist.addAll(nh);
+        viewOff = Math.min(viewOff, hist.size());
+        layoutGen++;
         top = 0; bot = nr - 1;
         if (cx >= nc) cx = nc - 1;
         if (cy >= nr) cy = nr - 1;
@@ -155,20 +230,185 @@ public final class Term {
         wrapPending = false;
     }
 
-    private static char[] copyGrid(char[] src, int oc, int or, int nc, int nr, char def) {
-        char[] out = new char[nc * nr];
-        java.util.Arrays.fill(out, def);
-        int mc = Math.min(oc, nc), mr = Math.min(or, nr);
-        for (int y = 0; y < mr; y++)
-            System.arraycopy(src, y * oc, out, y * nc, mc);
-        return out;
+    private static boolean blankCell(Row r, int j) {
+        return r.t[j] == ' ' && (r.cl == null || r.cl[j] == null)
+                && r.b[j] == DEFAULT && r.a[j] == 0 && r.l[j] == 0;
     }
+
+    private static boolean blankRow(Row r) {
+        for (int j = 0; j < r.t.length; j++) if (!blankCell(r, j)) return false;
+        return true;
+    }
+
+    private static Row blankRow(int width) {
+        int[] t = new int[width], f = new int[width], b = new int[width], l = new int[width];
+        java.util.Arrays.fill(t, ' ');
+        java.util.Arrays.fill(f, DEFAULT);
+        java.util.Arrays.fill(b, DEFAULT);
+        return new Row(t, new String[width], f, b, new byte[width], l, false);
+    }
+
+    /**
+     * Main-screen resize: join the soft paragraphs (history + screen) and
+     * rewrap them at the new width. The cursor is recomputed from its offset
+     * inside the paragraph, not from the old row.
+     */
+    private void resizeMain(int nc, int nr) {
+        int oldCols = cols, oldRows = rows;
+        int curAbs = hist.size() + Math.max(0, Math.min(cy, oldRows - 1));
+        int curCol = Math.max(0, Math.min(cx, oldCols));
+        if (wrapPending) curCol++;
+
+        java.util.ArrayList<Row> all = new java.util.ArrayList<>(hist.size() + oldRows);
+        all.addAll(hist);
+        for (int y = 0; y < oldRows; y++) {
+            int off = y * oldCols;
+            int[] t = new int[oldCols], f = new int[oldCols], b = new int[oldCols], l = new int[oldCols];
+            String[] cl = new String[oldCols];
+            byte[] a = new byte[oldCols];
+            System.arraycopy(cp, off, t, 0, oldCols);
+            System.arraycopy(cluster, off, cl, 0, oldCols);
+            System.arraycopy(fg, off, f, 0, oldCols);
+            System.arraycopy(bg, off, b, 0, oldCols);
+            System.arraycopy(attr, off, a, 0, oldCols);
+            System.arraycopy(link, off, l, 0, oldCols);
+            all.add(new Row(t, cl, f, b, a, l, rowWrapped[y]));
+        }
+
+        java.util.ArrayList<java.util.ArrayList<Cell>> paragraphs = new java.util.ArrayList<>();
+        java.util.ArrayList<Cell> cur = new java.util.ArrayList<>();
+        int curPara = -1, curOff = 0;
+        for (int i = 0; i < all.size(); i++) {
+            Row r = all.get(i);
+            if (i == curAbs) {
+                curPara = paragraphs.size();
+                curOff = cur.size() + curCol;
+            }
+            int len = oldCols;
+            if (!r.wrapped) {
+                while (len > 0 && blankCell(r, len - 1)) len--;
+            }
+            for (int j = 0; j < len; j++) {
+                Cell c = new Cell();
+                c.cp = r.t[j]; c.cl = r.cl[j];
+                c.fg = r.f[j]; c.bg = r.b[j]; c.link = r.l[j]; c.attr = r.a[j];
+                cur.add(c);
+            }
+            if (!r.wrapped) {
+                paragraphs.add(cur);
+                cur = new java.util.ArrayList<>();
+            }
+        }
+        if (!cur.isEmpty() || paragraphs.isEmpty()) paragraphs.add(cur);
+
+        java.util.ArrayList<Row> out = new java.util.ArrayList<>();
+        int newCurRow = 0, newCurCol = 0;
+        boolean newWrap = false;
+        for (int pi = 0; pi < paragraphs.size(); pi++) {
+            java.util.ArrayList<Cell> cells = paragraphs.get(pi);
+            int first = out.size();
+            java.util.ArrayList<Integer> starts = new java.util.ArrayList<>();
+            int s = 0;
+            while (true) {
+                int e = Math.min(cells.size(), s + nc);
+                if (e < cells.size() && e > s && cells.get(e).cp == WIDE_CONT) e--;
+                if (e == s) e = Math.min(cells.size(), s + 1);
+                starts.add(s);
+                int[] t = new int[nc], f = new int[nc], b = new int[nc], l = new int[nc];
+                String[] cl = new String[nc];
+                byte[] a = new byte[nc];
+                java.util.Arrays.fill(t, ' ');
+                java.util.Arrays.fill(f, DEFAULT);
+                java.util.Arrays.fill(b, DEFAULT);
+                for (int j = 0; j < e - s; j++) {
+                    Cell c = cells.get(s + j);
+                    t[j] = c.cp; cl[j] = c.cl; f[j] = c.fg; b[j] = c.bg;
+                    a[j] = c.attr; l[j] = c.link;
+                }
+                boolean last = e >= cells.size();
+                out.add(new Row(t, cl, f, b, a, l, !last));
+                if (last) break;
+                s = e;
+            }
+            if (pi == curPara) {
+                int off = Math.min(curOff, cells.size());
+                int ci = 0;
+                for (int k = 0; k < starts.size(); k++) {
+                    int en = (k + 1 < starts.size()) ? starts.get(k + 1) : cells.size();
+                    if (off < en || k == starts.size() - 1) { ci = k; break; }
+                }
+                int st = starts.get(ci);
+                int en = (ci + 1 < starts.size()) ? starts.get(ci + 1) : cells.size();
+                newCurRow = first + ci;
+                if (off >= cells.size() && en - st == nc && ci == starts.size() - 1) {
+                    newCurCol = nc - 1;
+                    newWrap = true;
+                } else {
+                    newCurCol = Math.max(0, Math.min(nc - 1, off - st));
+                }
+            }
+        }
+
+        while (out.size() > newCurRow + 1 && blankRow(out.get(out.size() - 1))) {
+            out.remove(out.size() - 1);
+        }
+        int liveStart = Math.max(0, out.size() - nr);
+        java.util.ArrayList<Row> newHist = new java.util.ArrayList<>(out.subList(0, liveStart));
+        while (newHist.size() > histCap) newHist.remove(0);
+        java.util.ArrayList<Row> live = new java.util.ArrayList<>(out.subList(liveStart, out.size()));
+        while (live.size() < nr) live.add(blankRow(nc));
+
+        cols = nc;
+        rows = nr;
+        cp = new int[nc * nr];
+        cluster = new String[nc * nr];
+        fg = new int[nc * nr];
+        bg = new int[nc * nr];
+        attr = new byte[nc * nr];
+        link = new int[nc * nr];
+        java.util.Arrays.fill(cp, ' ');
+        java.util.Arrays.fill(fg, DEFAULT);
+        java.util.Arrays.fill(bg, DEFAULT);
+        rowWrapped = new boolean[nr];
+        for (int y = 0; y < nr; y++) {
+            Row r = live.get(y);
+            int off = y * nc;
+            System.arraycopy(r.t, 0, cp, off, nc);
+            System.arraycopy(r.cl, 0, cluster, off, nc);
+            System.arraycopy(r.f, 0, fg, off, nc);
+            System.arraycopy(r.b, 0, bg, off, nc);
+            System.arraycopy(r.a, 0, attr, off, nc);
+            System.arraycopy(r.l, 0, link, off, nc);
+            rowWrapped[y] = r.wrapped;
+        }
+        hist.clear();
+        hist.addAll(newHist);
+        totalLines = hist.size();
+        viewOff = 0;
+        cy = Math.max(0, Math.min(nr - 1, newCurRow - liveStart));
+        cx = Math.max(0, Math.min(nc - 1, newCurCol));
+        wrapPending = newWrap;
+        top = 0; bot = nr - 1;
+        dirty = new boolean[nr];
+        java.util.Arrays.fill(dirty, true);
+        dirtyAll = true;
+        layoutGen++;
+    }
+
     private static int[] copyGridInt(int[] src, int oc, int or, int nc, int nr, int def) {
         int[] out = new int[nc * nr];
         java.util.Arrays.fill(out, def);
         int mc = Math.min(oc, nc), mr = Math.min(or, nr);
         for (int y = 0; y < mr; y++)
             System.arraycopy(src, y * oc, out, y * nc, mc);
+        return out;
+    }
+    private static String[] copyGridStr(String[] src, int oc, int or, int nc, int nr) {
+        String[] out = new String[nc * nr];
+        int mc = Math.min(oc, nc), mr = Math.min(or, nr);
+        for (int y = 0; y < mr; y++) {
+            if (src != null) System.arraycopy(src, y * oc, out, y * nc, mc);
+        }
         return out;
     }
     private static byte[] copyGridByte(byte[] src, int oc, int or, int nc, int nr, byte def) {
@@ -179,8 +419,120 @@ public final class Term {
             System.arraycopy(src, y * oc, out, y * nc, mc);
         return out;
     }
+    private static boolean[] copyBool(boolean[] src, int oldRows, int newRows) {
+        boolean[] out = new boolean[newRows];
+        if (src != null) System.arraycopy(src, 0, out, 0, Math.min(oldRows, newRows));
+        return out;
+    }
 
     public boolean inAltScreen() { return alt; }
+
+    /** Positive moves the view up (into the history); negative returns to live. */
+    public void scrollView(int up) {
+        if (alt) { viewOff = 0; return; }
+        int nv = Math.max(0, Math.min(hist.size(), viewOff + up));
+        if (nv != viewOff) {
+            viewOff = nv;
+            dirtyAll = true;
+        }
+    }
+
+    public void scrollToBottom() { scrollView(-viewOff); }
+
+    /** Absolute line shown at view row {@code y}. */
+    public long absoluteLine(int y) { return totalLines + y - viewOff; }
+
+    private Row historyRow(long abs) {
+        long base = totalLines - hist.size();
+        int idx = (int) (abs - base);
+        if (idx < 0 || idx >= hist.size()) return null;
+        int fromEnd = hist.size() - 1 - idx;
+        java.util.Iterator<Row> it = hist.descendingIterator();
+        Row r = null;
+        for (int k = 0; k <= fromEnd && it.hasNext(); k++) r = it.next();
+        return r;
+    }
+
+    public boolean rowValid(long abs) {
+        long base = totalLines - hist.size();
+        return abs >= base && abs < totalLines + rows;
+    }
+
+    /** Code points of an absolute line (history row or the live grid), or null. */
+    public int[] rowCpAt(long abs) {
+        Row r = historyRow(abs);
+        if (r != null) return r.t;
+        if (abs >= totalLines && abs < totalLines + rows) return cp;
+        return null;
+    }
+
+    /** Grapheme clusters of an absolute line, or null. */
+    public String[] rowClusterAt(long abs) {
+        Row r = historyRow(abs);
+        if (r != null) return r.cl;
+        if (abs >= totalLines && abs < totalLines + rows) return cluster;
+        return null;
+    }
+
+    /** Offset inside {@link #rowCpAt(long)}, or -1 when the line is gone. */
+    public int rowOffsetAt(long abs) {
+        Row r = historyRow(abs);
+        if (r != null) return 0;
+        if (abs >= totalLines && abs < totalLines + rows) return (int) (abs - totalLines) * cols;
+        return -1;
+    }
+
+    public int[] lineCp(int y) {
+        int[] t = rowCpAt(absoluteLine(y));
+        return t != null ? t : cp;
+    }
+
+    public String[] lineCluster(int y) {
+        String[] t = rowClusterAt(absoluteLine(y));
+        return t != null ? t : cluster;
+    }
+
+    public int lineOffset(int y) {
+        int off = rowOffsetAt(absoluteLine(y));
+        return off >= 0 ? off : 0;
+    }
+
+    public int[] lineFg(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.f : fg;
+    }
+
+    public int[] lineBg(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.b : bg;
+    }
+
+    public byte[] lineAttr(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.a : attr;
+    }
+
+    public int[] lineLink(int y) {
+        Row r = historyRow(absoluteLine(y));
+        return r != null ? r.l : link;
+    }
+
+    public static String cellString(int[] cps, String[] cls, int i) {
+        if (cls != null && cls[i] != null) return cls[i];
+        int c = cps[i];
+        if (c == WIDE_CONT) return "";
+        return new String(Character.toChars(c));
+    }
+
+    public String lineString(int y) {
+        int[] cps = lineCp(y);
+        String[] cls = lineCluster(y);
+        int off = lineOffset(y);
+        if (cps == null) return " ".repeat(cols);
+        StringBuilder out = new StringBuilder(cols);
+        for (int x = 0; x < cols; x++) out.append(cellString(cps, cls, off + x));
+        return out.toString();
+    }
 
     public void clearDamage() { dirtyAll = false; if (dirty != null) java.util.Arrays.fill(dirty, false); }
 
@@ -199,6 +551,10 @@ public final class Term {
                 case ESC -> esc(b);
                 case CSI -> csiByte(b);
                 case OSC -> oscByte(b);
+                case OSC_ST -> {
+                    if (b == '\\') oscEnd();
+                    else state = GROUND;
+                }
                 case ESC_ONE -> {
                     // charset designators & friends: swallow one byte
                     if (charsetTarget == 0) {
@@ -244,6 +600,7 @@ public final class Term {
 
     private void c0(int b) {
         switch (b) {
+            case 7 -> { bells++; bellSeq++; }
             case 8 -> { wrapPending = false; if (cx > 0) cx--; }
             case 9 -> {
                 wrapPending = false;
@@ -259,29 +616,78 @@ public final class Term {
         }
     }
 
-    private void putChar(int cp) {
-        char c = cp <= 0xffff ? (char) cp : '?';
-        if (wrapPending) { wrapPending = false; cx = 0; lineFeed(); }
+    private void putChar(int c) {
+        int w = WcWidth.width(c);
+        if (w == 0) { combine(c); return; }
+        if (cols < 2 && w == 2) w = 1;
+        if (wrapPending) {
+            wrapPending = false;
+            rowWrapped[cy] = true;
+            cx = 0;
+            lineFeed();
+        }
+        if (w == 2 && cx == cols - 1) {
+            rowWrapped[cy] = true;
+            cx = 0;
+            lineFeed();
+        }
+        int base = cy * cols;
         if (insert) {
-            int base = cy * cols;
-            for (int j = cols - 1; j > cx; j--) {
-                text[base + j] = text[base + j - 1];
-                fg[base + j] = fg[base + j - 1];
-                bg[base + j] = bg[base + j - 1];
-                attr[base + j] = attr[base + j - 1];
-                link[base + j] = link[base + j - 1];
+            for (int j = cols - 1; j >= cx + w; j--) {
+                cp[base + j] = cp[base + j - w];
+                cluster[base + j] = cluster[base + j - w];
+                fg[base + j] = fg[base + j - w];
+                bg[base + j] = bg[base + j - w];
+                attr[base + j] = attr[base + j - w];
+                link[base + j] = link[base + j - w];
+            }
+            for (int j = cx; j < cx + w; j++) {
+                cp[base + j] = ' '; cluster[base + j] = null;
+                fg[base + j] = penFg; bg[base + j] = penBg; attr[base + j] = penAttr; link[base + j] = 0;
             }
             dirty[cy] = true;
         }
-        int i = cy * cols + cx;
-        text[i] = c;
+        int i = base + cx;
+        cp[i] = c;
+        cluster[i] = null;
         fg[i] = penFg;
         bg[i] = penBg;
         attr[i] = penAttr;
         link[i] = penLink;
+        if (w == 2) {
+            cp[i + 1] = WIDE_CONT;
+            cluster[i + 1] = null;
+            fg[i + 1] = penFg;
+            bg[i + 1] = penBg;
+            attr[i + 1] = penAttr;
+            link[i + 1] = penLink;
+        }
         dirty[cy] = true;
-        cx++;
+        cx += w;
         if (cx >= cols) { cx = cols - 1; wrapPending = true; }
+    }
+
+    /** Appends a zero-width code point to the previous cell, composing when NFC can. */
+    private void combine(int c) {
+        int py = cy;
+        int px = wrapPending ? cx : cx - 1;
+        if (px < 0) {
+            if (py <= 0) return;
+            py--;
+            px = cols - 1;
+        }
+        int i = py * cols + px;
+        if (cp[i] == WIDE_CONT && px > 0) i--;
+        String base = cellString(cp, cluster, i);
+        String joined = base + new String(Character.toChars(c));
+        String norm = java.text.Normalizer.normalize(joined, java.text.Normalizer.Form.NFC);
+        if (norm.codePointCount(0, norm.length()) == 1) {
+            cp[i] = norm.codePointAt(0);
+            cluster[i] = null;
+        } else {
+            cluster[i] = norm;
+        }
+        dirty[py] = true;
     }
 
     private void lineFeed() {
@@ -297,31 +703,43 @@ public final class Term {
         if (!alt && top == 0) {
             for (int r = 0; r < n; r++) {
                 int off = (top + r) * cols;
-                char[] t = new char[cols];
+                int[] t = new int[cols];
+                String[] cl = new String[cols];
                 int[] f = new int[cols], b = new int[cols], l = new int[cols];
                 byte[] a = new byte[cols];
-                System.arraycopy(text, off, t, 0, cols);
+                System.arraycopy(cp, off, t, 0, cols);
+                System.arraycopy(cluster, off, cl, 0, cols);
                 System.arraycopy(fg, off, f, 0, cols);
                 System.arraycopy(bg, off, b, 0, cols);
                 System.arraycopy(attr, off, a, 0, cols);
                 System.arraycopy(link, off, l, 0, cols);
-                if (hist.size() >= HIST_CAP) hist.pollFirst();
-                hist.addLast(new Row(t, f, b, a, l));
+                if (hist.size() >= histCap && !hist.isEmpty()) hist.pollFirst();
+                if (histCap > 0) hist.addLast(new Row(t, cl, f, b, a, l, rowWrapped[top + r]));
+                totalLines++;
             }
+        }
+        if (viewOff > 0 && !alt && top == 0) {
+            // Keep the line the reader is on in place while output arrives.
+            viewOff = Math.min(hist.size(), viewOff + n);
+            dirtyAll = true;
         }
         for (int r = 0; r < n; r++) {
             for (int y = top; y < bot; y++) {
                 int src = (y + 1) * cols, dst = y * cols;
-                System.arraycopy(text, src, text, dst, cols);
+                System.arraycopy(cp, src, cp, dst, cols);
+                System.arraycopy(cluster, src, cluster, dst, cols);
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
+                rowWrapped[y] = rowWrapped[y + 1];
             }
             int off = bot * cols;
             for (int c = 0; c < cols; c++) {
-                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
+                cp[off + c] = ' '; cluster[off + c] = null;
+                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
             }
+            rowWrapped[bot] = false;
             dirty[bot] = true;
         }
         for (int y = top; y <= bot; y++) dirty[y] = true;
@@ -333,16 +751,20 @@ public final class Term {
         for (int r = 0; r < n; r++) {
             for (int y = bot; y > top; y--) {
                 int src = (y - 1) * cols, dst = y * cols;
-                System.arraycopy(text, src, text, dst, cols);
+                System.arraycopy(cp, src, cp, dst, cols);
+                System.arraycopy(cluster, src, cluster, dst, cols);
                 System.arraycopy(fg, src, fg, dst, cols);
                 System.arraycopy(bg, src, bg, dst, cols);
                 System.arraycopy(attr, src, attr, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
+                rowWrapped[y] = rowWrapped[y - 1];
             }
             int off = top * cols;
             for (int c = 0; c < cols; c++) {
-                text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
+                cp[off + c] = ' '; cluster[off + c] = null;
+                fg[off + c] = DEFAULT; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0;
             }
+            rowWrapped[top] = false;
             dirty[top] = true;
         }
         for (int y = top; y <= bot; y++) dirty[y] = true;
@@ -376,14 +798,14 @@ public final class Term {
 
     private void oscByte(int b) {
         if (b == 7) { oscEnd(); return; }
-        if (b == 0x1b) { state = ESC_ONE; return; } // ST: swallow next byte
+        if (b == 0x1b) { state = OSC_ST; return; } // ST is ESC \ (handled next)
         if (oscBuf.length() < 8192) oscBuf.append((char) b);
     }
 
     private void oscEnd() {
         String s = oscBuf.toString();
         if (s.startsWith("0;") || s.startsWith("2;")) {
-            String t = s.substring(2);
+            String t = utf8(s.substring(2));
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < t.length(); i++) if (t.charAt(i) >= 0x20) sb.append(t.charAt(i));
             title = sb.toString();
@@ -413,14 +835,54 @@ public final class Term {
                     penLink = id;
                 }
             }
+        } else if (s.startsWith("9;")) {
+            String arg = s.substring(2);
+            // 9;4;state[;progress] is the progress form, not a notification.
+            if (!arg.startsWith("4;")) notify(arg);
+        } else if (s.startsWith("777;")) {
+            String[] p = s.split(";", 4);
+            if (p.length >= 2 && "notify".equals(p[1])) {
+                String title = p.length > 2 ? p[2] : "";
+                String body = p.length > 3 ? p[3] : "";
+                String text = title.isEmpty() ? body : (body.isEmpty() ? title : title + ": " + body);
+                notify(text);
+            }
         }
         state = GROUND;
+    }
+
+    private static String utf8(String s) {
+        return new String(s.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1),
+                java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private void notify(String text) {
+        text = utf8(text);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length() && sb.length() < 256; i++) {
+            char c = text.charAt(i);
+            if (c >= 0x20 && c != 0x7f) sb.append(c);
+        }
+        String clean = sb.toString().trim();
+        if (clean.isEmpty()) return;
+        notifText = clean;
+        notifs++;
+        notifSeq++;
     }
 
     /** URI of the OSC 8 link at a cell, or null. */
     public String linkAt(int x, int y) {
         if (x < 0 || y < 0 || x >= cols || y >= rows) return null;
         int id = link[y * cols + x];
+        return (id > 0 && id <= links.size()) ? links.get(id - 1) : null;
+    }
+
+    /** Same as {@link #linkAt}, but for the visible row (history included). */
+    public String linkAtView(int x, int y) {
+        if (x < 0 || y < 0 || x >= cols || y >= rows) return null;
+        int[] l = lineLink(y);
+        int off = lineOffset(y);
+        int id = l[off + x];
         return (id > 0 && id <= links.size()) ? links.get(id - 1) : null;
     }
 
@@ -440,7 +902,7 @@ public final class Term {
             return;
         }
         if (b == ';' || b == ':') {
-            if (csiLen < csiBuf.length) csiBuf[csiLen++] = (byte) ';';
+            if (csiLen < csiBuf.length) csiBuf[csiLen++] = (byte) b;
             return;
         }
         if (b == '?') {
@@ -627,25 +1089,35 @@ public final class Term {
     }
 
     private void sgr() {
-        // re-parse params from csiBuf (same logic)
+        // Re-parse params from csiBuf, keeping whether ':' was used so that
+        // SGR subparameters (4:2, 38:2...) are not mistaken for new parameters.
         int[] params = new int[32];
+        char[] sep = new char[32];
         int npar = 0;
         int i = 0;
         if (csiLen > 0 && (csiBuf[0] == '?' || csiBuf[0] == '>' || csiBuf[0] == '<' || csiBuf[0] == '=' || csiBuf[0] == '!')) {
             i = 1;
         }
         StringBuilder tok = new StringBuilder();
+        char pending = 0;
         while (i < csiLen) {
             byte b = csiBuf[i++];
             if (b == (byte) ';' || b == (byte) ':') {
-                if (npar < params.length) params[npar++] = parseNum(tok.toString());
+                if (npar < params.length) {
+                    sep[npar] = pending;
+                    params[npar++] = parseNum(tok.toString());
+                }
+                pending = (char) b;
                 tok.setLength(0);
             } else {
                 tok.append((char) b);
             }
         }
         if (tok.length() > 0 || (csiLen > 0 && (csiBuf[csiLen - 1] == ';' || csiBuf[csiLen - 1] == ':'))) {
-            if (npar < params.length) params[npar++] = parseNum(tok.toString());
+            if (npar < params.length) {
+                sep[npar] = pending;
+                params[npar++] = parseNum(tok.toString());
+            }
         }
         if (npar == 0) { penFg = Color.DEFAULT; penBg = Color.DEFAULT; penAttr = 0; return; }
         int idx = 0;
@@ -657,16 +1129,24 @@ public final class Term {
                 case 1 -> penAttr |= 0x01;
                 case 2 -> penAttr |= 0x02;
                 case 3 -> penAttr |= 0x04;
-                case 4 -> penAttr |= 0x08;
-                case 5, 6 -> penAttr |= 0x10;
-                case 7 -> penAttr |= 0x20;
+                case 4 -> {
+                    penAttr |= 0x08;
+                    if (idx < npar && sep[idx] == ':') {
+                        int style = params[idx] < 0 ? 0 : params[idx];
+                        idx++;
+                        // 4:0 removes it; 4:2..4:5 are styles, drawn as single for now.
+                        if (style == 0) penAttr &= ~0x08;
+                    }
+                }
+                case 5, 6 -> penAttr |= 0x20;
+                case 7 -> penAttr |= 0x10;
                 case 9 -> penAttr |= 0x40;
                 case 21 -> penAttr |= 0x08;
                 case 22 -> penAttr &= ~(0x01 | 0x02);
                 case 23 -> penAttr &= ~0x04;
                 case 24 -> penAttr &= ~0x08;
-                case 25 -> penAttr &= ~0x10;
-                case 27 -> penAttr &= ~0x20;
+                case 25 -> penAttr &= ~0x20;
+                case 27 -> penAttr &= ~0x10;
                 case 29 -> penAttr &= ~0x40;
                 case 39 -> penFg = Color.DEFAULT;
                 case 49 -> penBg = Color.DEFAULT;
@@ -677,14 +1157,14 @@ public final class Term {
                         if (kind == 5) {
                             int ci = (idx + 1 < npar && params[idx + 1] >= 0) ? params[idx + 1] : 0;
                             idx += 2;
-                            int rgb = Color.palette(ci);
-                            if (fgSlot) penFg = rgb; else penBg = rgb;
+                            ci = Math.max(0, Math.min(255, ci));
+                            if (fgSlot) penFg = ci; else penBg = ci;
                         } else if (kind == 2) {
                             int r = (idx + 1 < npar && params[idx + 1] >= 0) ? params[idx + 1] : 0;
                             int g = (idx + 2 < npar && params[idx + 2] >= 0) ? params[idx + 2] : 0;
                             int b = (idx + 3 < npar && params[idx + 3] >= 0) ? params[idx + 3] : 0;
                             idx += 4;
-                            int rgb = Color.rgb(r, g, b);
+                            int rgb = Color.TRUECOLOR | Color.rgb(r, g, b);
                             if (fgSlot) penFg = rgb; else penBg = rgb;
                         } else {
                             idx = npar;
@@ -699,43 +1179,60 @@ public final class Term {
                     }
                 }
                 default -> {
-                    if (v >= 30 && v <= 37) penFg = Color.PALETTE16[v - 30];
-                    else if (v >= 40 && v <= 47) penBg = Color.PALETTE16[v - 40];
-                    else if (v >= 90 && v <= 97) penFg = Color.PALETTE16[v - 90 + 8];
-                    else if (v >= 100 && v <= 107) penBg = Color.PALETTE16[v - 100 + 8];
+                    if (v >= 30 && v <= 37) penFg = v - 30;
+                    else if (v >= 40 && v <= 47) penBg = v - 40;
+                    else if (v >= 90 && v <= 97) penFg = v - 90 + 8;
+                    else if (v >= 100 && v <= 107) penBg = v - 100 + 8;
                 }
             }
         }
+    }
+
+    private void blankCell(int i) {
+        cp[i] = ' '; cluster[i] = null;
+        fg[i] = DEFAULT; bg[i] = penBg; attr[i] = 0; link[i] = 0;
+    }
+
+    private void blankRange(int from, int n) {
+        for (int i = from; i < from + n; i++) blankCell(i);
+    }
+
+    private void copyRun(int dst, int src, int n) {
+        System.arraycopy(cp, src, cp, dst, n);
+        System.arraycopy(cluster, src, cluster, dst, n);
+        System.arraycopy(fg, src, fg, dst, n);
+        System.arraycopy(bg, src, bg, dst, n);
+        System.arraycopy(attr, src, attr, dst, n);
+        System.arraycopy(link, src, link, dst, n);
     }
 
     private void ed(int mode) {
         if (mode == 2 || mode == 3) {
             for (int y = top; y <= bot; y++) {
                 int off = y * cols;
-                for (int x = 0; x < cols; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
-                }
+                for (int x = 0; x < cols; x++) blankCell(off + x);
                 dirty[y] = true;
             }
-            if (mode == 3) hist.clear();
+            if (mode == 3) {
+                hist.clear();
+                totalLines = 0;
+                viewOff = 0;
+                layoutGen++;
+            }
             return;
         }
         if (mode == 0) {
             for (int y = cy; y <= bot; y++) {
                 int off = y * cols;
                 int start = (y == cy) ? cx : 0;
-                for (int x = start; x < cols; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
-                }
+                for (int x = start; x < cols; x++) blankCell(off + x);
                 dirty[y] = true;
             }
         } else if (mode == 1) {
             for (int y = top; y <= cy; y++) {
                 int off = y * cols;
                 int end = (y == cy) ? cx + 1 : cols;
-                for (int x = 0; x < end; x++) {
-                    text[off + x] = ' '; fg[off + x] = penBg; bg[off + x] = penBg; attr[off + x] = 0; link[off + x] = 0;
-                }
+                for (int x = 0; x < end; x++) blankCell(off + x);
                 dirty[y] = true;
             }
         }
@@ -746,7 +1243,7 @@ public final class Term {
         int from = 0, to = cols;
         if (mode == 0) from = cx;
         else if (mode == 1) to = cx + 1;
-        for (int x = from; x < to; x++) { text[off+x] = ' '; fg[off+x] = penBg; bg[off+x] = penBg; attr[off+x] = 0; link[off+x] = 0; }
+        for (int x = from; x < to; x++) blankCell(off + x);
         dirty[cy] = true;
     }
 
@@ -757,14 +1254,12 @@ public final class Term {
         for (int k = 0; k < n; k++) {
             for (int y = bot; y > cy; y--) {
                 int src = (y - 1) * cols, dst = y * cols;
-                System.arraycopy(text, src, text, dst, cols);
-                System.arraycopy(fg, src, fg, dst, cols);
-                System.arraycopy(bg, src, bg, dst, cols);
-                System.arraycopy(attr, src, attr, dst, cols);
-                System.arraycopy(link, src, link, dst, cols);
+                copyRun(dst, src, cols);
+                rowWrapped[y] = rowWrapped[y - 1];
             }
             int off = cy * cols;
-            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0; }
+            blankRange(off, cols);
+            rowWrapped[cy] = false;
             dirty[cy] = true;
         }
         for (int y = cy; y <= bot; y++) dirty[y] = true;
@@ -777,14 +1272,12 @@ public final class Term {
         for (int k = 0; k < n; k++) {
             for (int y = cy; y < bot; y++) {
                 int src = (y + 1) * cols, dst = y * cols;
-                System.arraycopy(text, src, text, dst, cols);
-                System.arraycopy(fg, src, fg, dst, cols);
-                System.arraycopy(bg, src, bg, dst, cols);
-                System.arraycopy(attr, src, attr, dst, cols);
-                System.arraycopy(link, src, link, dst, cols);
+                copyRun(dst, src, cols);
+                rowWrapped[y] = rowWrapped[y + 1];
             }
             int off = bot * cols;
-            for (int c = 0; c < cols; c++) { text[off + c] = ' '; fg[off + c] = penBg; bg[off + c] = penBg; attr[off + c] = 0; link[off + c] = 0; }
+            blankRange(off, cols);
+            rowWrapped[bot] = false;
             dirty[bot] = true;
         }
         for (int y = cy; y <= bot; y++) dirty[y] = true;
@@ -794,16 +1287,13 @@ public final class Term {
         if (n <= 0) return;
         if (n > cols - cx) n = cols - cx;
         int base = cy * cols;
-        for (int j = cols - 1; j >= cx + n; j--) {
-            text[base + j] = text[base + j - n];
-            fg[base + j] = fg[base + j - n];
-            bg[base + j] = bg[base + j - n];
-            attr[base + j] = attr[base + j - n];
-            link[base + j] = link[base + j - n];
-        }
-        for (int j = cx; j < cx + n; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
-        }
+        System.arraycopy(cp, base + cx, cp, base + cx + n, cols - cx - n);
+        System.arraycopy(cluster, base + cx, cluster, base + cx + n, cols - cx - n);
+        System.arraycopy(fg, base + cx, fg, base + cx + n, cols - cx - n);
+        System.arraycopy(bg, base + cx, bg, base + cx + n, cols - cx - n);
+        System.arraycopy(attr, base + cx, attr, base + cx + n, cols - cx - n);
+        System.arraycopy(link, base + cx, link, base + cx + n, cols - cx - n);
+        blankRange(base + cx, n);
         dirty[cy] = true;
     }
 
@@ -811,16 +1301,13 @@ public final class Term {
         if (n <= 0) return;
         if (n > cols - cx) n = cols - cx;
         int base = cy * cols;
-        for (int j = cx; j < cols - n; j++) {
-            text[base + j] = text[base + j + n];
-            fg[base + j] = fg[base + j + n];
-            bg[base + j] = bg[base + j + n];
-            attr[base + j] = attr[base + j + n];
-            link[base + j] = link[base + j + n];
-        }
-        for (int j = cols - n; j < cols; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
-        }
+        System.arraycopy(cp, base + cx + n, cp, base + cx, cols - cx - n);
+        System.arraycopy(cluster, base + cx + n, cluster, base + cx, cols - cx - n);
+        System.arraycopy(fg, base + cx + n, fg, base + cx, cols - cx - n);
+        System.arraycopy(bg, base + cx + n, bg, base + cx, cols - cx - n);
+        System.arraycopy(attr, base + cx + n, attr, base + cx, cols - cx - n);
+        System.arraycopy(link, base + cx + n, link, base + cx, cols - cx - n);
+        blankRange(base + cols - n, n);
         dirty[cy] = true;
     }
 
@@ -828,20 +1315,23 @@ public final class Term {
         if (n <= 0) return;
         if (n > cols - cx) n = cols - cx;
         int base = cy * cols;
-        for (int j = cx; j < cx + n; j++) {
-            text[base + j] = ' '; fg[base + j] = penBg; bg[base + j] = penBg; attr[base + j] = 0; link[base + j] = 0;
-        }
+        blankRange(base + cx, n);
         dirty[cy] = true;
     }
 
     private void enterAlt() {
         if (alt) return;
-        mainText = text; mainFg = fg; mainBg = bg; mainAttr = attr; mainLink = link;
+        mainCp = cp; mainCluster = cluster;
+        mainFg = fg; mainBg = bg; mainAttr = attr; mainLink = link;
+        mainWrapped = rowWrapped;
         mainX = cx; mainY = cy;
         int n = cols * rows;
-        text = new char[n]; fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
-        for (int i = 0; i < n; i++) { text[i] = ' '; fg[i] = Color.DEFAULT; bg[i] = Color.DEFAULT; }
+        cp = new int[n]; cluster = new String[n];
+        fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
+        rowWrapped = new boolean[rows];
+        for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = Color.DEFAULT; bg[i] = Color.DEFAULT; }
         cx = 0; cy = 0; wrapPending = false;
+        viewOff = 0; layoutGen++;
         top = 0; bot = rows - 1;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         alt = true;
@@ -849,9 +1339,13 @@ public final class Term {
 
     private void exitAlt() {
         if (!alt) return;
-        text = mainText; fg = mainFg; bg = mainBg; attr = mainAttr; link = mainLink;
+        cp = mainCp; cluster = mainCluster;
+        fg = mainFg; bg = mainBg; attr = mainAttr; link = mainLink;
+        rowWrapped = mainWrapped;
         cx = mainX; cy = mainY;
-        mainText = null; mainFg = null; mainBg = null; mainAttr = null; mainLink = null;
+        mainCp = null; mainCluster = null;
+        mainFg = null; mainBg = null; mainAttr = null; mainLink = null; mainWrapped = null;
+        viewOff = 0; layoutGen++;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         top = 0; bot = rows - 1;
         alt = false;

@@ -25,19 +25,34 @@ public final class ChildPty {
     private volatile int cols, rows;
     private volatile boolean closed;
 
+    private static String resolveShell(String shell) {
+        if (shell == null || shell.isEmpty()) shell = System.getenv("SHELL");
+        if (shell == null || shell.isEmpty()) return "/bin/sh";
+        File f = new File(shell);
+        if (f.exists()) return shell;
+        if (!shell.contains("/")) {
+            String path = System.getenv("PATH");
+            if (path != null) {
+                for (String dir : path.split(File.pathSeparator)) {
+                    File c = new File(dir, shell);
+                    if (c.canExecute()) return c.getPath();
+                }
+            }
+        }
+        return "/bin/sh";
+    }
+
     public ChildPty(String cmd, int cols, int rows) throws IOException {
+        this(cmd, null, cols, rows);
+    }
+
+    public ChildPty(String cmd, String shell, int cols, int rows) throws IOException {
         this.cols = cols; this.rows = rows;
         String[] command;
         if (cmd != null) {
             command = new String[] {"sh", "-c", cmd};
         } else {
-            String shell = System.getenv("SHELL");
-            if (shell == null || shell.isEmpty()) shell = "/bin/sh";
-            if (!new File(shell).exists()) {
-                String sh = "/bin/sh";
-                shell = sh;
-            }
-            command = new String[] {shell};
+            command = new String[] {resolveShell(shell)};
         }
         Map<String, String> env = new HashMap<>(System.getenv());
         env.put("TERM", "xterm-256color");

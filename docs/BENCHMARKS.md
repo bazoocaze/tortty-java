@@ -19,22 +19,22 @@ Governor note: the reference repo requires `schedutil` (powersave halves the
 numbers). The local runs below were done under `schedutil`; the Rust terminal
 was re-measured under the same Xvfb condition for an apples-to-apples table.
 
-## Local comparison (same condition: schedutil, Xvfb :99)
+## Local comparison (same condition: schedutil, Xvfb :99; after B6–B10)
 
 | grid | terminal | generator fps | MB/s | draw ms/call | paint/s | parse ms/call | pty ms/call | cell px |
 |---|---|---|---|---|---|---|---|---|
-| 61x18 | **Java** | **710.2** | **30.5** | 2.89 | 104.2 | 0.126 | 0.237 | 14x26 |
+| 61x18 | **Java** | **691.2** | **29.7** | 2.82 | 95.0 | 0.130 | 0.230 | 14x26 |
 | 61x18 | Rust (local) | 905.3 | 38.9 | 3.69 | 50.0 | 0.134 | 0.205 | 13.65x26.39 |
-| 70x21 | **Java** | **510.2** | **29.1** | 3.46 | 76.4 | 0.135 | 0.245 | 14x26 |
+| 70x21 | **Java** | **563.2** | **32.1** | 3.59 | 53.0 | 0.150 | 0.240 | 14x26 |
 | 70x21 | Rust (local) | 714.3 | 40.1 | 4.20 | 50.6 | 0.182 | 0.260 | 13.65x26.39 |
 
 `generator fps` is the doom-fire write throughput reported by the harness; it
 is **not** the number of frames the window painted. `paint/s` is
 `draw_calls / elapsed`, i.e. the visible paint rate (Swing coalesces repaints).
 
-Under the same condition Java reaches ~78% of Rust's generator fps at 61x18 and
-~71% at 70x21; Java's `draw` per call is actually lower than Rust's, but it does
-more draw calls. The visible paint rate is ~104/s and ~76/s.
+Under the same condition Java reaches ~76% of Rust's generator fps at 61x18 and
+~79% at 70x21; Java's `draw` per call is actually lower than Rust's, but it does
+more draw calls. The visible paint rate is ~95/s and ~53/s.
 
 ## Published reference (schedutil, X11 :0, from tortty/docs/BENCHMARKS.md)
 

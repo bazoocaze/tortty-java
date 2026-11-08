@@ -1,7 +1,7 @@
 # BACKLOG
 
-Current and future activities. Order = least difficult first. Id `B<n>`.
+Current and future activities. Id `B<n>`.
 Completed activities do not stay here; they must go to `HISTORY.md`.
 
-_No current items. Activities `B1`–`B5` were completed on 2026-11-07
+_No current items. Activities `B6`–`B10` were completed on 2026-11-07
 (see [`HISTORY.md`](HISTORY.md))._

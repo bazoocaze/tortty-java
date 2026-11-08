@@ -1,8 +1,9 @@
 package ui;
 
 import term.Term;
-import term.Charset;
 import term.Color;
+import term.Theme;
+import term.WcWidth;
 import prof.Prof;
 import pty.ChildPty;
 
@@ -11,28 +12,37 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.font.LineMetrics;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.atomic.AtomicReference;
 
 public final class TermPanel extends JPanel implements KeyListener {
 
     private static final boolean LATENCY = Boolean.getBoolean("tortty.debug.latency");
 
     private final Term term;
-    private final String familyName;
-    private final float fontSizePt;
+    private String familyName;
+    private float fontSizePt;
     private final float dpi;
+    private Theme theme;
+    private java.awt.Color defBg;
+    private java.awt.Color defFg;
+    private java.awt.Color cursorColor;
+    private int padding;
+    private int bellMode;
+    private boolean copyOnSelect = true;
 
     private float cw, ch;
     private float ascent;
     private Font plain, bold, italic, boldItalic;
-    private final java.awt.Color defBg = new java.awt.Color(0x000000);
-    private final java.awt.Color defFg = new java.awt.Color(0xD6D6D6);
 
     private ChildPty pty;
     private int pressedButton = -1;
     private boolean ctrlDown;
-    private int selAX = -1, selAY = -1, selBX = -1, selBY = -1;
+    private int selAX = -1, selBX = -1;
+    private long selAbsAY = -1, selAbsBY = -1;
     private boolean selecting;
+    private long lastLayoutGen = -1;
+    private boolean draggingScrollbar;
+    private int scrollbarGrab;
+    private static final int SCROLLBAR_W = 8;
     private java.util.function.BiConsumer<Integer, Integer> onGridChange;
 
     private final java.util.HashMap<Integer, java.awt.Color> colorCache = new java.util.HashMap<>();
@@ -42,12 +52,24 @@ public final class TermPanel extends JPanel implements KeyListener {
     private boolean damagePaintPending;
     private boolean fullPaintPending = true;
     private boolean[] paintRows = new boolean[0];
+    private char[] runBuf = new char[0];
+    private Font[] fallbackFonts = new Font[0];
+    private final java.util.HashMap<Long, Font> glyphFontCache = new java.util.HashMap<>();
 
-    public TermPanel(Term term, String familyName, float fontSizePt, float dpi) {
+    private String toastText;
+    private long toastUntil;
+    private final java.util.ArrayDeque<String> toastQueue = new java.util.ArrayDeque<>();
+    private long lastBellSeq, lastNotifSeq;
+    private long flashUntil;
+    private javax.swing.Timer blinkTimer, attentionTimer;
+
+    public TermPanel(Term term, String familyName, float fontSizePt, float dpi, Theme theme) {
         this.term = term;
         this.familyName = familyName;
         this.fontSizePt = fontSizePt;
         this.dpi = dpi;
+        this.theme = theme;
+        setTheme(theme);
         setOpaque(true);
         setBackground(defBg);
         setFocusable(true);
@@ -59,8 +81,23 @@ public final class TermPanel extends JPanel implements KeyListener {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }
             @Override public void mousePressed(MouseEvent e) {
                 requestFocusInWindow();
+                syncSelectionGeneration();
+                if (e.getButton() == MouseEvent.BUTTON1) {
+                    Rectangle bar = scrollbarRect();
+                    if (bar != null && e.getX() >= bar.x) {
+                        if (e.getY() >= bar.y && e.getY() < bar.y + bar.height) {
+                            scrollbarGrab = e.getY() - bar.y;
+                        } else {
+                            scrollbarGrab = bar.height / 2;
+                            scrollbarToView(e.getY(), scrollbarGrab);
+                        }
+                        draggingScrollbar = true;
+                        requestFullRepaint();
+                        return;
+                    }
+                }
                 if (e.getButton() == MouseEvent.BUTTON1 && e.isControlDown()) {
-                    String uri = term.linkAt(cellX(e), cellY(e));
+                    String uri = term.linkAtView(cellX(e), cellY(e));
                     if (uri != null) {
                         openLink(uri);
                         return;
@@ -74,7 +111,8 @@ public final class TermPanel extends JPanel implements KeyListener {
                         selectWordOrLine(x, y, e.getClickCount() >= 3);
                         return;
                     }
-                    selAX = x; selAY = y; selBX = x; selBY = y;
+                    selAX = x; selBX = x;
+                    selAbsAY = selAbsBY = term.absoluteLine(y);
                     selecting = true;
                     pressedButton = -1;
                     requestFullRepaint();
@@ -83,10 +121,14 @@ public final class TermPanel extends JPanel implements KeyListener {
                 sendMouse(e, true);
             }
             @Override public void mouseReleased(MouseEvent e) {
+                if (draggingScrollbar) {
+                    draggingScrollbar = false;
+                    return;
+                }
                 if (selecting) {
                     selecting = false;
                     if (!hasSelection()) clearSelection();
-                    else copySelection();
+                    else if (copyOnSelect) copySelection();
                     requestFullRepaint();
                     return;
                 }
@@ -95,8 +137,14 @@ public final class TermPanel extends JPanel implements KeyListener {
         });
         addMouseMotionListener(new MouseMotionAdapter() {
             @Override public void mouseDragged(MouseEvent e) {
+                if (draggingScrollbar) {
+                    scrollbarToView(e.getY(), scrollbarGrab);
+                    requestFullRepaint();
+                    return;
+                }
                 if (selecting) {
-                    selBX = cellX(e); selBY = cellY(e);
+                    selBX = cellX(e);
+                    selAbsBY = term.absoluteLine(cellY(e));
                     requestFullRepaint();
                     return;
                 }
@@ -107,7 +155,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         addMouseWheelListener(e -> sendMouseWheel(e));
         initFonts();
 
-        javax.swing.Timer blink = new javax.swing.Timer(530, e -> {
+        blinkTimer = new javax.swing.Timer(530, e -> {
             if (!term.cursorBlink || !term.cursorVisible) {
                 if (!blinkOn) { blinkOn = true; repaintCursorRow(); }
                 return;
@@ -115,8 +163,12 @@ public final class TermPanel extends JPanel implements KeyListener {
             blinkOn = !blinkOn;
             repaintCursorRow();
         });
-        blink.setRepeats(true);
-        blink.start();
+        blinkTimer.setRepeats(true);
+        blinkTimer.start();
+
+        attentionTimer = new javax.swing.Timer(200, e -> tickAttention());
+        attentionTimer.setRepeats(true);
+        attentionTimer.start();
     }
 
     public void initFonts() {
@@ -138,12 +190,53 @@ public final class TermPanel extends JPanel implements KeyListener {
         ch = lm.getAscent() + lm.getDescent() + lm.getLeading();
         if (ch < 1) ch = 1;
         ascent = lm.getAscent();
-        setPreferredSize(new Dimension(term.cols * Math.max(1, (int) Math.round(cw)),
-                                      term.rows * Math.max(1, (int) Math.round(ch))));
+        initFallbacks(fontPx, avail);
+        setPreferredSize(new Dimension(term.cols * Math.max(1, (int) Math.round(cw)) + 2 * padding,
+                                      term.rows * Math.max(1, (int) Math.round(ch)) + 2 * padding));
+    }
+
+    private void initFallbacks(float fontPx, String[] avail) {
+        glyphFontCache.clear();
+        String[] preferred = {
+                "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Noto Sans CJK HK",
+                "Droid Sans Fallback", "WenQuanYi Zen Hei", "WenQuanYi Micro Hei",
+                "Source Han Sans SC", "IPAGothic", "Symbola",
+                "Noto Sans Symbols2", "Noto Sans Symbols", "Noto Sans", "DejaVu Sans",
+                "Liberation Sans", "FreeSerif", "Unifont"
+        };
+        java.util.HashSet<String> have = new java.util.HashSet<>(java.util.Arrays.asList(avail));
+        java.util.ArrayList<Font> out = new java.util.ArrayList<>();
+        for (String name : preferred) {
+            if (have.contains(name)) {
+                out.add(new Font(name, Font.PLAIN, 12).deriveFont(fontPx));
+            }
+        }
+        fallbackFonts = out.toArray(new Font[0]);
+    }
+
+    private Font glyphFont(Font base, int cp, int attr) {
+        if (base.canDisplay(cp)) return base;
+        int style = ((attr & Term.BOLD) != 0 ? 1 : 0) | ((attr & Term.ITALIC) != 0 ? 2 : 0);
+        long key = ((long) cp << 2) | style;
+        Font cached = glyphFontCache.get(key);
+        if (cached != null) return cached;
+        Font found = base;
+        for (Font f : fallbackFonts) {
+            if (f.canDisplay(cp)) {
+                found = f.deriveFont(style == 0 ? Font.PLAIN
+                        : style == 1 ? Font.BOLD
+                        : style == 2 ? Font.ITALIC : Font.BOLD | Font.ITALIC);
+                break;
+            }
+        }
+        glyphFontCache.put(key, found);
+        return found;
     }
 
     public int cellW() { return Math.max(1, (int) Math.round(cw)); }
     public int cellH() { return Math.max(1, (int) Math.round(ch)); }
+    public int gridCols() { return Math.max(1, (getWidth() - 2 * padding) / cellW()); }
+    public int gridRows() { return Math.max(1, (getHeight() - 2 * padding) / cellH()); }
     public float cwF() { return cw; }
     public float chF() { return ch; }
     public float ascentF() { return ascent; }
@@ -151,14 +244,124 @@ public final class TermPanel extends JPanel implements KeyListener {
     public void setPty(ChildPty p) { this.pty = p; }
     public void setOnGridChange(java.util.function.BiConsumer<Integer, Integer> c) { this.onGridChange = c; }
 
+    public void setTheme(Theme t) {
+        this.theme = t;
+        this.defBg = new java.awt.Color(t.bg);
+        this.defFg = new java.awt.Color(t.fg);
+        this.cursorColor = new java.awt.Color(t.cursor);
+        colorCache.clear();
+        setBackground(defBg);
+        requestFullRepaint();
+    }
+
+    public void setPadding(int px) {
+        padding = Math.max(0, Math.min(200, px));
+        revalidate();
+        requestFullRepaint();
+    }
+
+    public void setFontConfig(String family, float size) {
+        this.familyName = family;
+        this.fontSizePt = size;
+        initFonts();
+        revalidate();
+        requestFullRepaint();
+    }
+
+    public void setBellMode(int mode) { this.bellMode = mode; }
+    public void setCopyOnSelect(boolean on) { this.copyOnSelect = on; }
+
+    /** Called after feeding a chunk: turns BEL/OSC 9/777 into bell and toast. */
+    public void checkNotifications() {
+        if (term.bellSeq != lastBellSeq) {
+            lastBellSeq = term.bellSeq;
+            if (bellMode == 2) {
+                Toolkit.getDefaultToolkit().beep();
+            } else if (bellMode == 1) {
+                flashUntil = System.currentTimeMillis() + 160;
+                requestFullRepaint();
+            }
+        }
+        if (term.notifSeq != lastNotifSeq) {
+            lastNotifSeq = term.notifSeq;
+            pushToast(term.notifText);
+        }
+    }
+
+    private void pushToast(String text) {
+        if (text == null || text.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (toastText == null) {
+            toastText = text;
+            toastUntil = now + 8000;
+        } else {
+            if (toastQueue.size() >= 8) toastQueue.pollFirst();
+            toastQueue.addLast(text);
+        }
+        requestFullRepaint();
+    }
+
+    private void tickAttention() {
+        long now = System.currentTimeMillis();
+        if (toastText != null && now >= toastUntil) {
+            toastText = toastQueue.pollFirst();
+            toastUntil = toastText != null ? now + 8000 : 0;
+            requestFullRepaint();
+        }
+        if (flashUntil != 0 && now >= flashUntil) {
+            flashUntil = 0;
+            requestFullRepaint();
+        }
+    }
+
+    private static java.awt.Color blend(int from, int to, double t) {
+        int r = (int) Math.round(((from >> 16) & 0xFF) * (1 - t) + ((to >> 16) & 0xFF) * t);
+        int g = (int) Math.round(((from >> 8) & 0xFF) * (1 - t) + ((to >> 8) & 0xFF) * t);
+        int b = (int) Math.round((from & 0xFF) * (1 - t) + (to & 0xFF) * t);
+        return new java.awt.Color(r, g, b);
+    }
+
+    private void paintBell(Graphics2D g2) {
+        if (System.currentTimeMillis() >= flashUntil) return;
+        g2.setColor(new java.awt.Color(0xFF5555));
+        g2.setStroke(new BasicStroke(2));
+        g2.drawRect(padding + 1, padding + 1,
+                Math.max(1, term.cols * cellW() - 3), Math.max(1, term.rows * cellH() - 3));
+    }
+
+    private void paintToast(Graphics2D g2) {
+        if (toastText == null) return;
+        g2.setFont(plain);
+        FontMetrics fm = g2.getFontMetrics();
+        int maxW = Math.max(80, term.cols * cellW() / 2);
+        String s = toastText;
+        while (s.length() > 1 && fm.stringWidth(s) + 20 > maxW) {
+            s = s.substring(0, s.length() - 1);
+        }
+        if (!s.equals(toastText)) s = s.substring(0, Math.max(0, s.length() - 1)) + "…";
+        int boxW = Math.min(maxW, fm.stringWidth(s) + 20);
+        int boxH = cellH() + 10;
+        int x = padding + term.cols * cellW() - boxW - Math.max(0, (int) (1.5 * cellW()));
+        int y = padding + term.rows * cellH() - boxH - Math.max(0, (int) (0.5 * cellH()));
+        x = Math.max(0, x);
+        y = Math.max(0, y);
+        g2.setColor(blend(theme.bg, theme.fg, 0.14));
+        g2.fillRoundRect(x, y, boxW, boxH, 8, 8);
+        g2.setColor(new java.awt.Color(theme.fg));
+        g2.drawRoundRect(x, y, boxW, boxH, 8, 8);
+        int baseline = y + (boxH - fm.getHeight()) / 2 + fm.getAscent();
+        g2.drawString(s, x + 10, baseline);
+    }
+
     @Override
     public Dimension getPreferredSize() {
-        return new Dimension(term.cols * cellW(), term.rows * cellH());
+        return new Dimension(term.cols * cellW() + 2 * padding,
+                             term.rows * cellH() + 2 * padding);
     }
 
     /** Schedule a paint for damaged rows plus the cursor row(s). */
     public void repaintDamage() {
-        if (term.dirtyAll) {
+        if (term.dirtyAll || term.viewOff() > 0) {
             fullPaintPending = true;
             repaint();
             return;
@@ -191,21 +394,18 @@ public final class TermPanel extends JPanel implements KeyListener {
             System.err.printf("LAT paint-start t=%d dirtyAll=%s dirty=%d clip=%s%n", paintT0, term.dirtyAll, nd, cb);
         }
         long t0 = prof.Prof.on() ? paintT0 : 0;
+        syncSelectionGeneration();
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         int w = getWidth(), h = getHeight();
 
-        final boolean full = fullPaintPending || !damagePaintPending;
+        final boolean full = fullPaintPending || !damagePaintPending || term.viewOff() > 0;
         fullPaintPending = false;
         damagePaintPending = false;
 
         final int cols = term.cols, rows = term.rows;
         final int cellW = cellW(), cellH = cellH();
-        final char[] text = term.text;
-        final int[] fg = term.fg;
-        final int[] bg = term.bg;
-        final byte[] attr = term.attr;
         final int baselineOffset = (int) Math.round(ascent);
 
         if (full) {
@@ -229,40 +429,44 @@ public final class TermPanel extends JPanel implements KeyListener {
 
         for (int y = 0; y < rows; y++) {
             if (!full && !paintRows[y]) continue;
-            int yPx = y * cellH;
+            int yPx = padding + y * cellH;
             if (!full) {
                 g2.setColor(defBg);
-                g2.fillRect(0, yPx, w, cellH);
+                g2.fillRect(padding, yPx, cols * cellW, cellH);
             }
+            int[] cps = term.lineCp(y);
+            String[] cls = term.lineCluster(y);
+            int off = term.lineOffset(y);
+            int[] fg = term.lineFg(y);
+            int[] bg = term.lineBg(y);
+            byte[] attr = term.lineAttr(y);
             int baseline = yPx + baselineOffset;
             int x = 0;
             while (x < cols) {
-                int i = y * cols + x;
+                int i = off + x;
                 boolean sel = isSelected(x, y);
                 int f = fg[i], b = bg[i], a = attr[i];
-                if ((a & Term.INVERSE) != 0) { int t = f; f = b; b = t; }
-                int rf = (f == Color.DEFAULT) ? 0xD6D6D6 : f;
-                int rb = (b == Color.DEFAULT) ? 0x000000 : b;
+                int rf = theme.resolve(f, theme.fg);
+                int rb = theme.resolve(b, theme.bg);
+                if ((a & Term.INVERSE) != 0) { int t = rf; rf = rb; rb = t; }
                 if (sel) { int t = rf; rf = rb; rb = t; }
                 Font font = fontFor(a);
                 int run = x + 1;
                 while (run < cols) {
-                    int j = y * cols + run;
+                    int j = off + run;
                     boolean jsel = isSelected(run, y);
-                    int jf = fg[j], jb = bg[j], ja = attr[j];
-                    if ((ja & Term.INVERSE) != 0) { int t = jf; jf = jb; jb = t; }
-                    if (jf != f || jb != b || ja != a || jsel != sel) break;
+                    if (fg[j] != f || bg[j] != b || attr[j] != a || jsel != sel) break;
                     run++;
                 }
-                int xPx = x * cellW;
+                int xPx = padding + x * cellW;
                 int runW = (run - x) * cellW;
-                if (rb != 0x000000) {
+                if (rb != theme.bg) {
                     g2.setColor(color(rb));
                     g2.fillRect(xPx, yPx, runW, cellH);
                 }
                 g2.setColor(color(rf));
                 g2.setFont(font);
-                g2.drawChars(text, y * cols + x, run - x, xPx, baseline);
+                drawCells(g2, cps, cls, off + x, run - x, xPx, baseline, font, a);
                 if ((a & Term.UNDERLINE) != 0) {
                     g2.fillRect(xPx, yPx + cellH - 2, runW, 1);
                 }
@@ -272,38 +476,49 @@ public final class TermPanel extends JPanel implements KeyListener {
                 if (ctrlDown) {
                     g2.setColor(color(0x6CB6FF));
                     for (int xx = x; xx < run; xx++) {
-                        if (term.linkAt(xx, y) != null) g2.fillRect(xx * cellW, yPx + cellH - 2, cellW, 1);
+                        if (term.linkAtView(xx, y) != null) g2.fillRect(padding + xx * cellW, yPx + cellH - 2, cellW, 1);
                     }
                 }
                 x = run;
             }
         }
 
-        boolean cursorOn = term.cursorVisible && (!term.cursorBlink || blinkOn);
+        boolean cursorOn = term.cursorVisible && term.viewOff() == 0
+                && (!term.cursorBlink || blinkOn);
         if (cursorOn) {
             int cx = term.cx, cy = term.cy;
             boolean rowPainted = full || (cy >= 0 && cy < rows && paintRows[cy]);
             if (cx >= 0 && cx < cols && rowPainted) {
-                int xPx = cx * cellW;
-                int yPx = cy * cellH;
-                g2.setColor(defFg);
+                int i = cy * cols + cx;
+                if (term.cp[i] == Term.WIDE_CONT && cx > 0) {
+                    i--;
+                    cx--;
+                }
+                int wcells = Math.max(1, Math.min(cols - cx, WcWidth.width(term.cp[i])));
+                int xPx = padding + cx * cellW;
+                int yPx = padding + cy * cellH;
+                g2.setColor(cursorColor);
                 if (term.cursorShape == 1) {
                     int bw = Math.max(2, Math.round(cellW / 8f));
                     g2.fillRect(xPx, yPx, bw, cellH);
                 } else if (term.cursorShape == 2) {
                     int bh = Math.max(2, Math.round(cellH / 8f));
-                    g2.fillRect(xPx, yPx + cellH - bh, cellW, bh);
+                    g2.fillRect(xPx, yPx + cellH - bh, wcells * cellW, bh);
                 } else {
-                    g2.fillRect(xPx, yPx, Math.max(1, cellW), cellH);
-                    int i = cy * cols + cx;
-                    char c = text[i];
-                    if (c != ' ') {
+                    g2.fillRect(xPx, yPx, wcells * cellW, cellH);
+                    String s = Term.cellString(term.cp, term.cluster, i);
+                    if (!s.equals(" ")) {
                         g2.setColor(defBg);
-                        g2.drawChars(text, i, 1, xPx, yPx + baselineOffset);
+                        g2.setFont(glyphFont(fontFor(term.attr[i]), term.cp[i], term.attr[i]));
+                        g2.drawString(s, xPx, yPx + baselineOffset);
                     }
                 }
             }
         }
+
+        paintScrollbar(g2);
+        paintBell(g2);
+        paintToast(g2);
 
         if (full) {
             term.clearDamage();
@@ -330,6 +545,88 @@ public final class TermPanel extends JPanel implements KeyListener {
         return c;
     }
 
+    private Rectangle scrollbarRect() {
+        int hist = term.historySize();
+        int h = term.rows * cellH();
+        if (hist <= 0 || h <= 0) return null;
+        int total = hist + term.rows;
+        int thumb = Math.max(12, (int) Math.round(h * (double) term.rows / total));
+        thumb = Math.min(thumb, h);
+        double frac = (double) term.viewOff() / hist;
+        int y = padding + (int) Math.round((h - thumb) * (1.0 - frac));
+        int x = padding + term.cols * cellW() - SCROLLBAR_W;
+        return new Rectangle(x, y, SCROLLBAR_W, thumb);
+    }
+
+    private void scrollbarToView(int mouseY, int grab) {
+        Rectangle r = scrollbarRect();
+        if (r == null) return;
+        int track = Math.max(1, term.rows * cellH());
+        int travel = Math.max(1, track - r.height);
+        int y = Math.max(0, Math.min(travel, mouseY - padding - grab));
+        double frac = 1.0 - (double) y / travel;
+        int target = (int) Math.round(frac * term.historySize());
+        term.scrollView(target - term.viewOff());
+    }
+
+    private void paintScrollbar(Graphics2D g2) {
+        Rectangle r = scrollbarRect();
+        if (r == null) return;
+        int c = theme.fg;
+        g2.setColor(new java.awt.Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, 150));
+        g2.fillRect(r.x, r.y, r.width, r.height);
+    }
+
+    private void syncSelectionGeneration() {
+        long gen = term.layoutGen();
+        if (lastLayoutGen == -1) {
+            lastLayoutGen = gen;
+            return;
+        }
+        if (gen != lastLayoutGen) {
+            lastLayoutGen = gen;
+            clearSelection();
+        }
+    }
+
+    private void drawCells(Graphics2D g2, int[] cps, String[] cls, int off, int n,
+                           int xPx, int baseline, Font font, int attr) {
+        if (runBuf.length < n) runBuf = new char[n];
+        int i = 0, buf = 0, start = 0;
+        while (i < n) {
+            int c = cps[off + i];
+            int w = WcWidth.width(c);
+            boolean special = c == Term.WIDE_CONT || w == 2 || c > 0xFFFF
+                    || cls[off + i] != null || (c >= 0x80 && !font.canDisplay(c));
+            if (!special) {
+                runBuf[buf++] = (char) c;
+                i++;
+                continue;
+            }
+            if (buf > 0) {
+                g2.drawChars(runBuf, 0, buf, xPx + start * cellW(), baseline);
+                buf = 0;
+            }
+            if (c == Term.WIDE_CONT) {
+                i++;
+                start = i;
+                continue;
+            }
+            String s = (cls[off + i] != null)
+                    ? cls[off + i] : new String(Character.toChars(c));
+            Font gf = glyphFont(font, c, attr);
+            g2.setFont(gf);
+            g2.drawString(s, xPx + i * cellW(), baseline);
+            g2.setFont(font);
+            int step = Math.max(1, w);
+            int j = i + 1;
+            while (j < n && j < i + step && cps[off + j] == Term.WIDE_CONT) j++;
+            i = j;
+            start = i;
+        }
+        if (buf > 0) g2.drawChars(runBuf, 0, buf, xPx + start * cellW(), baseline);
+    }
+
     private Font fontFor(int a) {
         boolean isBold = (a & Term.BOLD) != 0;
         boolean isIt = (a & Term.ITALIC) != 0;
@@ -344,6 +641,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (c == KeyEvent.CHAR_UNDEFINED) return;
         if (e.isControlDown()) return;
         if (c < 0x20 || c == 0x7f) return;
+        term.scrollToBottom();
         byte[] bytes;
         if (e.isAltDown()) {
             byte[] b = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
@@ -371,6 +669,35 @@ public final class TermPanel extends JPanel implements KeyListener {
                 pasteClipboard();
                 e.consume();
                 return;
+            }
+        }
+        if (e.isShiftDown() && !term.inAltScreen() && term.historySize() > 0) {
+            switch (e.getKeyCode()) {
+                case KeyEvent.VK_PAGE_UP -> {
+                    term.scrollView(term.rows - 1);
+                    requestFullRepaint();
+                    e.consume();
+                    return;
+                }
+                case KeyEvent.VK_PAGE_DOWN -> {
+                    term.scrollView(-(term.rows - 1));
+                    requestFullRepaint();
+                    e.consume();
+                    return;
+                }
+                case KeyEvent.VK_HOME -> {
+                    term.scrollView(term.historySize());
+                    requestFullRepaint();
+                    e.consume();
+                    return;
+                }
+                case KeyEvent.VK_END -> {
+                    term.scrollToBottom();
+                    requestFullRepaint();
+                    e.consume();
+                    return;
+                }
+                default -> { }
             }
         }
         String seq = null;
@@ -409,6 +736,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             } else if (k == KeyEvent.VK_SPACE) seq = "\u0000";
         }
         if (seq != null) {
+            term.scrollToBottom();
             send(seq.getBytes(StandardCharsets.UTF_8));
             e.consume();
         }
@@ -421,68 +749,103 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void repaintCursorRow() {
-        if (term.cy >= 0 && term.cy < term.rows) {
+        if (term.viewOff() == 0 && term.cy >= 0 && term.cy < term.rows) {
             term.dirty[term.cy] = true;
             repaint();
         }
     }
 
     private int cellX(MouseEvent e) {
-        return Math.max(0, Math.min(term.cols - 1, e.getX() / Math.max(1, cellW())));
+        return Math.max(0, Math.min(term.cols - 1,
+                (e.getX() - padding) / Math.max(1, cellW())));
     }
 
     private int cellY(MouseEvent e) {
-        return Math.max(0, Math.min(term.rows - 1, e.getY() / Math.max(1, cellH())));
+        return Math.max(0, Math.min(term.rows - 1,
+                (e.getY() - padding) / Math.max(1, cellH())));
+    }
+
+    private boolean insideGrid(MouseEvent e) {
+        int x = e.getX() - padding, y = e.getY() - padding;
+        return x >= 0 && y >= 0 && x < term.cols * cellW() && y < term.rows * cellH();
     }
 
     private boolean hasSelection() {
-        return selAX >= 0 && (selAX != selBX || selAY != selBY);
+        return selAX >= 0 && (selAX != selBX || selAbsAY != selAbsBY);
     }
 
     private boolean isSelected(int x, int y) {
         if (!hasSelection()) return false;
-        int a = selAY * term.cols + selAX;
-        int b = selBY * term.cols + selBX;
-        if (a > b) { int t = a; a = b; b = t; }
-        int p = y * term.cols + x;
-        return p >= a && p <= b;
+        long aL = selAbsAY, bL = selAbsBY;
+        int aC = selAX, bC = selBX;
+        if (aL > bL || (aL == bL && aC > bC)) {
+            long tl = aL; aL = bL; bL = tl;
+            int tc = aC; aC = bC; bC = tc;
+        }
+        long line = term.absoluteLine(y);
+        if (line < aL || line > bL) return false;
+        if (line == aL && x < aC) return false;
+        if (line == bL && x > bC) return false;
+        return true;
     }
 
     private void clearSelection() {
-        selAX = selAY = selBX = selBY = -1;
+        selAX = selBX = -1;
+        selAbsAY = selAbsBY = -1;
         selecting = false;
     }
 
     private void selectWordOrLine(int x, int y, boolean wholeLine) {
         selecting = false;
+        long abs = term.absoluteLine(y);
         if (wholeLine) {
-            selAX = 0; selAY = y; selBX = term.cols - 1; selBY = y;
+            selAX = 0; selAbsAY = abs; selBX = term.cols - 1; selAbsBY = abs;
         } else {
-            int base = y * term.cols;
+            int[] cps = term.rowCpAt(abs);
+            int off = term.rowOffsetAt(abs);
+            if (cps == null || off < 0) return;
             int s = x, e = x;
-            while (s > 0 && !Character.isWhitespace(term.text[base + s - 1])) s--;
-            while (e + 1 < term.cols && !Character.isWhitespace(term.text[base + e + 1])) e++;
-            selAX = s; selAY = y; selBX = e; selBY = y;
+            while (s > 0 && !Character.isWhitespace(cps[off + s - 1])) s--;
+            while (e + 1 < term.cols && !Character.isWhitespace(cps[off + e + 1])) e++;
+            selAX = s; selAbsAY = abs; selBX = e; selAbsBY = abs;
         }
         requestFullRepaint();
-        copySelection();
+        if (copyOnSelect) copySelection();
     }
 
     private String selectionText() {
         if (!hasSelection()) return "";
+        long aL = selAbsAY, bL = selAbsBY;
+        int aC = selAX, bC = selBX;
+        if (aL > bL || (aL == bL && aC > bC)) {
+            long tl = aL; aL = bL; bL = tl;
+            int tc = aC; aC = bC; bC = tc;
+        }
         int c = term.cols;
-        int a = selAY * c + selAX;
-        int b = selBY * c + selBX;
-        if (a > b) { int t = a; a = b; b = t; }
-        int sy = Math.min(term.rows - 1, a / c), sx = Math.min(c - 1, a % c);
-        int ey = Math.min(term.rows - 1, b / c), ex = Math.min(c - 1, b % c);
         StringBuilder out = new StringBuilder();
-        for (int y = sy; y <= ey; y++) {
-            int from = (y == sy) ? sx : 0;
-            int to = (y == ey) ? ex : c - 1;
-            while (to >= from && term.text[y * c + to] == ' ') to--;
-            if (to >= from) out.append(term.text, y * c + from, to - from + 1);
-            if (y < ey) out.append('\n');
+        for (long abs = aL; abs <= bL; abs++) {
+            int[] cps = term.rowCpAt(abs);
+            String[] cls = term.rowClusterAt(abs);
+            int off = term.rowOffsetAt(abs);
+            if (cps == null || off < 0) {
+                if (abs < bL) out.append('\n');
+                continue;
+            }
+            int from = (abs == aL) ? aC : 0;
+            int to = (abs == bL) ? bC : c - 1;
+            from = Math.max(0, Math.min(c - 1, from));
+            to = Math.max(0, Math.min(c - 1, to));
+            StringBuilder line = new StringBuilder();
+            for (int x = from; x <= to; x++) {
+                int cp = cps[off + x];
+                if (cp == Term.WIDE_CONT) continue;
+                line.append(Term.cellString(cps, cls, off + x));
+            }
+            while (line.length() > 0 && line.charAt(line.length() - 1) == ' ') {
+                line.setLength(line.length() - 1);
+            }
+            out.append(line);
+            if (abs < bL) out.append('\n');
         }
         return out.toString();
     }
@@ -503,6 +866,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             Object v = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
                     .getData(java.awt.datatransfer.DataFlavor.stringFlavor);
             if (v == null) return;
+            term.scrollToBottom();
             String s = v.toString().replace("\r\n", "\r").replace('\n', '\r');
             if (term.bracketed) s = "\u001b[200~" + s + "\u001b[201~";
             send(s.getBytes(StandardCharsets.UTF_8));
@@ -512,10 +876,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void sendMouse(MouseEvent e, boolean press) {
-        if (pty == null || term.mouseMode == 0) return;
-        int cx = e.getX() / Math.max(1, cellW());
-        int cy = e.getY() / Math.max(1, cellH());
-        if (cx < 0 || cy < 0 || cx >= term.cols || cy >= term.rows) return;
+        if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
+        int cx = cellX(e), cy = cellY(e);
         int button;
         switch (e.getButton()) {
             case MouseEvent.BUTTON1 -> button = 0;
@@ -535,10 +897,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void sendMouseDrag(MouseEvent e) {
-        if (pty == null || term.mouseMode < 2 || pressedButton < 0) return;
-        int cx = e.getX() / Math.max(1, cellW());
-        int cy = e.getY() / Math.max(1, cellH());
-        if (cx < 0 || cy < 0 || cx >= term.cols || cy >= term.rows) return;
+        if (pty == null || term.mouseMode < 2 || pressedButton < 0 || !insideGrid(e)) return;
+        int cx = cellX(e), cy = cellY(e);
         int mod = modifiers(e);
         int code = pressedButton + 32 + mod;
         if (term.mouseSgr) {
@@ -548,10 +908,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void sendMouseMove(MouseEvent e) {
-        if (pty == null || term.mouseMode < 3) return;
-        int cx = e.getX() / Math.max(1, cellW());
-        int cy = e.getY() / Math.max(1, cellH());
-        if (cx < 0 || cy < 0 || cx >= term.cols || cy >= term.rows) return;
+        if (pty == null || term.mouseMode < 3 || !insideGrid(e)) return;
+        int cx = cellX(e), cy = cellY(e);
         int mod = modifiers(e);
         int code = 35 + mod; // motion, no button
         if (term.mouseSgr) {
@@ -561,10 +919,17 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void sendMouseWheel(java.awt.event.MouseWheelEvent e) {
-        if (pty == null || term.mouseMode == 0) return;
-        int cx = e.getX() / Math.max(1, cellW());
-        int cy = e.getY() / Math.max(1, cellH());
-        if (cx < 0 || cy < 0 || cx >= term.cols || cy >= term.rows) return;
+        if (!term.inAltScreen() && term.historySize() > 0
+                && (term.mouseMode == 0 || e.isShiftDown() || term.viewOff() > 0)) {
+            int lines = e.getWheelRotation() * 3;
+            if (lines != 0) {
+                term.scrollView(-lines);
+                requestFullRepaint();
+            }
+            return;
+        }
+        if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
+        int cx = cellX(e), cy = cellY(e);
         int button = e.getWheelRotation() < 0 ? 64 : 65;
         int mod = modifiers(e);
         int code = button + mod;

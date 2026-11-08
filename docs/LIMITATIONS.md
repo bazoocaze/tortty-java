@@ -6,16 +6,14 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 
 | id | limitation | consequence |
 |---|---|---|
-| L1 | Scrollback is kept in memory, but there is no view/navigation or scrollbar | only the current screen is visible; history is unreachable |
-| L2 | No double-width cell (CJK/emoji) and no combining of separate accents | wrong alignment and accents may become their own cells |
 | L3 | No shaping/ligatures and no IME/composition | complex text and CJK input are not supported |
 | L4 | 16 ms/vsync limit not implemented | `--no-vsync` is a benchmark instrument; painting follows Swing |
 | L5 | Unix-specific integration | AF_UNIX socket, `$SHELL`, `/tmp`, `Xft.dpi`, and X11 fonts are not portable as they are |
-| L7 | No tabs, workspaces, or splits | one window = one pty |
+| L7 | No tabs, workspaces, or splits | one window = one pty; no per-tab notification badge |
 | L8 | No kitty/sixel/iTerm2 images | `icat` and similar do not draw |
 | L9 | No scrollback search | large history is not searchable |
-| L10 | No config file/hot reload | adjustments only via CLI and code constants |
-| L11 | No OSC 9/777 notifications, visual bell, or badge | apps cannot get attention outside the title |
-| L12 | No reflow on resize | long lines are cut/padded, not reorganized |
+| L13 | No colour emoji: Java2D does not draw the colour tables; non-BMP emoji fall back to monochrome or tofu | emoji may look monochrome or missing |
+| L14 | SGR `4:2`–`4:5` styles and underline colour (`58`) are parsed but drawn as a single underline | diagnostic undercurls are not distinct |
 
-`L6` was resolved by `B5` on 2026-11-07; the id is not reused.
+`L1`, `L2`, `L10`, `L11`, and `L12` were resolved by `B6`–`B10` on 2026-11-07;
+`L6` was resolved by `B5` on the same day. The ids are not reused.
