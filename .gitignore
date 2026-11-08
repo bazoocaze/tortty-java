@@ -4,6 +4,7 @@ dependency-reduced-pom.xml
 *.class
 
 # Logs and runtime files
+.pi/
 *.log
 *.pid
 hs_err_pid*

@@ -9,7 +9,7 @@ Funcionalidades implementadas na versão Java do TorTTY.
 - SGR 16 cores, 256 cores e truecolor (`38;2`/`48;2`), incluindo subparâmetros `:`.
 - Atributos: negrito, fraco, itálico, sublinhado, piscante, inverso, riscado.
 - DEC graphics G0/G1 (`ESC(0`, `ESC)0`) para box-drawing do mc.
-- OSC 0/2 (título), 7 (cwd e fallback de título) e 8 (hyperlink por célula).
+- OSC 0/2 (título), 7 (cwd e fallback de título) e 8 (link por célula).
 - Cursor block/beam/underline via DECSCUSR (`CSI Ps SP q`) e blink via `?12`.
 - Tela alternativa (`?47`, `?1047`, `?1049`) e cursor salvo/restaurado.
 - Região de scroll (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.
@@ -33,7 +33,7 @@ Funcionalidades implementadas na versão Java do TorTTY.
 - Mouse SGR: press/release, drag, motion e wheel.
 - Seleção visível (arrastar, duplo clique na palavra, triplo na linha) com inversão; copia ao soltar e com Ctrl+Shift+C.
 - Colagem com Ctrl+Shift+V, respeitando bracketed paste.
-- Hyperlinks OSC 8: Ctrl sublinha os links e Ctrl+clique abre `http/https/file/ftp/mailto`.
+- Links OSC 8: Ctrl sublinha os links e Ctrl+clique abre `http/https/file/ftp/mailto`.
 - Fonte mono configurável; padrão DejaVu Sans Mono 17 pt; fallback para Monospaced.
 - Launcher desativa XRender no X11 real (`-Dsun.java2d.xrender=false`) para evitar paint lento.
 

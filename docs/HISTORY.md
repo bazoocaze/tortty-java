@@ -1,11 +1,11 @@
 # HISTORY
 
-Histórico de atividades passadas.
+Histórico conciso de atividades passadas. Máximo de 10 linhas por atividade.
 
 ## 2026-11-07 — experimento Java
 
 **Contexto.** Validar se Java 21 + Swing era viável para um port mínimo do
-Tortty (Rust) e comparar o desempenho sob o mesmo harness (`benchrun.py` +
+TorTTY (Rust) e comparar o desempenho sob o mesmo harness (`benchrun.py` +
 `doomfire.py`), com os critérios de vim, mc e doom-fire.
 
 **Atividades.**
@@ -18,17 +18,18 @@ Tortty (Rust) e comparar o desempenho sob o mesmo harness (`benchrun.py` +
 
 **Resultado.** vim e mc utilizáveis; doom-fire completo. Java ficou em ~71–78%
 do Rust local no throughput do gerador (710/510 fps vs 905/714 fps) e com paint
-visível de ~104/76 fps. O experimento foi concluído e o modo experimento
-desativado; o projeto segue com documentação normal.
+visível de ~104/76 fps. O experimento inicial foi concluído; o projeto continua
+como implementação experimental para avaliar funcionalidades e desempenho da
+versão Rust.
 
 **Commits principais.** `92dde3e` (inicial), `110ddf5` (docs/README, fonte 17),
 `77543ee` (damage repaint/lag do mc), `85691de` (XRender/fps visível).
 
-## 2026-11-07 — primeiras features do Rust
+## 2026-11-07 — primeiras funcionalidades do Rust
 
-**Contexto.** Com o experimento encerrado, o `BENCHMARKS.md` foi movido para
-`docs/BENCHMARKS.md` e o backlog recebeu cinco features do Tortty Rust, da mais
-simples para a mais trabalhosa (`B1`–`B5`).
+**Contexto.** Na sequência do experimento inicial, o `BENCHMARKS.md` foi movido
+para `docs/BENCHMARKS.md` e o backlog recebeu cinco funcionalidades do TorTTY
+Rust, da mais simples para a mais trabalhosa (`B1`–`B5`).
 
 **Implementado.**
 
@@ -40,8 +41,8 @@ simples para a mais trabalhosa (`B1`–`B5`).
   Ctrl+Shift+C/V e bracketed paste.
 
 **Verificação.** `mvn -q package`; teste headless do parser (OSC 7/8, DECSCUSR,
-`?12`, `?1004`); no Xvfb `:99`, título `teste` via OSC 7, seleção/cópia de
-`alpha beta`, cursor beam visível e sequências `^[[I`/`^[[O` no filho.
+`?12`, `?1004`); no Xvfb `:99`, o título `teste` via OSC 7, a seleção/cópia de
+`alpha beta`, o cursor beam visível e as sequências `^[[I`/`^[[O` no filho.
 
 **Limitações.** `L6` (seleção/clipboard) foi resolvido; as demais continuam em
 [`LIMITATIONS.md`](LIMITATIONS.md).
