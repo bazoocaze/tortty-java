@@ -162,7 +162,21 @@ public final class ChildPty {
 
     public void destroy() {
         closed = true;
-        try { proc.destroy(); } catch (Exception ignored) {}
+        final PtyProcess p = proc;
+        try { p.destroy(); } catch (Exception ignored) {}
         try { reader.interrupt(); } catch (Exception ignored) {}
+        // A shell that ignores SIGTERM (a `trap '' TERM` in the profile) would
+        // outlive its tab: the grace is followed by SIGKILL, the way a pty
+        // hangup ends it in the Rust version.
+        Thread t = new Thread(() -> {
+            for (int i = 0; i < 10 && p.isAlive(); i++) {
+                try { Thread.sleep(100); } catch (InterruptedException e) { return; }
+            }
+            if (p.isAlive()) {
+                try { p.destroyForcibly(); } catch (Exception ignored) { }
+            }
+        }, "pty-kill");
+        t.setDaemon(true);
+        t.start();
     }
 }

@@ -155,3 +155,45 @@ installer only created desktop entries.
 text, `ED 3`-like delete), the two placements recovered with `Shift+PageUp`
 after 98 lines of scrollback, the label changing with `cd`, and `install.sh`
 under a throw-away `HOME`.
+
+## 2026-11-08 — workspaces (B21)
+
+**Context.** Tabs (`B20`) put every shell in one row; the Rust version has had
+workspaces since `I5`/`I6` and the Java side had no grouping above a tab. Taken
+from `crates/app/src/app.rs` and `render.rs`, with the UI translated to Swing
+instead of copied.
+
+**Implemented** (`Main.java`, `debug/DebugServer.java`).
+- `Workspace` = its own `JTabbedPane` + tabs + name + active index, shown through
+  a `CardLayout`; the parked ones keep their ptys, terms and scrollback alive.
+- `Ctrl+Shift+N` creates (inheriting the cwd read from `/proc`), `Ctrl+Shift+Q`
+  closes it with every pty, `Ctrl+Shift+1..9` selects, `+` creates, the right-button
+  popup has new/rename/close, a double click or `F2` renames, the middle button
+  closes. Tabs moved from `Ctrl+Shift+<n>` to `Alt+<n>`, the Rust pair.
+- Toolbar of `JToggleButton`s (not the Rust 18-column sidebar): one text row of
+  height, hidden with a single workspace, tinted with palette 3 while a parked tab
+  has a pending notification; every widget is unfocusable, so a click leaves the
+  keyboard in the terminal and only the rename dialog takes it.
+- Renamed workspace: name cut at 20 characters, empty means "never renamed" and
+  the button goes back to the title of the selected tab (`B43` in the Rust
+  version). Entering a workspace acknowledges its tabs (`M-K`).
+- A workspace whose last shell dies is closed and the first parked one promoted
+  (`I20`); the last one closes the app.
+- Debug socket: `ws_new`, `ws_sel`, `ws_close`, `ws_rename`, and
+  `workspaces`/`ws`/`ws_names`/`ws_titles`/`ws_badges`/`ws_tabs`/`ws_labels` in
+  `state`.
+
+**Bug found on the way.** Closing a tab or a workspace left the shell running:
+`PtyProcess.destroy()` sends `SIGTERM`, and the owner's zsh ignores it (`kill
+-TERM` by hand does nothing). `ChildPty.destroy()` now follows the grace with
+`destroyForcibly()`, the way the pty hangup ends it in the Rust version — three
+workspaces left one shell instead of three.
+
+**Verification.** `mvn package`; Xvfb `:99` — create/select/close by keyboard and
+by mouse (`+`, middle click, popup, double click rename dialog), ptys counted
+before and after closing, scrollback preserved across a switch (`seq 1 40`),
+cwd inherited by the new workspace, badge on the parked workspace cleared on
+entry, click on a workspace button then typing landing in the terminal, grid
+24→22 rows while the toolbar is up, `exit` in the front workspace promoting the
+parked one, and doom-fire 687–757 fps (median ~701 fps / 30.1 MB/s) under load
+3.3, inside the previous spread.

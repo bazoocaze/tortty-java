@@ -29,6 +29,10 @@ public final class DebugServer {
         void write(String data);
         Map<String, Object> prof();
         Map<String, Object> screen();
+        void wsNew();
+        void wsSelect(int index);
+        void wsClose(int index);
+        void wsRename(int index, String name);
         void quit();
     }
 
@@ -133,6 +137,23 @@ public final class DebugServer {
                     r.put("ok", true);
                     for (var e : m.entrySet()) if (!"ok".equals(e.getKey())) r.put(e.getKey(), e.getValue());
                     return r;
+                }
+                case "ws_new" -> {
+                    handler.wsNew();
+                    return Map.of("ok", true);
+                }
+                case "ws_sel" -> {
+                    handler.wsSelect(req.has("index") ? req.get("index").getAsInt() : -1);
+                    return Map.of("ok", true);
+                }
+                case "ws_close" -> {
+                    handler.wsClose(req.has("index") ? req.get("index").getAsInt() : -1);
+                    return Map.of("ok", true);
+                }
+                case "ws_rename" -> {
+                    handler.wsRename(req.has("index") ? req.get("index").getAsInt() : -1,
+                            req.has("name") ? req.get("name").getAsString() : "");
+                    return Map.of("ok", true);
                 }
                 case "quit" -> {
                     handler.quit();

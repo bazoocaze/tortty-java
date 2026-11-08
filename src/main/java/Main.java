@@ -1,6 +1,15 @@
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Toolkit;
 import javax.swing.JFrame;
+import javax.swing.JButton;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTabbedPane;
+import javax.swing.JToggleButton;
+import javax.swing.JToolBar;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
@@ -81,6 +90,8 @@ public final class Main {
         /** Notifications already seen: what is newer is a badge. */
         long ackedNotifs;
         boolean badge;
+        /** Set when the tab is gone for good, so a watcher does not close it twice. */
+        boolean closed;
 
         Tab(Term term, TermPanel panel) {
             this.term = term;
@@ -88,16 +99,53 @@ public final class Main {
         }
 
         String label() {
-            return (badge ? "\u2022 " : "") + shorten(term.windowTitle());
+            return (badge ? "\u2022 " : "") + shorten(term.windowTitle(), 24);
         }
 
         /** Home becomes `~` and a long title is cut, so the bar stays usable. */
-        private static String shorten(String s) {
+        private static String shorten(String s, int max) {
             String home = System.getProperty("user.home");
             if (home != null && !home.isEmpty() && s.startsWith(home + "/")) {
                 s = "~" + s.substring(home.length());
             }
-            return s.length() <= 24 ? s : s.substring(0, 23) + "\u2026";
+            return s.length() <= max ? s : s.substring(0, max - 1) + "\u2026";
+        }
+    }
+
+    /**
+     * A set of tabs with an optional name (`B21`). The one in front is the one
+     * whose pane is inside the frame; the others keep their ptys running while
+     * hidden, exactly as a parked tab strip.
+     */
+    private static final class Workspace {
+        final JTabbedPane pane = new JTabbedPane();
+        final java.util.List<Tab> tabs = new java.util.ArrayList<>();
+        /** "" = never renamed: the button shows the title of the selected tab. */
+        String name = "";
+        int active = -1;
+        String card = "";
+        JToggleButton button;
+
+        Tab activeTab() {
+            return active >= 0 && active < tabs.size() ? tabs.get(active) : null;
+        }
+
+        Tab titleTab() { return activeTab(); }
+
+        String title() {
+            Tab t = activeTab();
+            return t == null ? "" : t.term.windowTitle();
+        }
+
+        /** A parked tab with a pending notification tints the whole workspace. */
+        boolean alert() {
+            for (Tab t : tabs) if (t.term.notifs != t.ackedNotifs) return true;
+            return false;
+        }
+
+        String buttonText(int number) {
+            String second = name.isEmpty() ? title() : name;
+            return Tab.shorten(number + " " + (second.isEmpty() ? "\u2014" : second), 20);
         }
     }
 
@@ -107,10 +155,15 @@ public final class Main {
         private Theme theme;
         private float dpi;
         private JFrame frame;
-        private JTabbedPane pane;
-        private final java.util.List<Tab> tabs = new java.util.ArrayList<>();
-        private int active = -1;
+        private JPanel host;
+        private CardLayout cardLayout;
+        private JToolBar bar;
+        private final java.util.List<Workspace> workspaces = new java.util.ArrayList<>();
+        private int ws = -1;
+        private int nextCard;
         private boolean debugResizing;
+        /** Clicks on the chrome must not take the keyboard from the terminal. */
+        private boolean syncingBar;
 
         App(Opts o) { this.o = o; }
 
@@ -131,32 +184,31 @@ public final class Main {
 
             frame = new JFrame("tortty-java");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            pane = new JTabbedPane();
-            pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            pane.setFocusable(false);
-            frame.setContentPane(pane);
-            pane.addChangeListener(e -> {
-                int i = pane.getSelectedIndex();
-                if (i >= 0 && i != active) {
-                    if (active >= 0 && active < tabs.size()) deactivate(tabs.get(active));
-                    activate(i);
-                }
-            });
+            bar = new JToolBar();
+            bar.setFloatable(false);
+            bar.setFocusable(false);
+            bar.setVisible(false);
+            cardLayout = new CardLayout();
+            host = new JPanel(cardLayout);
+            JPanel root = new JPanel(new BorderLayout());
+            root.add(bar, BorderLayout.NORTH);
+            root.add(host, BorderLayout.CENTER);
+            frame.setContentPane(root);
             bindKeys();
-            newTab(null, true);
+            newWorkspace(null, true);
 
             frame.pack();
             frame.setLocationByPlatform(true);
             frame.setVisible(true);
             frame.addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override public void windowActivated(java.awt.event.WindowEvent e) {
-                    for (Tab t : tabs) t.panel.requestFullRepaint();
+                    forEachTab(t -> t.panel.requestFullRepaint());
                 }
                 @Override public void windowDeiconified(java.awt.event.WindowEvent e) {
-                    for (Tab t : tabs) t.panel.requestFullRepaint();
+                    forEachTab(t -> t.panel.requestFullRepaint());
                 }
                 @Override public void windowClosing(java.awt.event.WindowEvent e) {
-                    for (Tab t : tabs) if (t.pty != null) t.pty.destroy();
+                    forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
                     System.exit(0);
                 }
             });
@@ -164,7 +216,8 @@ public final class Main {
             final ConfigWatcher watcher = new ConfigWatcher(cfgPath, updated -> SwingUtilities.invokeLater(() -> {
                 o.applyTo(updated);
                 cfg = updated;
-                for (Tab t : tabs) applyLive(updated, t);
+                forEachTab(t -> applyLive(updated, t));
+                syncBar();
                 System.err.println("tortty-java: config reloaded (family=" + updated.fontFamily
                         + " size=" + updated.fontSize + " scrollback=" + updated.scrollback + ")");
             }));
@@ -177,19 +230,231 @@ public final class Main {
             if (o.debugSocket != null) startDebugServer();
         }
 
-        // ---------------------------------------------------------------- tabs
+        // ---------------------------------------------------------- workspaces
+
+        private Workspace front() {
+            return ws >= 0 && ws < workspaces.size() ? workspaces.get(ws) : null;
+        }
 
         private Tab activeTab() {
-            return active >= 0 && active < tabs.size() ? tabs.get(active) : null;
+            Workspace w = front();
+            return w == null ? null : w.activeTab();
         }
+
+        private Workspace workspaceOf(Tab t) {
+            for (Workspace w : workspaces) if (w.tabs.contains(t)) return w;
+            return null;
+        }
+
+        private void forEachTab(java.util.function.Consumer<Tab> fn) {
+            for (Workspace w : workspaces) for (Tab t : w.tabs) fn.accept(t);
+        }
+
+        /**
+         * Creates a workspace with one tab. {@code cwd} is inherited by the tab,
+         * so a new workspace opens where the old one was (`B21`).
+         */
+        private void newWorkspace(String cwd, boolean first) {
+            Workspace w = new Workspace();
+            w.card = "ws" + (++nextCard);
+            w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+            w.pane.setFocusable(false);
+            w.pane.addChangeListener(e -> tabSelected(w));
+            workspaces.add(w);
+            host.add(w.pane, w.card);
+            ws = workspaces.size() - 1;
+            showWorkspace();
+            newTab(w, cwd, first);
+        }
+
+        /** Switches the pane in front; the parked ones keep their ptys running. */
+        private void showWorkspace() {
+            Workspace w = front();
+            if (w == null) return;
+            cardLayout.show(host, w.card);
+            // entering a workspace acknowledges every badge of its tabs (M-K)
+            for (Tab t : w.tabs) ack(t);
+            syncBar();
+            syncFrameTitle();
+            final Tab t = w.activeTab();
+            SwingUtilities.invokeLater(() -> {
+                if (t == null) return;
+                if (t.panel.isShowing()) sizeTab(t);
+                t.panel.requestFocusInWindow();
+                t.panel.requestFullRepaint();
+            });
+        }
+
+        private void selectWorkspace(int i) {
+            if (i < 0 || i >= workspaces.size() || i == ws) return;
+            ws = i;
+            showWorkspace();
+        }
+
+        /** Closes a workspace and every pty it owns. */
+        private void closeWorkspace(int i) {
+            if (i < 0 || i >= workspaces.size()) return;
+            Workspace w = workspaces.get(i);
+            for (Tab t : w.tabs) {
+                t.closed = true;
+                if (t.pty != null) t.pty.destroy();
+            }
+            w.tabs.clear();
+            host.remove(w.pane);
+            workspaces.remove(i);
+            if (workspaces.isEmpty()) {
+                System.exit(0);
+                return;
+            }
+            if (i < ws) ws--;
+            ws = Math.max(0, Math.min(ws, workspaces.size() - 1));
+            showWorkspace();
+        }
+
+        /**
+         * The workspace in front lost its last tab: promotes the first parked
+         * one, and only the last workspace closes the app (`I20`).
+         */
+        private void dropEmptyWorkspace(Workspace w) {
+            int i = workspaces.indexOf(w);
+            if (i < 0) return;
+            host.remove(w.pane);
+            workspaces.remove(i);
+            if (workspaces.isEmpty()) {
+                System.exit(0);
+                return;
+            }
+            if (i < ws) ws--;
+            ws = Math.max(0, Math.min(ws, workspaces.size() - 1));
+            showWorkspace();
+        }
+
+        /** Rebuilds the toolbar when the count changed, otherwise only its text. */
+        private void syncBar() {
+            syncingBar = true;
+            try {
+                boolean rebuild = bar.getComponentCount() != workspaces.size() + 1
+                        || (workspaces.isEmpty() || workspaces.get(0).button == null);
+                if (rebuild) {
+                    bar.removeAll();
+                    for (int i = 0; i < workspaces.size(); i++) {
+                        Workspace w = workspaces.get(i);
+                        final int index = i;
+                        JToggleButton b = new JToggleButton();
+                        b.setFocusable(false);
+                        b.setRequestFocusEnabled(false);
+                        b.addActionListener(e -> {
+                            syncingBar = false;
+                            selectWorkspace(index);
+                            focusTerminal();
+                            syncingBar = true;
+                        });
+                        b.addMouseListener(new java.awt.event.MouseAdapter() {
+                            @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                                if (e.getButton() == java.awt.event.MouseEvent.BUTTON2) {
+                                    closeWorkspace(index);
+                                    focusTerminal();
+                                } else if (e.getButton() == java.awt.event.MouseEvent.BUTTON3) {
+                                    popupFor(index).show(b, e.getX(), e.getY());
+                                } else if (e.getClickCount() == 2
+                                        && e.getButton() == java.awt.event.MouseEvent.BUTTON1) {
+                                    rename(index);
+                                }
+                            }
+                        });
+                        w.button = b;
+                        bar.add(b);
+                    }
+                    JButton plus = new JButton("+");
+                    plus.setFocusable(false);
+                    plus.setRequestFocusEnabled(false);
+                    plus.setToolTipText("New workspace (Ctrl+Shift+N)");
+                    plus.addActionListener(e -> {
+                        newWorkspace(cwdOf(activeTab()), false);
+                        focusTerminal();
+                    });
+                    bar.add(plus);
+                }
+                for (int i = 0; i < workspaces.size(); i++) {
+                    Workspace w = workspaces.get(i);
+                    JToggleButton b = w.button;
+                    if (b == null) continue;
+                    b.setText(w.buttonText(i + 1));
+                    b.setSelected(i == ws);
+                    b.setForeground(w.alert() ? new java.awt.Color(theme.palette[3]) : null);
+                    b.setToolTipText("Workspace " + (i + 1)
+                            + (w.name.isEmpty() ? "" : " \u2014 " + w.name)
+                            + "\nCtrl+Shift+" + (i + 1) + " selects, F2 renames, middle click closes");
+                }
+            } finally {
+                syncingBar = false;
+            }
+            boolean wantBar = workspaces.size() > 1;
+            if (bar.isVisible() != wantBar) {
+                bar.setVisible(wantBar);
+                frame.revalidate();
+                frame.repaint();
+            }
+        }
+
+        private JPopupMenu popupFor(int i) {
+            JPopupMenu m = new JPopupMenu();
+            JMenuItem neu = new JMenuItem("New workspace");
+            neu.addActionListener(e -> { newWorkspace(cwdOf(activeTab()), false); focusTerminal(); });
+            JMenuItem ren = new JMenuItem("Rename\u2026");
+            ren.addActionListener(e -> rename(i));
+            JMenuItem close = new JMenuItem("Close workspace");
+            close.addActionListener(e -> { closeWorkspace(i); focusTerminal(); });
+            m.add(neu);
+            m.add(ren);
+            m.addSeparator();
+            m.add(close);
+            return m;
+        }
+
+        /**
+         * Renaming is the only place outside the terminal that takes the
+         * keyboard; the focus goes back to the tab when the dialog closes.
+         */
+        private void rename(int i) {
+            if (i < 0 || i >= workspaces.size()) return;
+            Workspace w = workspaces.get(i);
+            Object r = JOptionPane.showInputDialog(frame,
+                    "Workspace name (" + (i + 1) + "). Empty goes back to the tab title:",
+                    "Rename workspace", JOptionPane.PLAIN_MESSAGE, null, null, w.name);
+            if (r != null) {
+                w.name = sanitizeName(String.valueOf(r));
+                syncBar();
+            }
+            focusTerminal();
+        }
+
+        private static String sanitizeName(String s) {
+            StringBuilder sb = new StringBuilder();
+            for (int k = 0; k < s.length(); k++) {
+                char c = s.charAt(k);
+                if (c < 0x20 || c == 0x7F) continue;
+                if (c >= 0x200B && c <= 0x200F) continue;
+                sb.append(c);
+            }
+            return sb.toString().trim();
+        }
+
+        private void focusTerminal() {
+            Tab t = activeTab();
+            if (t != null) t.panel.requestFocusInWindow();
+        }
+
+        // ---------------------------------------------------------------- tabs
 
         /**
          * Creates the tab, its panel and its child. {@code cwd} is the directory
          * the previous tab reported (OSC 7), so a new tab opens where you were.
          */
-        private void newTab(String cwd, boolean first) {
+        private void newTab(Workspace w, String cwd, boolean first) {
             int cols = o.cols, rows = o.rows;
-            Tab cur = activeTab();
+            Tab cur = w.activeTab();
+            if (cur == null) cur = activeTab();
             if (cur != null) {
                 cols = Math.max(1, cur.panel.gridCols());
                 rows = Math.max(1, cur.panel.gridRows());
@@ -219,19 +484,18 @@ public final class Main {
             });
             tab.syncTimer.setRepeats(false);
 
-            tabs.add(tab);
-            pane.addTab(tab.label(), panel);
-            int index = tabs.size() - 1;
-            pane.setSelectedIndex(index);
-            active = index;
+            w.tabs.add(tab);
+            w.active = w.tabs.size() - 1;
+            w.pane.addTab(tab.label(), panel);
+            w.pane.setSelectedComponent(panel);
 
             try {
                 tab.pty = new ChildPty(o.cmd, cfg.shell, cols, rows, cwd);
             } catch (IOException e) {
                 System.err.println("tortty-java: pty spawn failed: " + e);
-                if (tabs.size() == 1) System.exit(1);
-                tabs.remove(tab);
-                pane.remove(panel);
+                if (w.tabs.size() == 1) System.exit(1);
+                w.tabs.remove(tab);
+                w.pane.remove(panel);
                 return;
             }
             panel.setPty(tab.pty);
@@ -242,69 +506,81 @@ public final class Main {
             String shellCwd = tab.pty.cwd();
             if (shellCwd != null) term.shellCwd = shellCwd;
             sweep();
-            updateTitles();
+            syncBar();
             syncFrameTitle();
-            pane.setSelectedComponent(panel);
-            SwingUtilities.invokeLater(() -> {
-                if (panel.isShowing()) sizeTab(tab);
-                panel.requestFocusInWindow();
-                panel.requestFullRepaint();
-            });
-        }
-
-        private void activate(int index) {
-            if (index < 0 || index >= tabs.size()) return;
-            active = index;
-            final Tab t = tabs.get(index);
-            activate(t);
-        }
-
-        private void activate(final Tab t) {
-            ack(t);
-            if (t.panel.isShowing()) sizeTab(t);
-            panelOf(t).requestFocusInWindow();
-            t.panel.requestFullRepaint();
-            syncFrameTitle();
-        }
-
-        private void deactivate(Tab t) {
-            if (t.badge) return;
-            if (t.term.notifs != t.ackedNotifs) {
-                t.badge = true;
-                updateTitles();
+            if (w == front()) {
+                SwingUtilities.invokeLater(() -> {
+                    if (panel.isShowing()) sizeTab(tab);
+                    panel.requestFocusInWindow();
+                    panel.requestFullRepaint();
+                });
             }
         }
 
-        private static TermPanel panelOf(Tab t) { return t.panel; }
+        /** The tab strip of {@code w} changed: the front one follows it. */
+        private void tabSelected(Workspace w) {
+            int i = w.pane.getSelectedIndex();
+            if (i < 0) return;
+            if (i == w.active && w == front()) return;
+            Tab old = w.activeTab();
+            w.active = i;
+            if (w != front()) return;
+            if (old != null && old != w.activeTab()) markBadge(old);
+            activate(w.activeTab());
+        }
+
+        private void activate(final Tab t) {
+            if (t == null) return;
+            ack(t);
+            if (t.panel.isShowing()) sizeTab(t);
+            t.panel.requestFocusInWindow();
+            t.panel.requestFullRepaint();
+            syncBar();
+            syncFrameTitle();
+        }
+
+        private void markBadge(Tab t) {
+            if (t.badge) return;
+            if (t.term.notifs != t.ackedNotifs) {
+                t.badge = true;
+                Workspace w = workspaceOf(t);
+                if (w != null) updateTitles(w);
+                syncBar();
+            }
+        }
 
         private void ack(Tab t) {
             t.ackedNotifs = t.term.notifs;
             if (t.badge) {
                 t.badge = false;
-                updateTitles();
+                Workspace w = workspaceOf(t);
+                if (w != null) updateTitles(w);
             }
         }
 
-        private void updateTitles() {
-            for (int i = 0; i < tabs.size() && i < pane.getTabCount(); i++) {
-                String label = tabs.get(i).label();
-                if (!label.equals(pane.getTitleAt(i))) pane.setTitleAt(i, label);
+        private void updateTitles(Workspace w) {
+            for (int i = 0; i < w.tabs.size() && i < w.pane.getTabCount(); i++) {
+                String label = w.tabs.get(i).label();
+                if (!label.equals(w.pane.getTitleAt(i))) w.pane.setTitleAt(i, label);
             }
         }
 
         /** Keeps the /proc cwd of every tab fresh, so the title follows `cd`. */
         private void refreshCwd() {
             boolean changed = false;
-            for (Tab t : tabs) {
-                if (t.pty == null) continue;
-                String cwd = t.pty.cwd();
-                if (cwd != null && !cwd.equals(t.term.shellCwd)) {
-                    t.term.shellCwd = cwd;
-                    changed = true;
+            for (Workspace w : workspaces) {
+                for (Tab t : w.tabs) {
+                    if (t.pty == null) continue;
+                    String cwd = t.pty.cwd();
+                    if (cwd != null && !cwd.equals(t.term.shellCwd)) {
+                        t.term.shellCwd = cwd;
+                        changed = true;
+                    }
                 }
             }
             if (changed) {
-                updateTitles();
+                for (Workspace w : workspaces) updateTitles(w);
+                syncBar();
                 syncFrameTitle();
             }
         }
@@ -329,27 +605,34 @@ public final class Main {
             }
         }
 
-        private void closeTab(Tab t) {
-            int i = tabs.indexOf(t);
+        private void closeTab(Workspace w, Tab t) {
+            if (t.closed) return;
+            t.closed = true;
+            int i = w.tabs.indexOf(t);
             if (i < 0) return;
             if (t.pty != null) t.pty.destroy();
-            tabs.remove(i);
-            pane.remove(t.panel);
-            if (tabs.isEmpty()) {
-                System.exit(0);
+            w.active = -1;
+            w.tabs.remove(i);
+            w.pane.remove(t.panel);
+            if (w.tabs.isEmpty()) {
+                dropEmptyWorkspace(w);
                 return;
             }
-            active = -1;
-            pane.setSelectedIndex(Math.min(i, tabs.size() - 1));
-            activate(Math.min(i, tabs.size() - 1));
-            updateTitles();
+            syncBar();
+            if (w != front()) {
+                updateTitles(w);
+                return;
+            }
+            activate(w.activeTab());
         }
 
         /** Drops the tabs whose child is gone (a dead shell closes its tab). */
         private void sweep() {
-            java.util.List<Tab> dead = new java.util.ArrayList<>();
-            for (Tab t : tabs) if (t.pty != null && t.pty.childExited()) dead.add(t);
-            for (Tab t : dead) closeTab(t);
+            java.util.List<Object[]> dead = new java.util.ArrayList<>();
+            for (Workspace w : workspaces) {
+                for (Tab t : w.tabs) if (t.pty != null && t.pty.childExited()) dead.add(new Object[] { w, t });
+            }
+            for (Object[] d : dead) closeTab((Workspace) d[0], (Tab) d[1]);
         }
 
         // --------------------------------------------------------------- wiring
@@ -372,7 +655,9 @@ public final class Main {
                     t.panel.checkNotifications();
                 } else if (!t.badge && term.notifs != t.ackedNotifs) {
                     t.badge = true;
-                    updateTitles();
+                    Workspace w = workspaceOf(t);
+                    if (w != null) updateTitles(w);
+                    syncBar();
                 }
                 if (term.sync) {
                     t.syncTimer.restart();
@@ -420,7 +705,10 @@ public final class Main {
                 while (pty != null && pty.isAlive()) {
                     try { Thread.sleep(200); } catch (InterruptedException ignored) { }
                 }
-                SwingUtilities.invokeLater(() -> closeTab(t));
+                SwingUtilities.invokeLater(() -> {
+                    Workspace ws = workspaceOf(t);
+                    if (ws != null) closeTab(ws, t);
+                });
             }, "pty-watcher");
             w.setDaemon(true);
             w.start();
@@ -429,39 +717,66 @@ public final class Main {
         /**
          * Fixed shortcuts, as in the Rust version: they are taken before the
          * panel sees the key, so the child never gets a `Ctrl+Shift+T`.
+         * `Ctrl+Shift+<n>` picks a workspace, `Alt+<n>` picks a tab.
          */
         private void bindKeys() {
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
                 if (e.getID() != KeyEvent.KEY_PRESSED) return false;
-                if (!e.isControlDown() || !e.isShiftDown() || e.isAltDown() || e.isMetaDown()) return false;
                 int kc = e.getKeyCode();
+                boolean digit = kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9;
+                boolean ctrlShift = e.isControlDown() && e.isShiftDown() && !e.isAltDown() && !e.isMetaDown();
+                boolean altOnly = e.isAltDown() && !e.isControlDown() && !e.isShiftDown() && !e.isMetaDown();
+                if (altOnly && digit) {
+                    selectTab(kc - KeyEvent.VK_1);
+                    return true;
+                }
+                if (!ctrlShift) return false;
                 if (kc == KeyEvent.VK_T) {
-                    newTab(cwdOfActive(), false);
+                    newTab(front(), cwdOf(activeTab()), false);
                     return true;
                 }
                 if (kc == KeyEvent.VK_W) {
                     Tab t = activeTab();
-                    if (t != null) closeTab(t);
+                    Workspace w = front();
+                    if (t != null && w != null) closeTab(w, t);
                     return true;
                 }
-                if (kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9) {
-                    select(kc - KeyEvent.VK_1);
+                if (kc == KeyEvent.VK_N) {
+                    newWorkspace(cwdOf(activeTab()), false);
+                    return true;
+                }
+                if (kc == KeyEvent.VK_Q) {
+                    closeWorkspace(ws);
+                    return true;
+                }
+                if (digit) {
+                    selectWorkspace(kc - KeyEvent.VK_1);
                     return true;
                 }
                 return false;
             });
+            // F2 renames the workspace in front (the Rust version does the same)
+            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
+                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
+                if (e.getKeyCode() != KeyEvent.VK_F2) return false;
+                if (e.isControlDown() || e.isShiftDown() || e.isAltDown() || e.isMetaDown()) return false;
+                if (workspaces.size() < 2) return false;
+                rename(ws);
+                return true;
+            });
         }
 
-        private String cwdOfActive() {
-            Tab t = activeTab();
+        private String cwdOf(Tab t) {
             if (t == null) return null;
             String cwd = t.pty != null ? t.pty.cwd() : null;
             if (cwd == null || cwd.isEmpty()) cwd = t.term.cwd;
             return (cwd == null || cwd.isEmpty()) ? null : cwd;
         }
 
-        private void select(int index) {
-            if (index >= 0 && index < tabs.size()) pane.setSelectedIndex(index);
+        private void selectTab(int index) {
+            Workspace w = front();
+            if (w == null || index < 0 || index >= w.tabs.size()) return;
+            w.pane.setSelectedIndex(index);
         }
 
         private void startDebugServer() {
@@ -490,18 +805,41 @@ public final class Main {
                     m.put("mouse_sgr", term.mouseSgr);
                     m.put("mouse_utf8", term.mouseUtf8);
                     m.put("mouse_pixels", term.mousePixels);
-                    m.put("tabs", tabs.size());
-                    m.put("active", active);
+                    Workspace w = front();
+                    m.put("tabs", w == null ? 0 : w.tabs.size());
+                    m.put("active", w == null ? -1 : w.active);
                     java.util.List<String> labels = new java.util.ArrayList<>();
-                    for (Tab tab : tabs) labels.add(tab.label());
+                    if (w != null) for (Tab tab : w.tabs) labels.add(tab.label());
                     m.put("titles", labels);
+                    m.put("workspaces", workspaces.size());
+                    m.put("ws", ws);
+                    java.util.List<String> names = new java.util.ArrayList<>();
+                    java.util.List<String> wsTitles = new java.util.ArrayList<>();
+                    java.util.List<Boolean> wsBadges = new java.util.ArrayList<>();
+                    java.util.List<Integer> wsTabs = new java.util.ArrayList<>();
+                    java.util.List<String> wsLabels = new java.util.ArrayList<>();
+                    for (int i = 0; i < workspaces.size(); i++) {
+                        Workspace x = workspaces.get(i);
+                        names.add(x.name);
+                        wsTitles.add(x.title());
+                        wsBadges.add(x.alert());
+                        wsTabs.add(x.tabs.size());
+                        wsLabels.add(x.buttonText(i + 1));
+                    }
+                    m.put("ws_names", names);
+                    m.put("ws_titles", wsTitles);
+                    m.put("ws_badges", wsBadges);
+                    m.put("ws_tabs", wsTabs);
+                    m.put("ws_labels", wsLabels);
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {
                     if (cols <= 0 || rows <= 0) return;
+                    Workspace w = front();
+                    if (w == null) return;
                     debugResizing = true;
                     try {
-                        for (Tab t : tabs) {
+                        for (Tab t : w.tabs) {
                             t.term.resize(cols, rows);
                             if (t.pty != null) t.pty.resize(cols, rows);
                             t.panel.revalidate();
@@ -532,9 +870,23 @@ public final class Main {
                     m.put("view", t == null ? 0 : t.term.viewOff());
                     return m;
                 }
+                @Override public void wsNew() {
+                    newWorkspace(cwdOf(activeTab()), false);
+                }
+                @Override public void wsSelect(int index) {
+                    selectWorkspace(index);
+                }
+                @Override public void wsClose(int index) {
+                    closeWorkspace(index);
+                }
+                @Override public void wsRename(int index, String name) {
+                    if (index < 0 || index >= workspaces.size()) return;
+                    workspaces.get(index).name = sanitizeName(name == null ? "" : name);
+                    syncBar();
+                }
                 @Override public void quit() {
                     SwingUtilities.invokeLater(() -> {
-                        for (Tab t : tabs) if (t.pty != null) t.pty.destroy();
+                        forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
                         System.exit(0);
                     });
                 }

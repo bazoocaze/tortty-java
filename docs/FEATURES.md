@@ -79,11 +79,22 @@ Features implemented in the Java version of TorTTY.
   CJK and symbol fonts. Colour emoji is not rendered by Java2D (see `L13`).
 - Window padding and fg/bg/cursor palette from the config.
 - Tabs: one pty, term and panel per tab; Ctrl+Shift+T opens (inheriting the
-  shell's cwd from `/proc`), Ctrl+Shift+W closes, Ctrl+Shift+1..9 selects. The
+  shell's cwd from `/proc`), Ctrl+Shift+W closes, Alt+1..9 selects. The
   tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`),
   with `~` for the home directory, a cut at 24 characters and a `•` marker
   when a background tab received a notification; the window title mirrors the
   active tab. A dead shell closes its tab; the last one closes the app.
+- Workspaces: a named set of tabs, with a toolbar of toggle buttons (one per
+  workspace, hidden while there is only one) that costs the grid one text row.
+  Ctrl+Shift+N creates — the new one opens where the old one was —, Ctrl+Shift+Q
+  closes it with every pty it owns, Ctrl+Shift+1..9 selects, `+` creates, the
+  popup (right button) has new/rename/close, a double click or `F2` renames
+  (empty goes back to the automatic title, which is the title of the selected
+  tab), the middle button closes. A parked tab with a pending notification
+  tints the button, and entering the workspace acknowledges its tabs. The
+  toolbar takes no keyboard focus: a click on it leaves the keys in the terminal
+  and only the rename dialog takes them. A workspace whose last shell dies is
+  closed, promoting the first parked one; the last one closes the app.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler
