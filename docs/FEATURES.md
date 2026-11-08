@@ -84,17 +84,21 @@ Features implemented in the Java version of TorTTY.
   with `~` for the home directory, a cut at 24 characters and a `•` marker
   when a background tab received a notification; the window title mirrors the
   active tab. A dead shell closes its tab; the last one closes the app.
-- Workspaces: a named set of tabs, with a toolbar of toggle buttons (one per
-  workspace, hidden while there is only one) that costs the grid one text row.
-  Ctrl+Shift+N creates — the new one opens where the old one was —, Ctrl+Shift+Q
-  closes it with every pty it owns, Ctrl+Shift+1..9 selects, `+` creates, the
-  popup (right button) has new/rename/close, a double click or `F2` renames
-  (empty goes back to the automatic title, which is the title of the selected
-  tab), the middle button closes. A parked tab with a pending notification
-  tints the button, and entering the workspace acknowledges its tabs. The
-  toolbar takes no keyboard focus: a click on it leaves the keys in the terminal
-  and only the rename dialog takes them. A workspace whose last shell dies is
-  closed, promoting the first parked one; the last one closes the app.
+- Workspaces: a named set of tabs, listed in a **column on the left** (number,
+  name, tab count), hidden while there is only one. The column takes no grid
+  rows — only columns, and the width is dragged and remembered — while the tabs
+  of the front workspace stay on the strip above the grid, so the two axes are
+  spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the
+  column: a row shows the name, or, when never renamed, the title of the tab
+  selected in that workspace. Ctrl+Shift+N creates — the new one opens where the
+  old one was —, Ctrl+Shift+Q closes it with every pty it owns,
+  Ctrl+Shift+1..9 selects, `+ new` creates, the popup (right button) has
+  new/rename/close, a double click or `F2` renames, the middle button closes. A
+  parked tab with a pending notification puts an amber dot on its row, and
+  entering the workspace acknowledges its tabs. The column takes no keyboard
+  focus: a click on it leaves the keys in the terminal and only the rename
+  dialog takes them. A workspace whose last shell dies is closed, promoting the
+  first parked one; the last one closes the app.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler

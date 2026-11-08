@@ -47,6 +47,9 @@ or the paint gate.
 
 Six shots over the day, 1200 frames, 61x18, font 17: **687.7–757.5 fps**,
 median **703.7 fps / 30.2 MB/s**, draw 2.61–3.25 ms/call, parse 0.14 ms/call.
+After the workspaces moved from the top toolbar to the left column: 771.0 fps /
+33.1 MB/s, draw 2.87 ms/call — the column is hidden with a single workspace, so
+the paint path is unchanged.
 Load average was 3.3 (the owner's own session), which is where the spread comes
 from: the batch itself adds nothing to the paint path — PRIMARY, the kitty
 protocols, tabs and workspaces are inert for a single tab in a single

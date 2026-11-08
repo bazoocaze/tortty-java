@@ -224,3 +224,37 @@ directories, front workspace and front tab; a tab directory deleted from the
 file; a crooked file opening at the default; maximized saved and restored with
 the normal size intact; two restart cycles with no size creep; `--no-state`
 leaving the file byte-identical.
+
+## 2026-11-08 — workspaces, second pass (B21)
+
+**Context.** The first `B21` shipped the workspaces as a `JToolBar` of toggle
+buttons above the tab strip: two stacked rows of look-alike chips, costing the
+grid two text rows. On a terminal that is the wrong axis — rows are the scarce
+dimension on a wide screen, columns are cheap — and two horizontal rows say
+nothing about the hierarchy (a workspace contains tabs).
+
+**Implemented** (`Main.java`, `state/Session.java`).
+- The column replaced the toolbar: a `JSplitPane` with a painted `Side`
+  component on the left, one row per workspace, `WORKSPACES` caption, `+ new`
+  row, hidden while there is only one workspace (and then the divider is 0 px,
+  so no strip is left behind). Divider width is dragged and kept in
+  `window.json` (`sideW`, 110–420 px).
+- Rows show the number, the name, and — when never renamed — the title of the
+  tab **selected in that workspace**; long labels are cut with `…`, a parked tab
+  with a notification puts an amber dot on the row, and more than one tab shows
+  the count (`3t`).
+- No tabs are nested in the column: they stay on the strip above the grid, so
+  the two axes are spatial and nothing is duplicated.
+- Clicks: left selects (and returns the keyboard to the terminal), double click
+  or `F2` renames, middle closes, right opens the popup; the tooltip carries the
+  full name, tab count, the active tab title and the shortcuts. `syncBar` became
+  `syncSide`, which now only repaints and shows/hides the column.
+
+**Verification.** `mvn package`; Xvfb `:99` — 79x24 → 69x24 with the column at
+150 px and 62 with it dragged to 239 (rows unchanged; the old toolbar cost two
+rows), column back to 0 px and 80 columns with a single workspace, label
+following the selected tab (`alt+1`/`alt+2` on an unnamed workspace), rename to
+`api` keeping the name, middle click and popup closing, amber dot on a parked
+workspace cleared on entry, click on a row then typing landing in the terminal,
+`sideW` written and restored across a restart, and doom-fire 771 fps / 33.1 MB/s
+at 61x18 (font 17, `--no-state`).

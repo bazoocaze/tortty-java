@@ -1,18 +1,26 @@
-import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
-import javax.swing.JButton;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JToggleButton;
-import javax.swing.JToolBar;
+import javax.swing.UIManager;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -127,7 +135,6 @@ public final class Main {
         String name = "";
         int active = -1;
         String card = "";
-        JToggleButton button;
 
         Tab activeTab() {
             return active >= 0 && active < tabs.size() ? tabs.get(active) : null;
@@ -146,9 +153,9 @@ public final class Main {
             return false;
         }
 
-        String buttonText(int number) {
-            String second = name.isEmpty() ? title() : name;
-            return Tab.shorten(number + " " + (second.isEmpty() ? "\u2014" : second), 20);
+        /** Renamed workspace, or the title of the tab selected in it. */
+        String label() {
+            return name.isEmpty() ? title() : name;
         }
     }
 
@@ -160,7 +167,10 @@ public final class Main {
         private JFrame frame;
         private JPanel host;
         private CardLayout cardLayout;
-        private JToolBar bar;
+        private JSplitPane split;
+        private Side side;
+        private int sideW = 150;
+        private boolean sideShown;
         private final java.util.List<Workspace> workspaces = new java.util.ArrayList<>();
         private int ws = -1;
         private int nextCard;
@@ -168,8 +178,8 @@ public final class Main {
         private final java.awt.Rectangle normalBounds = new java.awt.Rectangle();
         private boolean maximized;
         private boolean debugResizing;
-        /** Clicks on the chrome must not take the keyboard from the terminal. */
-        private boolean syncingBar;
+        /** Set while the layout moves the divider, so a drag is not confused with it. */
+        private boolean syncingSide;
 
         App(Opts o) { this.o = o; }
 
@@ -191,16 +201,22 @@ public final class Main {
 
             frame = new JFrame("tortty-java");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            bar = new JToolBar();
-            bar.setFloatable(false);
-            bar.setFocusable(false);
-            bar.setVisible(false);
+            sideW = session.sideW;
             cardLayout = new CardLayout();
             host = new JPanel(cardLayout);
-            JPanel root = new JPanel(new BorderLayout());
-            root.add(bar, BorderLayout.NORTH);
-            root.add(host, BorderLayout.CENTER);
-            frame.setContentPane(root);
+            side = new Side();
+            split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, side, host);
+            split.setBorder(null);
+            split.setDividerSize(4);
+            split.setContinuousLayout(true);
+            split.setFocusable(false);
+            split.setRequestFocusEnabled(false);
+            split.addPropertyChangeListener("dividerLocation", e -> {
+                if (syncingSide || !sideShown) return;
+                Object v = e.getNewValue();
+                if (v instanceof Integer n && n >= Side.MIN_W && n <= Side.MAX_W) sideW = n;
+            });
+            frame.setContentPane(split);
             bindKeys();
             restore();
 
@@ -244,7 +260,7 @@ public final class Main {
                 o.applyTo(updated);
                 cfg = updated;
                 forEachTab(t -> applyLive(updated, t));
-                syncBar();
+                syncSide();
                 System.err.println("tortty-java: config reloaded (family=" + updated.fontFamily
                         + " size=" + updated.fontSize + " scrollback=" + updated.scrollback + ")");
             }));
@@ -351,6 +367,7 @@ public final class Main {
                 s.h = normalBounds.height;
             }
             s.maximized = maximized;
+            s.sideW = sideW;
             s.ws = Math.max(0, ws);
             Workspace f = front();
             s.tab = f == null ? 0 : Math.max(0, f.active);
@@ -379,7 +396,7 @@ public final class Main {
             cardLayout.show(host, w.card);
             // entering a workspace acknowledges every badge of its tabs (M-K)
             for (Tab t : w.tabs) ack(t);
-            syncBar();
+            syncSide();
             syncFrameTitle();
             final Tab t = w.activeTab();
             SwingUtilities.invokeLater(() -> {
@@ -434,72 +451,193 @@ public final class Main {
             showWorkspace();
         }
 
-        /** Rebuilds the toolbar when the count changed, otherwise only its text. */
-        private void syncBar() {
-            syncingBar = true;
-            try {
-                boolean rebuild = bar.getComponentCount() != workspaces.size() + 1
-                        || (workspaces.isEmpty() || workspaces.get(0).button == null);
-                if (rebuild) {
-                    bar.removeAll();
-                    for (int i = 0; i < workspaces.size(); i++) {
-                        Workspace w = workspaces.get(i);
-                        final int index = i;
-                        JToggleButton b = new JToggleButton();
-                        b.setFocusable(false);
-                        b.setRequestFocusEnabled(false);
-                        b.addActionListener(e -> {
-                            syncingBar = false;
-                            selectWorkspace(index);
-                            focusTerminal();
-                            syncingBar = true;
-                        });
-                        b.addMouseListener(new java.awt.event.MouseAdapter() {
-                            @Override public void mousePressed(java.awt.event.MouseEvent e) {
-                                if (e.getButton() == java.awt.event.MouseEvent.BUTTON2) {
-                                    closeWorkspace(index);
-                                    focusTerminal();
-                                } else if (e.getButton() == java.awt.event.MouseEvent.BUTTON3) {
-                                    popupFor(index).show(b, e.getX(), e.getY());
-                                } else if (e.getClickCount() == 2
-                                        && e.getButton() == java.awt.event.MouseEvent.BUTTON1) {
-                                    rename(index);
-                                }
+        /**
+         * The workspace column (`B21`): one row per workspace, the front one
+         * marked, an alert dot while a parked tab has a notification. No tabs
+         * are listed here — they live on the strip above the grid.
+         */
+        private final class Side extends JComponent {
+            static final int HEAD = 26;   // room for the caption
+            static final int ROW = 27;
+            static final int MIN_W = 110;
+            static final int MAX_W = 420;
+            private final Font base = labelFont();
+            private final Font bold = base.deriveFont(Font.BOLD);
+            private final Font tiny = base.deriveFont(Math.max(9f, base.getSize2D() - 2f));
+
+            Side() {
+                setFocusable(false);
+                setRequestFocusEnabled(false);
+                setToolTipText("");
+                setPreferredSize(new Dimension(0, 0));
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mousePressed(MouseEvent e) {
+                        int i = rowAt(e.getY());
+                        if (e.getButton() == MouseEvent.BUTTON1) {
+                            if (i >= 0 && e.getClickCount() == 2) {
+                                rename(i);
+                                return;
                             }
-                        });
-                        w.button = b;
-                        bar.add(b);
+                            if (i >= 0) {
+                                selectWorkspace(i);
+                                focusTerminal();
+                            } else if (overPlus(e.getY())) {
+                                newWorkspace(cwdOf(activeTab()), false);
+                                focusTerminal();
+                            }
+                        } else if (e.getButton() == MouseEvent.BUTTON2 && i >= 0) {
+                            closeWorkspace(i);
+                            focusTerminal();
+                        } else if (e.getButton() == MouseEvent.BUTTON3) {
+                            popupFor(i >= 0 ? i : ws).show(Side.this, e.getX(), e.getY());
+                        }
                     }
-                    JButton plus = new JButton("+");
-                    plus.setFocusable(false);
-                    plus.setRequestFocusEnabled(false);
-                    plus.setToolTipText("New workspace (Ctrl+Shift+N)");
-                    plus.addActionListener(e -> {
-                        newWorkspace(cwdOf(activeTab()), false);
-                        focusTerminal();
-                    });
-                    bar.add(plus);
+                });
+            }
+
+            private Font labelFont() {
+                Font f = UIManager.getFont("Label.font");
+                return f == null ? new Font("Dialog", Font.PLAIN, 12) : f;
+            }
+
+            private int rowY(int i) { return HEAD + i * ROW; }
+
+            /** Row under {@code y}, or -1 for the caption, the `+` row and below. */
+            private int rowAt(int y) {
+                if (y < HEAD) return -1;
+                int i = (y - HEAD) / ROW;
+                return i < workspaces.size() ? i : -1;
+            }
+
+            private boolean overPlus(int y) {
+                int y0 = rowY(workspaces.size());
+                return y >= y0 && y < y0 + ROW;
+            }
+
+            @Override public String getToolTipText(MouseEvent e) {
+                int i = rowAt(e.getY());
+                if (i < 0) {
+                    if (overPlus(e.getY())) return "New workspace (Ctrl+Shift+N)";
+                    return workspaces.size() > 1
+                            ? "Click a workspace to switch; F2 renames the one in front" : null;
                 }
+                Workspace w = workspaces.get(i);
+                StringBuilder sb = new StringBuilder("<html><b>Workspace " + (i + 1) + "</b>");
+                if (!w.name.isEmpty()) sb.append(" \u2014 ").append(escape(w.name));
+                sb.append("<br>").append(w.tabs.size())
+                        .append(w.tabs.size() == 1 ? " tab" : " tabs");
+                Tab t = w.activeTab();
+                if (t != null) sb.append(": ").append(escape(t.term.windowTitle()));
+                if (w.alert()) sb.append("<br>has a notification");
+                sb.append("<br><i>Ctrl+Shift+").append(i + 1)
+                        .append(" select \u00b7 F2 rename \u00b7 middle click close</i>");
+                return sb.toString();
+            }
+
+            private static String escape(String s) {
+                return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+            }
+
+            @Override protected void paintComponent(Graphics g0) {
+                Graphics2D g = (Graphics2D) g0;
+                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                        RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                Color bg = color("Panel.background", new Color(0xEEEEEE));
+                Color fg = color("Label.foreground", new Color(0x202020));
+                Color muted = mix(fg, bg, 0.45f);
+                Color chip = mix(bg, fg, 0.10f);
+                g.setColor(bg);
+                g.fillRect(0, 0, getWidth(), getHeight());
+
+                g.setFont(tiny);
+                g.setColor(muted);
+                g.drawString("WORKSPACES", 9, 18);
+
+                FontMetrics fmTiny = g.getFontMetrics();
                 for (int i = 0; i < workspaces.size(); i++) {
                     Workspace w = workspaces.get(i);
-                    JToggleButton b = w.button;
-                    if (b == null) continue;
-                    b.setText(w.buttonText(i + 1));
-                    b.setSelected(i == ws);
-                    b.setForeground(w.alert() ? new java.awt.Color(theme.palette[3]) : null);
-                    b.setToolTipText("Workspace " + (i + 1)
-                            + (w.name.isEmpty() ? "" : " \u2014 " + w.name)
-                            + "\nCtrl+Shift+" + (i + 1) + " selects, F2 renames, middle click closes");
+                    boolean sel = i == ws;
+                    int y = rowY(i);
+                    if (sel) {
+                        g.setColor(chip);
+                        g.fillRect(0, y, getWidth(), ROW);
+                        g.setColor(new Color(theme.palette[4]));
+                        g.fillRect(0, y, 2, ROW);
+                    }
+                    g.setFont(bold);
+                    g.setColor(sel ? fg : muted);
+                    g.drawString(String.valueOf(i + 1), 9, y + 18);
+
+                    // the right side: an alert dot, or the tab count when >1
+                    int right = 10;
+                    if (w.alert()) right += 14;
+                    else if (w.tabs.size() > 1) right += fmTiny.stringWidth("00t") + 6;
+
+                    g.setFont(sel ? bold : base);
+                    FontMetrics fm = g.getFontMetrics();
+                    String label = w.label();
+                    if (label.isEmpty()) label = "\u2014";
+                    int avail = getWidth() - 26 - right;
+                    if (fm.stringWidth(label) > avail) {
+                        while (label.length() > 1 && fm.stringWidth(label + "\u2026") > avail) {
+                            label = label.substring(0, label.length() - 1);
+                        }
+                        label = label + "\u2026";
+                    }
+                    g.setColor(sel ? fg : muted);
+                    g.drawString(label, 26, y + 18);
+
+                    if (w.alert()) {
+                        g.setColor(new Color(theme.palette[3]));
+                        g.fillOval(getWidth() - 18, y + 10, 8, 8);
+                    } else if (w.tabs.size() > 1) {
+                        g.setFont(tiny);
+                        g.setColor(muted);
+                        String n = w.tabs.size() + "t";
+                        g.drawString(n, getWidth() - 9 - fmTiny.stringWidth(n), y + 18);
+                    }
                 }
-            } finally {
-                syncingBar = false;
+
+                int y = rowY(workspaces.size());
+                g.setFont(base);
+                g.setColor(muted);
+                g.drawString("+ new", 9, y + 18);
+                g.setFont(tiny);
+                String hint = "F2 rename";
+                g.drawString(hint, Math.max(9, getWidth() - 9 - fmTiny.stringWidth(hint)),
+                        getHeight() - 9);
             }
-            boolean wantBar = workspaces.size() > 1;
-            if (bar.isVisible() != wantBar) {
-                bar.setVisible(wantBar);
+
+            private Color color(String key, Color fallback) {
+                Color c = UIManager.getColor(key);
+                return c == null ? fallback : c;
+            }
+
+            private Color mix(Color a, Color b, float t) {
+                return new Color(
+                        Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
+                        Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
+                        Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+            }
+        }
+
+        /** Shows the column from the second workspace on; a lone one is hidden. */
+        private void syncSide() {
+            boolean want = workspaces.size() > 1;
+            if (sideShown != want) {
+                sideShown = want;
+                syncingSide = true;
+                try {
+                    side.setPreferredSize(new Dimension(want ? sideW : 0, 0));
+                    split.setDividerSize(want ? 4 : 0);
+                    split.setDividerLocation(want ? sideW : 0);
+                } finally {
+                    syncingSide = false;
+                }
                 frame.revalidate();
                 frame.repaint();
             }
+            side.repaint();
         }
 
         private JPopupMenu popupFor(int i) {
@@ -529,7 +667,7 @@ public final class Main {
                     "Rename workspace", JOptionPane.PLAIN_MESSAGE, null, null, w.name);
             if (r != null) {
                 w.name = sanitizeName(String.valueOf(r));
-                syncBar();
+                syncSide();
             }
             focusTerminal();
         }
@@ -611,7 +749,7 @@ public final class Main {
             String shellCwd = tab.pty.cwd();
             if (shellCwd != null) term.shellCwd = shellCwd;
             sweep();
-            syncBar();
+            syncSide();
             syncFrameTitle();
             if (w == front()) {
                 SwingUtilities.invokeLater(() -> {
@@ -640,7 +778,7 @@ public final class Main {
             if (t.panel.isShowing()) sizeTab(t);
             t.panel.requestFocusInWindow();
             t.panel.requestFullRepaint();
-            syncBar();
+            syncSide();
             syncFrameTitle();
         }
 
@@ -650,7 +788,7 @@ public final class Main {
                 t.badge = true;
                 Workspace w = workspaceOf(t);
                 if (w != null) updateTitles(w);
-                syncBar();
+                syncSide();
             }
         }
 
@@ -685,7 +823,7 @@ public final class Main {
             }
             if (changed) {
                 for (Workspace w : workspaces) updateTitles(w);
-                syncBar();
+                syncSide();
                 syncFrameTitle();
             }
         }
@@ -723,7 +861,7 @@ public final class Main {
                 dropEmptyWorkspace(w);
                 return;
             }
-            syncBar();
+            syncSide();
             if (w != front()) {
                 updateTitles(w);
                 return;
@@ -762,7 +900,7 @@ public final class Main {
                     t.badge = true;
                     Workspace w = workspaceOf(t);
                     if (w != null) updateTitles(w);
-                    syncBar();
+                    syncSide();
                 }
                 if (term.sync) {
                     t.syncTimer.restart();
@@ -929,13 +1067,15 @@ public final class Main {
                         wsTitles.add(x.title());
                         wsBadges.add(x.alert());
                         wsTabs.add(x.tabs.size());
-                        wsLabels.add(x.buttonText(i + 1));
+                        wsLabels.add(x.label());
                     }
                     m.put("ws_names", names);
                     m.put("ws_titles", wsTitles);
                     m.put("ws_badges", wsBadges);
                     m.put("ws_tabs", wsTabs);
                     m.put("ws_labels", wsLabels);
+                    m.put("side", sideShown);
+                    m.put("side_w", sideShown ? split.getDividerLocation() : 0);
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {
@@ -987,7 +1127,7 @@ public final class Main {
                 @Override public void wsRename(int index, String name) {
                     if (index < 0 || index >= workspaces.size()) return;
                     workspaces.get(index).name = sanitizeName(name == null ? "" : name);
-                    syncBar();
+                    syncSide();
                 }
                 @Override public void quit() {
                     SwingUtilities.invokeLater(() -> {

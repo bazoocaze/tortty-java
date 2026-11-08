@@ -40,6 +40,8 @@ public final class Session {
     public int w = 0;
     public int h = 0;
     public boolean maximized;
+    /** Width of the workspace column, in pixels. */
+    public int sideW = 150;
     public int ws;
     public int tab;
     public List<Mem> workspaces = new ArrayList<>();
@@ -80,6 +82,7 @@ public final class Session {
             w = 0;
             h = 0;
         }
+        if (sideW < 110 || sideW > 420) sideW = 150;
         if (workspaces == null) workspaces = new ArrayList<>();
         if (ws < 0) ws = 0;
         if (tab < 0) tab = 0;
