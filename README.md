@@ -21,6 +21,26 @@ Arguments are passed to the app, for example:
 ./run.sh --debug-socket /tmp/tortty.sock
 ```
 
+## Installing the desktop shortcut
+
+To add **TorTTY (Java)** to your application menu and create a desktop shortcut:
+
+```sh
+./install.sh
+```
+
+The shortcut is installed for your user only; no root or elevated permissions are
+needed. The installer builds `target/tortty-java.jar` first if it is missing, then
+creates:
+
+- `~/.local/share/applications/tortty-java.desktop`
+- the desktop shortcut `TorTTY (Java).desktop` in your XDG Desktop directory
+  (usually `~/Desktop`).
+
+Both entries launch `run.sh` from this checkout. If you move the repository, run
+`./install.sh` again to update the paths. To remove the shortcuts, delete the two
+`.desktop` files.
+
 ## Documentation
 
 - [`docs/FEATURES.md`](docs/FEATURES.md) — implemented features.
