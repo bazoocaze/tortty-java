@@ -88,7 +88,16 @@ public final class Main {
         }
 
         String label() {
-            return (badge ? "\u2022 " : "") + term.windowTitle();
+            return (badge ? "\u2022 " : "") + shorten(term.windowTitle());
+        }
+
+        /** Home becomes `~` and a long title is cut, so the bar stays usable. */
+        private static String shorten(String s) {
+            String home = System.getProperty("user.home");
+            if (home != null && !home.isEmpty() && s.startsWith(home + "/")) {
+                s = "~" + s.substring(home.length());
+            }
+            return s.length() <= 24 ? s : s.substring(0, 23) + "\u2026";
         }
     }
 
@@ -228,6 +237,10 @@ public final class Main {
             panel.setPty(tab.pty);
             wire(tab);
             tab.pty.start();
+            // the label must be right from the first frame, not one timer tick
+            // later
+            String shellCwd = tab.pty.cwd();
+            if (shellCwd != null) term.shellCwd = shellCwd;
             sweep();
             updateTitles();
             syncFrameTitle();
@@ -272,8 +285,10 @@ public final class Main {
             }
         }
 
-        private void updateTitles() {            for (int i = 0; i < tabs.size() && i < pane.getTabCount(); i++) {
-                pane.setTitleAt(i, tabs.get(i).label());
+        private void updateTitles() {
+            for (int i = 0; i < tabs.size() && i < pane.getTabCount(); i++) {
+                String label = tabs.get(i).label();
+                if (!label.equals(pane.getTitleAt(i))) pane.setTitleAt(i, label);
             }
         }
 
