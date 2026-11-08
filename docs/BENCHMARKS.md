@@ -43,6 +43,16 @@ draw **2.49 ms/call**, parse 0.13 ms/call, pty 0.23 ms/call. This is inside the
 B6–B10 range (691.2 fps / 29.7 MB/s); no regression from the underline arrays
 or the paint gate.
 
+## After B17–B22 (2026-11-08, same condition)
+
+Six shots over the day, 1200 frames, 61x18, font 17: **687.7–757.5 fps**,
+median **703.7 fps / 30.2 MB/s**, draw 2.61–3.25 ms/call, parse 0.14 ms/call.
+Load average was 3.3 (the owner's own session), which is where the spread comes
+from: the batch itself adds nothing to the paint path — PRIMARY, the kitty
+protocols, tabs and workspaces are inert for a single tab in a single
+workspace (the workspace toolbar is hidden and the grid keeps its 18 rows).
+`--no-state` was used so one run could not inherit the layout of the previous.
+
 ## Published reference (schedutil, X11 :0, from tortty/docs/BENCHMARKS.md)
 
 | grid | terminal | fps | MB/s | draw ms/call |
