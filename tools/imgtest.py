@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Sends a kitty graphics image to the terminal on stdout and shows the reply.
+
+Run it inside the terminal (it puts the tty in raw mode, and restores it):
+
+  tools/imgtest.py            PNG, transmit+display, 40x20 cells
+  tools/imgtest.py rgba       raw RGBA (f=32), no PNG decoder involved
+  tools/imgtest.py file       t=f: the terminal reads the file itself
+  tools/imgtest.py chunked    the payload split in 3 chunks with m=1
+  tools/imgtest.py scroll     place the image, then push three screens of text
+  tools/imgtest.py query      a=q, expects an OK reply
+  tools/imgtest.py delete     a=d,d=a
+
+The image is a 4-color checker so the placement, the scaling and the clipping
+are visible at a glance. Replies are printed as `reply: ...`; a silent terminal
+means the escape went nowhere.
+"""
+
+import base64
+import os
+import select
+import struct
+import sys
+import time
+import tty
+import zlib
+
+W, H = 160, 80          # image pixels; 8x16 cells in the terminal
+CELL = (8, 16)
+PATH = "/tmp/imgtest.png"
+
+
+def png(width, height):
+    """Minimal RGBA PNG: red, green, blue and yellow quadrants."""
+    raw = bytearray()
+    for y in range(height):
+        raw.append(0)                                   # filter: none
+        for x in range(width):
+            left, top = x < width // 2, y < height // 2
+            if left and top:
+                px = (255, 0, 0, 255)
+            elif not left and top:
+                px = (0, 255, 0, 255)
+            elif left:
+                px = (0, 0, 255, 255)
+            else:
+                px = (255, 255, 0, 255)
+            raw += bytes(px)
+
+    def chunk(kind, data):
+        body = kind + data
+        return (struct.pack(">I", len(data)) + body
+                + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def apc(out, body):
+    out.write(b"\x1b_G" + body + b"\x1b\\")
+    out.flush()
+
+
+def main():
+    mode = sys.argv[1] if len(sys.argv) > 1 else "png"
+    cols, rows = W // CELL[0], H // CELL[1]
+
+    data = png(W, H)
+    with open(PATH, "wb") as f:
+        f.write(data)
+    b64 = base64.b64encode(data)
+    out = sys.stdout.buffer
+
+    raw = os.isatty(0)
+    saved = None
+    if raw:
+        saved = tty.tcgetattr(0)
+        tty.setraw(0)
+    try:
+        if mode == "png":
+            apc(out, b"a=T,f=100,i=1,c=%d,r=%d;%s" % (cols, rows, b64))
+        elif mode == "rgba":
+            # 32-bit raw (4 bytes per pixel, as f=32 requires), chunked
+            body = bytearray()
+            for y in range(H):
+                for x in range(W):
+                    left, top = x < W // 2, y < H // 2
+                    body += bytes(((255, 0, 0) if left and top else
+                                   (0, 255, 0) if top else
+                                   (0, 0, 255) if left else (255, 255, 0)) + (0,))
+            enc = base64.b64encode(bytes(body))
+            step = 4096
+            parts = [enc[i:i + step] for i in range(0, len(enc), step)]
+            for n, part in enumerate(parts):
+                more = b",m=1" if n < len(parts) - 1 else b""
+                head = (b"a=t,f=32,s=%d,v=%d,i=2,c=%d,r=%d" % (W, H, cols, rows)
+                        + more + b";" if n == 0 else b"G" + more + b";")
+                out.write(b"\x1b_G" + head + part + b"\x1b\\")
+            out.flush()
+            apc(out, b"a=p,i=2,c=%d,r=%d" % (cols, rows))
+        elif mode == "file":
+            apc(out, b"a=T,f=100,t=f,i=3,c=%d,r=%d;%s"
+                % (cols, rows, base64.b64encode(PATH.encode())))
+        elif mode == "chunked":
+            step = max(1, len(b64) // 3)
+            parts = [b64[i:i + step] for i in range(0, len(b64), step)]
+            for n, part in enumerate(parts):
+                more = b",m=1" if n < len(parts) - 1 else b""
+                head = (b"a=T,f=100,i=4,c=%d,r=%d" % (cols, rows) + more + b";"
+                        if n == 0 else b"G" + more + b";")
+                out.write(b"\x1b_G" + head + part + b"\x1b\\")
+            out.flush()
+        elif mode == "scroll":
+            apc(out, b"a=T,f=100,i=5,c=%d,r=%d;%s" % (cols, rows, b64))
+            out.write(b"\r\n")
+            for i in range(1, 3 * 24):
+                out.write(b"line %d\r\n" % i)
+            out.flush()
+            print("image placed at the top; use Shift+PageUp to scroll back to it")
+        elif mode == "query":
+            apc(out, b"a=q,i=0,f=100,t=d;")
+        elif mode == "delete":
+            apc(out, b"a=d,d=a;")
+        else:
+            sys.exit(__doc__)
+
+        deadline = time.time() + 0.5
+        while raw and time.time() < deadline:
+            if not select.select([0], [], [], 0.1)[0]:
+                continue
+            chunk = os.read(0, 4096)
+            if not chunk:
+                break
+            print("reply: %r" % chunk)
+    finally:
+        if saved is not None:
+            tty.tcsetattr(0, tty.TCSADRAIN, saved)
+
+
+if __name__ == "__main__":
+    main()

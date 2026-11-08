@@ -134,3 +134,24 @@ badged/closed with cwd inherited, `vim -u NONE -N` edit-and-save, and doom-fire
 757.5 fps / 32.6 MB/s (was 720.1).
 
 **Limitations.** `L8` resolved; `L7` narrowed to workspaces/splits; `L16` added.
+
+## 2026-11-08 — tabs follow-up, installer command, image probe
+
+**Context.** Three things came out of using `B20`: the tab label looked frozen
+(the first label came one timer tick late and a long `OSC 0/2` title had no cut),
+there was no command to try the new images from inside the terminal, and the
+installer only created desktop entries.
+
+**Implemented.**
+- The tab label is computed from `/proc` right after the spawn, not on the first
+  tick; `~` replaces `$HOME` and anything past 24 characters is cut with `…`.
+- `install.sh` also writes `~/.local/bin/tortty-java` (honours `$XDG_BIN_HOME`,
+  warns when the directory is not in `PATH`) and `tools/imgtest.py` gives the
+  modes `png`, `rgba`, `file`, `chunked`, `scroll`, `query` and `delete`.
+- The image probe found that `EINVAL:size` and `EINVAL:zlib` replied with
+  `i=0` instead of the requested id; both now echo it.
+
+**Verification.** Each `imgtest.py` mode against the GUI (image counts, reply
+text, `ED 3`-like delete), the two placements recovered with `Shift+PageUp`
+after 98 lines of scrollback, the label changing with `cd`, and `install.sh`
+under a throw-away `HOME`.

@@ -208,7 +208,7 @@ public final class KittyImages {
         if ("z".equals(params.get("o")) && data.length > 0) {
             byte[] inflated = inflate(data);
             if (inflated == null) {
-                out.responses.add("Gi=0;EINVAL:zlib");
+                out.responses.add("Gi=" + id + ";EINVAL:zlib");
                 return out;
             }
             data = inflated;
@@ -273,7 +273,7 @@ public final class KittyImages {
         if (fmt == FMT_PNG) {
             int[] size = pngSize(data);
             if (size == null) {
-                out.responses.add("Gi=0;EINVAL:size");
+                out.responses.add("Gi=" + id + ";EINVAL:size");
                 return;
             }
             width = kv.containsKey("s") ? parse(kv.get("s"), size[0]) : size[0];
@@ -284,12 +284,12 @@ public final class KittyImages {
             int bpp = fmt == FMT_RGB ? 3 : 4;
             long needed = (long) width * height * bpp;
             if (width <= 0 || height <= 0 || data.length < needed) {
-                out.responses.add("Gi=0;EINVAL:size");
+                out.responses.add("Gi=" + id + ";EINVAL:size");
                 return;
             }
         }
         if (width <= 0 || height <= 0) {
-            out.responses.add("Gi=0;EINVAL:size");
+            out.responses.add("Gi=" + id + ";EINVAL:size");
             return;
         }
         int key = id == 0 ? Math.max(1, nextId++) : id;

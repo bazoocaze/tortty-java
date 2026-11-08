@@ -80,16 +80,19 @@ Features implemented in the Java version of TorTTY.
 - Window padding and fg/bg/cursor palette from the config.
 - Tabs: one pty, term and panel per tab; Ctrl+Shift+T opens (inheriting the
   shell's cwd from `/proc`), Ctrl+Shift+W closes, Ctrl+Shift+1..9 selects. The
-  tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`)
-  with a `•` marker when a background tab received a notification, and the
-  window title mirrors the active tab. A dead shell closes its tab; the last
-  one closes the app.
+  tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`),
+  with `~` for the home directory, a cut at 24 characters and a `•` marker
+  when a background tab received a notification; the window title mirrors the
+  active tab. A dead shell closes its tab; the last one closes the app.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler
 
 - Unix JSON socket per line, 0600 permission.
 - Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`.
+- `tools/imgtest.py` (not part of the terminal) sends a kitty image to the
+  terminal it runs in: `png`, `rgba`, `file`, `chunked`, `scroll`, `query`,
+  `delete`.
 - `state` also reports `history`, `view`, `bells`, `notifs`, `notif`, `sync`,
   the mouse protocol flags, `kbd_flags`, `images`/`placements`, and
   `tabs`/`active`/`titles`; `screen` returns the visible rows of the active tab
