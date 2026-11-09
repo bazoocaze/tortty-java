@@ -34,6 +34,7 @@ import ui.TermPanel;
 import config.Config;
 import config.ConfigWatcher;
 import state.Session;
+import state.Snapshots;
 
 public final class Main {
 
@@ -220,7 +221,10 @@ public final class Main {
             theme = cfg.theme();
             // the log is a sink: whoever asks for it (CLI or config) gets it
             debug.Log.set(o.debugLog != null ? o.debugLog : cfg.debugLog);
-            session = o.noState ? new Session() : Session.load();
+            // `restore_state = none` is the owner saying "this terminal has no
+            // state": nothing is read and nothing is written, as with --no-state
+            session = (o.noState || cfg.restoreState == Config.RESTORE_NONE)
+                    ? new Session() : Session.load();
 
             frame = new JFrame("tortty-java");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -461,17 +465,19 @@ public final class Main {
         private void restore() {
             boolean any = false;
             if (!session.workspaces.isEmpty()) {
-                for (Session.Mem m : session.workspaces) {
+                for (int wi = 0; wi < session.workspaces.size(); wi++) {
+                    Session.Mem m = session.workspaces.get(wi);
                     Workspace w = addWorkspace();
                     w.name = m.name == null ? "" : m.name;
-                    for (String cwd : m.cwds) {
+                    for (int ti = 0; ti < m.cwds.size(); ti++) {
+                        String cwd = m.cwds.get(ti);
                         // a directory that is gone is not fatal: the tab opens
                         // on the shell's own, like a new one
                         String dir = cwd != null && !cwd.isEmpty()
                                 && java.nio.file.Files.isDirectory(Paths.get(cwd)) ? cwd : null;
-                        newTab(w, dir, false);
+                        newTab(w, dir, false, snapshotFor(wi, ti));
                     }
-                    if (w.tabs.isEmpty()) newTab(w, null, false);
+                    if (w.tabs.isEmpty()) newTab(w, null, false, snapshotFor(wi, 0));
                     w.active = Math.max(0, Math.min(w.active, w.tabs.size() - 1));
                     w.pane.setSelectedIndex(w.active);
                     any = true;
@@ -521,11 +527,40 @@ public final class Main {
 
         /** Reads only the model, so the shutdown hook is safe. */
         private void saveSession() {
-            if (o.noState) return;
+            if (o.noState || cfg.restoreState == Config.RESTORE_NONE) return;
             try {
                 snapshot().save();
             } catch (Exception ignored) {
             }
+            if (cfg.restoreState == Config.RESTORE_CONTENT) {
+                // the ptys are gone but the reader thread may still be holding the
+                // child's last words: a short drain puts them in the photograph
+                try { Thread.sleep(200); } catch (InterruptedException ignored) { }
+                try {
+                    Snapshots.saveAll(sessionSnapshots());
+                } catch (Exception ignored) {
+                }
+            } else {
+                Snapshots.saveAll(java.util.List.of()); // the key turned it off
+            }
+        }
+
+        /** The content of every tab, ready for {@link Snapshots#saveAll}. */
+        private java.util.List<Snapshots.Snap> sessionSnapshots() {
+            java.util.List<Snapshots.Snap> out = new java.util.ArrayList<>();
+            for (int wi = 0; wi < workspaces.size(); wi++) {
+                Workspace w = workspaces.get(wi);
+                for (int ti = 0; ti < w.tabs.size(); ti++) {
+                    out.add(new Snapshots.Snap(wi, ti, w.tabs.get(ti).term.snapshot()));
+                }
+            }
+            return out;
+        }
+
+        /** The snapshot of one tab of the previous run, or {@code null}. */
+        private byte[] snapshotFor(int ws, int tab) {
+            if (cfg.restoreState != Config.RESTORE_CONTENT) return null;
+            return Snapshots.load(ws, tab);
         }
 
         /** Switches the pane in front; the parked ones keep their ptys running. */
@@ -834,6 +869,10 @@ public final class Main {
          * the previous tab reported (OSC 7), so a new tab opens where you were.
          */
         private void newTab(Workspace w, String cwd, boolean first) {
+            newTab(w, cwd, first, null);
+        }
+
+        private void newTab(Workspace w, String cwd, boolean first, byte[] snapshot) {
             int cols = o.cols, rows = o.rows;
             Tab cur = w.activeTab();
             if (cur == null) cur = activeTab();
@@ -858,6 +897,14 @@ public final class Main {
             panel.setCopyOnSelect(cfg.copyOnSelect);
             panel.initFonts();
             final Tab tab = new Tab(term, panel);
+
+            // the photograph goes in before the shell exists, so the prompt of
+            // this run lands below the marker (`B26`)
+            if (snapshot != null && snapshot.length > 0) {
+                term.feed(snapshot, 0, snapshot.length);
+                byte[] marker = Snapshots.restoredMarker(term.rows);
+                term.feedChrome(marker, 0, marker.length);
+            }
 
             // ?2026 holds the paint until the close; the ceiling keeps an app that
             // forgets the close from freezing the screen.

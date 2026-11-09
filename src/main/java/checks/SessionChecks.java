@@ -1,6 +1,7 @@
 package checks;
 
 import state.Session;
+import state.Snapshots;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,11 +14,40 @@ public final class SessionChecks {
     public static void run(Check c) {
         try {
             roundTrip(c);
+            snapshots(c);
             sanitize(c);
             crooked(c);
         } catch (Exception e) {
             c.is("the session suite could write a temp file: " + e, false);
         }
+    }
+
+    /** The snapshot files of `B26`: written atomically, read back per tab. */
+    private static void snapshots(Check c) throws Exception {
+        Path dir = Files.createTempDirectory("tortty-snaps-");
+        byte[] one = "first\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] two = "second\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Snapshots.saveAllTo(dir, java.util.List.of(
+                new Snapshots.Snap(0, 0, one),
+                new Snapshots.Snap(0, 1, two)));
+        c.is("the first tab's file is there", Files.isRegularFile(dir.resolve("session-0-0.ans")));
+        c.eq("the first tab's bytes come back", Snapshots.loadFrom(dir, 0, 0), one);
+        c.eq("the second tab's bytes come back", Snapshots.loadFrom(dir, 0, 1), two);
+        c.eq("a missing tab is null", Snapshots.loadFrom(dir, 1, 7), null);
+
+        // a save rewrites the set: a closed tab must not come back
+        Snapshots.saveAllTo(dir, java.util.List.of(new Snapshots.Snap(0, 0, one)));
+        c.is("the tab that closed left no file", !Files.exists(dir.resolve("session-0-1.ans")));
+        // an empty body is not written and reads back as null
+        Snapshots.saveAllTo(dir, java.util.List.of(new Snapshots.Snap(0, 0, new byte[0])));
+        c.eq("an empty snapshot is nothing to restore", Snapshots.loadFrom(dir, 0, 0), null);
+        c.is("and no file was left", !Files.exists(dir.resolve("session-0-0.ans")));
+
+        String marker = new String(Snapshots.restoredMarker(24),
+                java.nio.charset.StandardCharsets.UTF_8);
+        c.is("the marker names the previous run", marker.contains("content restored from the previous run"));
+        c.is("the marker starts at the bottom left", marker.contains("\u001b[24;1H"));
+        Files.deleteIfExists(dir);
     }
 
     private static void roundTrip(Check c) throws Exception {

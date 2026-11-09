@@ -18,11 +18,21 @@ public final class Check {
 
     Check(String area) { this.area = area; }
 
-    /** {@code got} must equal {@code want}; {@code null} equals {@code null}. */
+    /** {@code got} must equal {@code want}; arrays compare by content. */
     public void eq(String what, Object got, Object want) {
         total++;
-        boolean ok = got == null ? want == null : got.equals(want);
-        if (!ok) failures.add(what + ": got " + show(got) + ", want " + show(want));
+        if (!same(got, want)) failures.add(what + ": got " + show(got) + ", want " + show(want));
+    }
+
+    /** {@code Object.equals} for everything except arrays, which compare by content. */
+    private static boolean same(Object a, Object b) {
+        if (a == null || b == null) return a == b;
+        if (a instanceof byte[] x && b instanceof byte[] y) return java.util.Arrays.equals(x, y);
+        if (a instanceof int[] x && b instanceof int[] y) return java.util.Arrays.equals(x, y);
+        if (a instanceof long[] x && b instanceof long[] y) return java.util.Arrays.equals(x, y);
+        if (a instanceof boolean[] x && b instanceof boolean[] y) return java.util.Arrays.equals(x, y);
+        if (a instanceof Object[] x && b instanceof Object[] y) return java.util.Arrays.deepEquals(x, y);
+        return a.equals(b);
     }
 
     public void is(String what, boolean cond) {
@@ -34,13 +44,19 @@ public final class Check {
     public void isAny(String what, Object got, Object... accepted) {
         total++;
         for (Object a : accepted) {
-            if (got == null ? a == null : got.equals(a)) return;
+            if (same(got, a)) return;
         }
         failures.add(what + ": got " + show(got) + ", want one of " + java.util.Arrays.toString(accepted));
     }
 
     private static String show(Object o) {
         if (o == null) return "null";
+        if (o instanceof byte[] b) {
+            StringBuilder h = new StringBuilder("bytes[");
+            for (byte x : b) h.append(String.format(java.util.Locale.ROOT, "%02x", x & 0xff));
+            return h.append(']').toString();
+        }
+        if (o instanceof int[] b) return java.util.Arrays.toString(b);
         String s = String.valueOf(o);
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < s.length(); i++) {

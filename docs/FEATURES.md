@@ -157,9 +157,18 @@ Features implemented in the Java version of TorTTY.
   button, `exit` in the last shell, `quit` on the socket); a directory that is
   gone opens the tab on the shell's default, and a crooked file only means
   "default window". `--no-state` ignores the file and does not write it.
-- Args: `--config`, `--debug-socket`, `--no-vsync`, `--prof`, `--font-size`,
-  `--font-family`, `--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`,
-  `--no-state`.
+- `restore_state` (`none`/`layout`/`content`, `B26`): `layout` (the default) is the
+  paragraph above; `none` behaves like `--no-state` (nothing read, nothing
+  written); `content` also writes one `session-<ws>-<tab>.ans` per tab beside
+  `window.json` — the tab's history and screen as ANSI, produced by
+  `Term.snapshot()`. On the way in the bytes are fed to a fresh `Term` **before**
+  the shell exists, followed by a dim `── content restored from the previous
+  run ──` marker drawn as decoration (a chrome row), so the screenshot is not
+  content: it never enters the next snapshot. A wide snapshot reflows in a narrow
+  window by the same code a live resize uses. See `L17`.
+- Args: `--config`, `--debug-socket`, `--debug-log`, `--dump-to`, `--no-vsync`,
+  `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,
+  `--cols`, `--rows`, `--no-state`, `--selftest`.
 - Maven + shaded jar (`target/tortty-java.jar`).
 - `./run.sh` uses zsh and compiles if the jar does not exist.
 - PID file at `/tmp/tortty-java.pid`.

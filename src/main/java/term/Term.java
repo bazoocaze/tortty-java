@@ -111,18 +111,28 @@ public final class Term {
     public boolean[] dirty;
     /** True when the row was soft-wrapped into the next one (reflow input). */
     public boolean[] rowWrapped;
+    /** True for a row written as decoration (the restore marker, `B26`). */
+    private boolean[] rowChrome;
+    /** Set while `feedChrome` runs, so every row it touches is marked. */
+    private boolean chromeFeed;
 
     private static final class Row {
         final int[] t; final String[] cl; final int[] f, b, l; final byte[] a, u;
         final int[] uc;
         final boolean wrapped;
+        /** Decoration: on the screen, out of the snapshot (`B26`). */
+        final boolean chrome;
         Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l, byte[] u, int[] uc) {
             this(t, cl, f, b, a, l, u, uc, false);
         }
         Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l,
             byte[] u, int[] uc, boolean wrapped) {
+            this(t, cl, f, b, a, l, u, uc, wrapped, false);
+        }
+        Row(int[] t, String[] cl, int[] f, int[] b, byte[] a, int[] l,
+            byte[] u, int[] uc, boolean wrapped, boolean chrome) {
             this.t=t; this.cl=cl; this.f=f; this.b=b; this.a=a; this.l=l;
-            this.u=u; this.uc=uc; this.wrapped=wrapped;
+            this.u=u; this.uc=uc; this.wrapped=wrapped; this.chrome=chrome;
         }
     }
 
@@ -197,6 +207,7 @@ public final class Term {
         java.util.Arrays.fill(ulColor, DEFAULT);
         dirty = new boolean[rows];
         rowWrapped = new boolean[rows];
+        rowChrome = new boolean[rows];
         for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = DEFAULT; bg[i] = DEFAULT; }
         java.util.Arrays.fill(dirty, true);
         dirtyAll = true;
@@ -337,12 +348,14 @@ public final class Term {
             System.arraycopy(ul, off, u, 0, oldCols);
             System.arraycopy(ulColor, off, uc, 0, oldCols);
             System.arraycopy(link, off, l, 0, oldCols);
-            all.add(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[y]));
+            all.add(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[y], rowChrome[y]));
         }
 
         java.util.ArrayList<java.util.ArrayList<Cell>> paragraphs = new java.util.ArrayList<>();
+        java.util.ArrayList<Boolean> paraChrome = new java.util.ArrayList<>();
         java.util.ArrayList<Cell> cur = new java.util.ArrayList<>();
         int curPara = -1, curOff = 0;
+        boolean paraAllChrome = true, paraAnyRow = false;
         for (int i = 0; i < all.size(); i++) {
             Row r = all.get(i);
             if (i == curAbs) {
@@ -360,12 +373,23 @@ public final class Term {
                 c.ul = r.u[j]; c.ulColor = r.uc[j];
                 cur.add(c);
             }
+            // a paragraph is decoration only when every row of it is: the
+            // restore marker is its own paragraph, so it stays a marker through
+            // a reflow (`B26`)
+            paraAllChrome &= r.chrome;
+            paraAnyRow = true;
             if (!r.wrapped) {
                 paragraphs.add(cur);
+                paraChrome.add(paraAllChrome);
+                paraAllChrome = true;
+                paraAnyRow = false;
                 cur = new java.util.ArrayList<>();
             }
         }
-        if (!cur.isEmpty() || paragraphs.isEmpty()) paragraphs.add(cur);
+        if (!cur.isEmpty() || paragraphs.isEmpty()) {
+            paragraphs.add(cur);
+            paraChrome.add(paraAnyRow && paraAllChrome);
+        }
 
         java.util.ArrayList<Row> out = new java.util.ArrayList<>();
         int newCurRow = 0, newCurCol = 0;
@@ -394,7 +418,7 @@ public final class Term {
                     a[j] = c.attr; l[j] = c.link; u[j] = c.ul; uc[j] = c.ulColor;
                 }
                 boolean last = e >= cells.size();
-                out.add(new Row(t, cl, f, b, a, l, u, uc, !last));
+                out.add(new Row(t, cl, f, b, a, l, u, uc, !last, paraChrome.get(pi)));
                 if (last) break;
                 s = e;
             }
@@ -441,6 +465,7 @@ public final class Term {
         java.util.Arrays.fill(bg, DEFAULT);
         java.util.Arrays.fill(ulColor, DEFAULT);
         rowWrapped = new boolean[nr];
+        rowChrome = new boolean[nr];
         for (int y = 0; y < nr; y++) {
             Row r = live.get(y);
             int off = y * nc;
@@ -453,6 +478,7 @@ public final class Term {
             System.arraycopy(r.uc, 0, ulColor, off, nc);
             System.arraycopy(r.l, 0, link, off, nc);
             rowWrapped[y] = r.wrapped;
+            rowChrome[y] = r.chrome;
         }
         hist.clear();
         hist.addAll(newHist);
@@ -677,6 +703,158 @@ public final class Term {
 
     public void clearDamage() { dirtyAll = false; if (dirty != null) java.util.Arrays.fill(dirty, false); }
 
+    /**
+     * Feeds decoration: every row these bytes touch is marked, stays on the
+     * screen, and is left out of {@link #snapshot()} (`B26`). The restore marker
+     * is drawn this way, so a restart never saves the marker of the previous one.
+     */
+    public void feedChrome(byte[] buf, int off, int len) {
+        boolean prev = chromeFeed;
+        chromeFeed = true;
+        try {
+            feed(buf, off, len);
+        } finally {
+            chromeFeed = prev;
+        }
+    }
+
+    // ------------------------------------------------- snapshot (`B26`)
+
+    /**
+     * The tab's content as ANSI: history and then the primary screen, SGR runs
+     * and {@code OSC 8} links, no trailing padding except on a soft-wrapped row
+     * (where the spaces are the wrap), the cursor at its place when the alt
+     * screen does not own the view, and decoration left out.
+     *
+     * <p>ANSI on purpose: the reader already exists — feeding these bytes into a
+     * fresh {@code Term} rebuilds the picture, and a snapshot taken in a wide
+     * window reflows in a narrow one by the same code a live resize uses.
+     */
+    public byte[] snapshot() {
+        StringBuilder out = new StringBuilder(1 << 12);
+        // under the alt screen the primary screen is the stashed one: a
+        // photograph of vim is not what anybody wants back
+        boolean under = alt && mainCp != null;
+        int[] gcp = under ? mainCp : cp;
+        String[] gcl = under ? mainCluster : cluster;
+        int[] gfg = under ? mainFg : fg, gbg = under ? mainBg : bg;
+        byte[] ga = under ? mainAttr : attr, gu = under ? mainUl : ul;
+        int[] guc = under ? mainUlColor : ulColor, gl = under ? mainLink : link;
+        boolean[] gw = under ? mainWrapped : rowWrapped;
+
+        int penFg = Color.DEFAULT, penBg = Color.DEFAULT, penUc = Color.DEFAULT;
+        byte penA = 0, penU = 0;
+        int link = 0;
+        boolean first = true, prevWrapped = false;
+
+        for (int pass = 0; pass < 2; pass++) {
+            int n = pass == 0 ? hist.size() : rows;
+            java.util.Iterator<Row> it = pass == 0 ? hist.iterator() : null;
+            for (int y = 0; y < n; y++) {
+                Row h = null;
+                int[] t; String[] cl; int[] f, b, uc, l; byte[] a, u;
+                boolean wrapped, chrome;
+                if (pass == 0) {
+                    h = it.next();
+                    t = h.t; cl = h.cl; f = h.f; b = h.b; a = h.a; u = h.u; uc = h.uc; l = h.l;
+                    wrapped = h.wrapped;
+                    chrome = h.chrome;
+                } else {
+                    int off = y * cols, w = cols;
+                    t = java.util.Arrays.copyOfRange(gcp, off, off + w);
+                    cl = java.util.Arrays.copyOfRange(gcl, off, off + w);
+                    f = java.util.Arrays.copyOfRange(gfg, off, off + w);
+                    b = java.util.Arrays.copyOfRange(gbg, off, off + w);
+                    a = java.util.Arrays.copyOfRange(ga, off, off + w);
+                    u = java.util.Arrays.copyOfRange(gu, off, off + w);
+                    uc = java.util.Arrays.copyOfRange(guc, off, off + w);
+                    l = java.util.Arrays.copyOfRange(gl, off, off + w);
+                    wrapped = y < gw.length && gw[y];
+                    chrome = y < rowChrome.length && rowChrome[y];
+                }
+                if (chrome) continue;
+                if (!first && !prevWrapped) out.append("\r\n");
+                first = false;
+                prevWrapped = wrapped;
+                int end = t.length;
+                if (!wrapped) {
+                    while (end > 0 && padding(t[end - 1], cl[end - 1], f[end - 1], b[end - 1],
+                            a[end - 1], u[end - 1], uc[end - 1], l[end - 1])) end--;
+                }
+                for (int x = 0; x < end; x++) {
+                    if (t[x] == WIDE_CONT && cl[x] == null) continue; // the wide char took two
+                    if (l[x] != link) {
+                        if (link != 0) out.append("\u001b]8;;\u001b\\");
+                        link = 0;
+                        if (l[x] > 0 && l[x] <= links.size()) {
+                            out.append("\u001b]8;;");
+                            // the URI came from the child: a control character
+                            // in it would end the sequence early
+                            String uri = links.get(l[x] - 1);
+                            for (int k = 0; k < uri.length(); k++) {
+                                char c = uri.charAt(k);
+                                if (c >= 0x20 && c != 0x7f) out.append(c);
+                            }
+                            out.append("\u001b\\");
+                            link = l[x];
+                        }
+                    }
+                    if (f[x] != penFg || b[x] != penBg || a[x] != penA || u[x] != penU || uc[x] != penUc) {
+                        out.append(sgr(f[x], b[x], a[x], u[x], uc[x]));
+                        penFg = f[x]; penBg = b[x]; penA = a[x]; penU = u[x]; penUc = uc[x];
+                    }
+                    out.append(cl[x] != null ? cl[x] : new String(Character.toChars(t[x])));
+                }
+            }
+        }
+        if (link != 0) out.append("\u001b]8;;\u001b\\");
+        if (penFg != Color.DEFAULT || penBg != Color.DEFAULT || penA != 0 || penU != 0) out.append("\u001b[0m");
+        // the alt screen's cursor belongs to the app: no CUP there
+        if (!alt) {
+            out.append("\u001b[").append(cy + 1).append(';').append(cx + 1).append('H');
+        }
+        return out.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** A cell that draws nothing and carries nothing: the trailing padding. */
+    private static boolean padding(int cpv, String cl, int f, int b, byte a, byte u, int uc, int l) {
+        return cpv == ' ' && cl == null && l == 0 && f == Color.DEFAULT && b == Color.DEFAULT
+                && a == 0 && u == 0 && uc == Color.DEFAULT;
+    }
+
+    /** The SGR for one pen, always from a reset: a bad snapshot cannot leak a style. */
+    private static String sgr(int f, int b, byte a, byte u, int uc) {
+        StringBuilder s = new StringBuilder("\u001b[0");
+        if ((a & BOLD) != 0) s.append(";1");
+        if ((a & FAINT) != 0) s.append(";2");
+        if ((a & ITALIC) != 0) s.append(";3");
+        if ((a & BLINK) != 0) s.append(";5");
+        if ((a & INVERSE) != 0) s.append(";7");
+        if ((a & STRIKE) != 0) s.append(";9");
+        if (u == 1) s.append(";4");
+        else if (u >= 2) s.append(";4:").append(u);
+        sgrColor(s, f, 38, 39);
+        sgrColor(s, b, 48, 49);
+        if (u != 0) sgrColor(s, uc, 58, 59);
+        return s.append('m').toString();
+    }
+
+    private static void sgrColor(StringBuilder s, int c, int base, int plain) {
+        if (c == Color.DEFAULT) {
+            s.append(';').append(plain);
+        } else if ((c & Color.TRUECOLOR) != 0) {
+            int rgb = c & 0xFFFFFF;
+            s.append(';').append(base).append(";2;").append((rgb >> 16) & 0xFF)
+                    .append(';').append((rgb >> 8) & 0xFF).append(';').append(rgb & 0xFF);
+        } else if (base != 58 && c < 8) {
+            s.append(';').append(base - 8 + c);
+        } else if (base != 58 && c < 16) {
+            s.append(';').append(base + 52 + c - 8);
+        } else {
+            s.append(';').append(base).append(";5;").append(Math.max(0, Math.min(255, c)));
+        }
+    }
+
     public byte[] takeChildOut() {
         byte[] b = childOut.toByteArray();
         childOut.reset();
@@ -782,6 +960,7 @@ public final class Term {
             lineFeed();
         }
         int base = cy * cols;
+        if (chromeFeed) rowChrome[cy] = true;
         if (insert) {
             for (int j = cols - 1; j >= cx + w; j--) {
                 cp[base + j] = cp[base + j - w];
@@ -887,7 +1066,10 @@ public final class Term {
                     // what was pinned to the row that just left dies with it
                     images.dropAbove(-hist.size());
                 }
-                if (histCap > 0) hist.addLast(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[top + r]));
+                if (histCap > 0) {
+                    hist.addLast(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[top + r],
+                            rowChrome[top + r]));
+                }
                 totalLines++;
             }
         }
@@ -908,6 +1090,7 @@ public final class Term {
                 System.arraycopy(ulColor, src, ulColor, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
                 rowWrapped[y] = rowWrapped[y + 1];
+                rowChrome[y] = rowChrome[y + 1];
             }
             int off = bot * cols;
             for (int c = 0; c < cols; c++) {
@@ -916,6 +1099,7 @@ public final class Term {
                 ul[off + c] = 0; ulColor[off + c] = DEFAULT; link[off + c] = 0;
             }
             rowWrapped[bot] = false;
+            rowChrome[bot] = false;
             dirty[bot] = true;
         }
         for (int y = top; y <= bot; y++) dirty[y] = true;
@@ -936,6 +1120,7 @@ public final class Term {
                 System.arraycopy(ulColor, src, ulColor, dst, cols);
                 System.arraycopy(link, src, link, dst, cols);
                 rowWrapped[y] = rowWrapped[y - 1];
+                rowChrome[y] = rowChrome[y - 1];
             }
             int off = top * cols;
             for (int c = 0; c < cols; c++) {
@@ -944,6 +1129,7 @@ public final class Term {
                 ul[off + c] = 0; ulColor[off + c] = DEFAULT; link[off + c] = 0;
             }
             rowWrapped[top] = false;
+            rowChrome[top] = false;
             dirty[top] = true;
         }
         for (int y = top; y <= bot; y++) dirty[y] = true;

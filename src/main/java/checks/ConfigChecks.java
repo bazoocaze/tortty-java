@@ -81,6 +81,11 @@ public final class ConfigChecks {
             Config off = load(c, "debug_log off\n");
             c.eq("debug_log off means no path", off.debugLog, "");
 
+            Config restore = load(c, "restore_state content\n");
+            c.eq("restore_state content", restore.restoreState, Config.RESTORE_CONTENT);
+            c.eq("the default is layout", load(c, "").restoreState, Config.RESTORE_LAYOUT);
+            c.eq("restore_state none", load(c, "restore_state none\n").restoreState, Config.RESTORE_NONE);
+
             Config blobs = load(c, "# a comment\n\n   \nfont_size 22\n");
             c.eq("comments and blank lines are skipped", blobs.fontSize, 22f);
             c.is("and are not errors", blobs.errors.isEmpty());
@@ -96,10 +101,11 @@ public final class ConfigChecks {
                     "cursor_shape square",
                     "bell loud",
                     "foreground 123456",
+                    "restore_state everything",
                     "nope 1",
                     "font_size",
                     "scrollback 12"));
-            c.is("errors were collected", bad.errors.size() >= 6);
+            c.is("errors were collected", bad.errors.size() >= 7);
             c.eq("a good line after bad ones still applies", bad.scrollback, 12);
             c.eq("the bad value kept the default", bad.fontSize, 17f);
 

@@ -15,6 +15,7 @@ public final class Suites {
     public static java.util.List<Area> all() {
         java.util.List<Area> l = new java.util.ArrayList<>();
         l.add(new Area("term", TermChecks::run));
+        l.add(new Area("snapshot", SnapshotChecks::run));
         l.add(new Area("keys", KeyChecks::run));
         l.add(new Area("config", ConfigChecks::run));
         l.add(new Area("session", SessionChecks::run));

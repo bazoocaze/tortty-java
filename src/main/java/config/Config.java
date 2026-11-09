@@ -24,6 +24,10 @@ public final class Config {
     public boolean copyOnSelect = true;  // Java keeps the B5 copy-on-release behaviour
     /** Debug log path (`B23`); empty = off. */
     public String debugLog = "";
+
+    // what comes back on the next run (`B26`)
+    public static final int RESTORE_NONE = 0, RESTORE_LAYOUT = 1, RESTORE_CONTENT = 2;
+    public int restoreState = RESTORE_LAYOUT;
     public int foreground = 0xD6D6D6;
     public int background = 0x000000;
     public int cursorColor = 0xD6D6D6;
@@ -116,6 +120,12 @@ public final class Config {
                 default -> throw new IllegalArgumentException("none, visual or audible");
             };
             case "copy_on_select" -> copyOnSelect = parseBool(value);
+            case "restore_state" -> restoreState = switch (value.toLowerCase()) {
+                case "none" -> RESTORE_NONE;
+                case "layout" -> RESTORE_LAYOUT;
+                case "content" -> RESTORE_CONTENT;
+                default -> throw new IllegalArgumentException("none, layout or content");
+            };
             case "debug_log" -> debugLog = value.equals("off") ? "" : value;
             case "foreground" -> foreground = parseColor(value);
             case "background" -> background = parseColor(value);

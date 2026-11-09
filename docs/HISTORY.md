@@ -384,3 +384,43 @@ without reordering, the wheel over the grid left the tabs alone, a drag of tab 1
 to the end gave `[two, three, one]` with the dragged tab still active, a drag
 back gave `[one, two, three]`, a 1 px shake changed nothing, and a click on a
 label still selects it.
+
+## 2026-11-08 — restore_state = content (B26)
+
+**Context.** `B22` remembered the layout — which workspaces and tabs existed and
+in which directory — but the screen and the scrollback came back empty, so a
+restart lost the build log that was being read. Rust has `restore_state` with a
+`content` mode (`B45`) built on an ANSI snapshot that the parser itself reads.
+
+**Implemented.**
+- `Term.snapshot()`: history and then the primary screen as ANSI — SGR runs from
+  a reset, `OSC 8` links (control characters in a URI dropped), no trailing
+  padding except where a soft wrap makes the spaces content, the cursor placed
+  with `CUP` when the alt screen does not own the view. ANSI is the format
+  because the reader already exists: feeding it into a fresh `Term` rebuilds the
+  picture and reflows it by the same code as a live resize.
+- Decoration is not content: `Row.chrome` plus a per-row flag on the grid, set by
+  `feedChrome`, survive the scrollback and the reflow (a paragraph is chrome only
+  when every row of it is) and are skipped by the snapshot — the defect Rust fixed
+  in `B48`.
+- `state/Snapshots.java`: `session-<ws>-<tab>.ans` beside `window.json`, whole set
+  rewritten on every save (a closed tab does not come back), atomic writes, empty
+  bodies not written, and `restoredMarker(rows)` for the dim line.
+- Config `restore_state` (`none`/`layout`/`content`, default `layout`);
+  `Main.newTab` gained a snapshot parameter and feeds it **before** the PTY is
+  created, then the marker as chrome; `saveSession` writes the layout unless
+  `none`, the snapshots only on `content` (and clears the leftovers otherwise),
+  and drains the reader for 200 ms before taking the picture. `none` reads and
+  writes nothing, like `--no-state`.
+- The check harness compared `byte[]` by identity; it now compares arrays by
+  content (found by the new snapshot checks).
+
+**Verification.** `mvn package`; `--selftest` 272 checks (snapshot: text/colours/
+attributes round trip, cursor, soft wrap reopened wider, alt screen excluded, the
+marker out of the picture after scroll and reflow, links back with the control
+character dropped; session: the file set, a closed tab gone, empty as nothing).
+Xvfb `:99` with a throw-away `XDG_STATE_HOME`: a tab with lines 1–30 restored
+`10…30` on screen with 9 history rows and one marker at row 22, a second restart
+kept exactly one marker and no duplicated line, the snapshot on disk never
+contained the marker, `layout` deleted the `.ans`, and `none` left `window.json`
+byte-identical.
