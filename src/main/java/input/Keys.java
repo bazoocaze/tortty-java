@@ -278,8 +278,10 @@ public final class Keys {
     /** Applies modifiers in the xterm format, as tortty's {@code keys.rs} does. */
     private static byte[] withMods(String seq, boolean ctrl, boolean alt, boolean shift) {
         if (seq.equals("\t") && shift) {
+            // Shift+Tab is backtab: the shift is already in the canonical form,
+            // but Ctrl (or Alt) still has to travel in the parameter (`1;5Z`)
             if (ctrl || alt) {
-                return ("\u001b[1;" + modParam(false, alt, false) + "Z").getBytes(StandardCharsets.UTF_8);
+                return ("\u001b[1;" + modParam(ctrl, alt, false) + "Z").getBytes(StandardCharsets.UTF_8);
             }
             return "\u001b[Z".getBytes(StandardCharsets.UTF_8);
         }

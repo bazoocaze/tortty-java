@@ -12,7 +12,7 @@ The file is optional: the defaults below are built in. CLI options override the
 file. `--config PATH` selects another file. The other flags: `--debug-socket
 PATH`, `--debug-log PATH`, `--dump-to FILE` (`B23`), `--font-size`, `--font-family`,
 `--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`, `--no-state`, `--prof`,
-`--no-vsync`.
+`--no-vsync`, `--selftest`.
 
 ## Keys
 

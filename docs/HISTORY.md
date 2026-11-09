@@ -322,3 +322,37 @@ an unknown key as `ok:false`, `shift+pgup` scrolling to view 17 and `shift+end`
 back to 0, the log recording each event, `SIGUSR1` writing the dump and
 `SIGTERM` dumping and exiting, and a `debug_log` line in a config file opening
 the log.
+
+## 2026-11-08 — headless checks and --selftest (B24)
+
+**Context.** The Java version had **zero** tests while the Rust one carries
+`checks*.rs` plus `checks_app.rs` (~1.9k lines, 131 tests). Every port so far was
+verified by hand and by screenshots, and this project exists to compare behavior
+with the Rust version — which needs a suite that runs without a window.
+
+**Implemented.**
+- `src/main/java/checks/`: `Check` (assertion sink), `Suites` (registry and
+  report) and four areas — `TermChecks` (printing/wrap, cursor, editing, scroll
+  region, alt screen, SGR, wide cells and clusters, DEC graphics, scrollback and
+  the text accessors, `CSI t`, cursor style, modes, kitty flags, replies,
+  reflow), `KeyChecks` (legacy shape, DECCKM, modifiers, F13–F24, keypad, kitty
+  flags, the spec parser), `ConfigChecks` (defaults, every key, the errors that
+  must not hide the rest) and `SessionChecks` (round trip and the values
+  `loadFrom` must discard).
+- `--selftest` runs them from the jar with no display and exits 0/1;
+  `src/test/java/SelftestTest.java` runs the same list through JUnit 5, so
+  `mvn test` and the flag cannot disagree.
+- **Two real bugs found by the checks**: the DEC graphics table was shifted by
+  one (`j` was `├` and `q` a scan line, so `mc` frames were wrong) — now the
+  ncurses/xterm table, verified with `mc` running in Xvfb; and `Ctrl+Shift+Tab`
+  dropped the Ctrl (`CSI 1;1Z` instead of `1;5Z`).
+- One hardening: `Session.loadFrom` now sanitizes every path, so a crooked file
+  gives one workspace and `NO_POS` instead of an empty list at `0,0`.
+- Where the checks disagreed with the code the Rust reference decided: growing
+  the grid does reveal a history line (both take the live area from the bottom),
+  and a plain letter has no release under flag 2 — both asserted as parity.
+
+**Verification.** `mvn -q package` with the JUnit wrapper green; `java -jar
+target/tortty-java.jar --selftest` → 234 checks, all passed, exit 0; `mc` in
+Xvfb `:99` drawing `┌─┐│` frames read back through the `text` verb and checked
+on a screenshot.

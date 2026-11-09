@@ -160,6 +160,16 @@ Features implemented in the Java version of TorTTY.
 - PID file at `/tmp/tortty-java.pid`.
 - Reproducible benchmarks via `tools/benchrun.py` from the Rust repo.
 
+## Tests
+
+- Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
+  keys, config, session), asserting the grid after feeding bytes: printing and
+  wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
+  clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
+  modes, kitty keyboard flags, replies to the child, and reflow.
+- Two entry points, one source of truth: `--selftest` runs them from the jar
+  without a display (exit 0/1), and `mvn test` runs the same list through JUnit.
+
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`–`L5`, `L7`–`L9`, `L13`, `L15`).

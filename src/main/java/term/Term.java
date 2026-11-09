@@ -181,6 +181,9 @@ public final class Term {
         if (h > 0) cellH = h;
     }
 
+    /** Depth of the `CSI 22 t` stack (the checks read it, as Rust's tests do). */
+    public int titleStackSize() { return titleStack.size(); }
+
     public Term(int cols, int rows) {
         this.cols = cols; this.rows = rows;
         alloc();

@@ -64,16 +64,18 @@ public final class Session {
     }
 
     public static Session loadFrom(Path p) {
-        if (p == null) return new Session();
-        try {
-            String s = Files.readString(p, StandardCharsets.UTF_8);
-            Session st = new Gson().fromJson(s, Session.class);
-            if (st == null) return new Session();
-            st.sanitize();
-            return st;
-        } catch (Exception e) {
-            return new Session();
+        Session st = new Session();
+        if (p != null) {
+            try {
+                String s = Files.readString(p, StandardCharsets.UTF_8);
+                Session read = new Gson().fromJson(s, Session.class);
+                if (read != null) st = read;
+            } catch (Exception ignored) {
+                // a crooked file only means "default window"
+            }
         }
+        st.sanitize();
+        return st;
     }
 
     /** Forgets what would open a window off-screen or with a silly size. */
@@ -81,6 +83,12 @@ public final class Session {
         if (w < MIN_W || h < MIN_H) {
             w = 0;
             h = 0;
+        }
+        // no remembered size means no remembered position either: a file with no
+        // geometry (`{}`) must not put the window at 0,0
+        if (w == 0) {
+            x = NO_POS;
+            y = NO_POS;
         }
         if (sideW < 110 || sideW > 420) sideW = 150;
         if (workspaces == null) workspaces = new ArrayList<>();

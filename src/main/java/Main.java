@@ -52,7 +52,10 @@ public final class Main {
         String dumpTo;
         /** `--debug-log` path; {@code null} = whatever the config says. */
         String debugLog;
+        /** `--cols`/`--rows` for automation (the benchmark uses it). */
         int cols = 80, rows = 24;
+        /** Runs the headless checks and exits, without opening a window (`B24`). */
+        boolean selftest;
 
         static Opts parse(String[] args) {
             Opts o = new Opts();
@@ -73,6 +76,7 @@ public final class Main {
                     case "--no-state" -> o.noState = true;
                     case "--cols" -> o.cols = Integer.parseInt(args[++i]);
                     case "--rows" -> o.rows = Integer.parseInt(args[++i]);
+                    case "--selftest" -> o.selftest = true;
                     default -> System.err.println("tortty-java: ignoring arg " + args[i]);
                 }
                 i++;
@@ -89,6 +93,11 @@ public final class Main {
 
     public static void main(String[] args) {
         Opts o = Opts.parse(args);
+        // `--selftest` never touches AWT: the checks are pure, so it runs
+        // headless (CI, ssh with no display) as the Rust version does
+        if (o.selftest) {
+            System.exit(checks.Suites.run(System.out) == 0 ? 0 : 1);
+        }
         // PID file (DEBUG rules: kill only by our own PID).
         try { Files.writeString(Paths.get("/tmp/tortty-java.pid"), Long.toString(ProcessHandle.current().pid())); } catch (IOException ignored) {}
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
