@@ -513,3 +513,44 @@ with `history 0`, after it with **911 rows**, `Shift+Home` reaching the first
 `pci_bus` line of the boot log and the wheel scrolling back down; the debug log
 line `restore: <bytes> into <cols>x<rows> -> history <n>` is what made the 1x1
 visible.
+
+## 2026-11-09 — four features from Rust: modes, CLI, selection, the column
+
+**Context.** Rust features implemented there and missing here, chosen by
+relevance/ease: mode reporting, the automation flags, the logical line of a
+triple click, and the workspace column that could not be scrolled.
+
+**Implemented.**
+
+- `B29` — `DECRQM` (`CSI ? Ps $ p`) over every mode this parser tracks, `DECSTR`
+  (`CSI ! p`) and the `DECKPAM`/`DECKPNM` state (`ESC =` / `ESC >`, answered as
+  mode 66). vim, tmux and mc ask before they trust a mode; we answered nothing.
+  The ANSI forms (4 IRM, 20 LNM) are answered too, which Rust leaves at 0.
+- `B30` — `--quit-after SECS`, `-V`/`--version` (from the jar manifest) and
+  `--debug-socket auto` (`$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`), plus the one
+  exit path (`quitNow`) that the close button, `quit`, `SIGTERM` and the timer
+  now share. The parse moved to `config.Cli` so the checks can drive it: a class
+  in the default package is unreachable from a named one.
+- `B31` — a triple click selects the whole **logical** line (a soft-wrapped
+  paragraph is one line, from column 0 to the last cell with ink) and the copy
+  stops inserting a `\n` inside a wrapped line, which used to split a log line
+  in two on paste. `Term.lineSpan`/`wrappedAt` keep the logic where the checks
+  can reach it, as Rust's `line_span` does.
+- `B32` — the workspace column scrolls: the wheel walks it one card per detent
+  (a touchpad's travel accumulates), entering a workspace by keyboard scrolls
+  the least it takes to show its card, and a taller window pulls the offset back
+  inside the list. A workspace past the bottom of the window was unreachable
+  with the mouse.
+
+**Verification.** `mvn package`, `--selftest` 334 checks (19 new for the CLI, 36
+for the modes and the spans) and `mvn test`. Xvfb `:98` with metacity and real
+`zsh`: a Python child asks `?66`, `?1006`, `?25`, `?9999`, `4` and `20` and prints
+the replies (`<ESC>[?66;1$y` … `<ESC>[?4;1$y`), `DECSTR` takes the cursor and the
+keypad back; `--quit-after 3` closes by itself and removes the pid file; the auto
+socket appears as `tortty-java-38464.sock`; a triple click on the second row of a
+wrapped `printf` command pastes back the whole line with no newline inside it
+(`cat` proved it), while a triple click on `MARK-BELOW` gives exactly that; with
+12 workspaces in a 12-row window the wheel walks the cards (3→1, then 1→4
+clamped), the wheel over the grid leaves the column alone, `ws_sel 11` reveals the
+last card and a click on the first visible card selects it; growing the window
+took the offset from 4 back to 0.

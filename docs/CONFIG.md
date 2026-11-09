@@ -10,9 +10,11 @@ comment. A repeated key uses the last value.
 
 The file is optional: the defaults below are built in. CLI options override the
 file. `--config PATH` selects another file. The other flags: `--debug-socket
-PATH`, `--debug-log PATH`, `--dump-to FILE` (`B23`), `--font-size`, `--font-family`,
-`--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`, `--no-state`, `--prof`,
-`--no-vsync`, `--selftest`.
+PATH` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`), `--debug-log PATH`,
+`--dump-to FILE` (`B23`), `--font-size`, `--font-family`, `--scrollback`, `--dpi`,
+`--cmd`, `--cols`, `--rows`, `--no-state`, `--quit-after SECS` (closes by itself
+after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync`,
+`--selftest` (`B30`).
 
 ## Keys
 

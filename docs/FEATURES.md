@@ -47,7 +47,18 @@ Features implemented in the Java version of TorTTY.
   file), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The image follows the scroll
   into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
   is out.
-- Replies to the child for DA/CPR, the kitty flags and the graphics OK/ENOENT.
+- DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
+  tracks (`1`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
+  `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
+  0 = not recognised — what vim, tmux and mc ask before they trust a mode. The
+  ANSI forms (`4` IRM, `20` LNM) are answered too.
+- `DECSTR` (`CSI ! p`, `B29`): the soft reset vim and tmux send on entry —
+  colours, attributes, cursor visibility, DECCKM, insert mode, the keypad mode
+  and the scroll region go back to the defaults, the grid stays.
+- `DECKPAM`/`DECKPNM` (`ESC =` / `ESC >`, `B29`): the keypad application mode is
+  tracked (and answered by DECRQM as 66); the keypad bytes do not change with it.
+- Replies to the child for DA/CPR, DECRQM, the kitty flags and the graphics
+  OK/ENOENT.
 
 ## PTY
 
@@ -71,8 +82,12 @@ Features implemented in the Java version of TorTTY.
   1–3, drag, motion, and wheel. The wheel reads history when the child is not
   tracking the mouse (or with Shift); a detent and a touchpad fraction are
   distinguished, and the fraction accumulates until it completes a notch.
-- Visible selection (drag, double-click on word, triple-click on line) with
-  inversion, including history. The PRIMARY selection is set on release (button
+- Visible selection (drag, double-click on word, triple-click on the whole
+  logical line) with inversion, including history. A triple click follows a
+  soft-wrapped paragraph (`B31`): from column 0 of its first row to the last cell
+  with ink, so copying a wrapped log line is one click and the copy carries no
+  newline inside the paragraph. A double click ends a word only at whitespace, so
+  a path comes out whole. The PRIMARY selection is set on release (button
   2 pastes it); the CLIPBOARD is set with `copy_on_select` or Ctrl+Shift+C.
 - Paste with Ctrl+Shift+V (CLIPBOARD) or the middle button (PRIMARY), both
   respecting bracketed paste.
@@ -107,9 +122,13 @@ Features implemented in the Java version of TorTTY.
   Ctrl+Shift+1..9 selects, `+ new` creates, the popup (right button) has
   new/rename/close, a double click or `F2` renames, the middle button closes. A
   parked tab with a pending notification puts an amber dot on its row, and
-  entering the workspace acknowledges its tabs. The column takes no keyboard
-  focus: a click on it leaves the keys in the terminal and only the rename
-  dialog takes them. A workspace whose last shell dies is closed, promoting the
+  entering the workspace acknowledges its tabs. The column scrolls (`B32`): the
+  wheel over it walks the card list one card per detent (a touchpad's travel
+  accumulates, a direction change drops the rest), and entering a workspace by
+  keyboard — or opening one that lands on a card out of sight — scrolls the least
+  it takes to show that card, so a workspace past the bottom of the window is
+  still reachable with the mouse. The column takes no keyboard focus: a click on
+  it leaves the keys in the terminal and only the rename dialog takes them. A workspace whose last shell dies is closed, promoting the
   first parked one; the last one closes the app.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
@@ -138,7 +157,9 @@ Features implemented in the Java version of TorTTY.
 - `state` also reports `history`, `view`, `bells`, `notifs`, `notif`, `sync`,
   the mouse protocol flags, `kbd_flags`, `images`/`placements`, and
   `tabs`/`active`/`titles` (and `tab_rects`, the screen coordinates of each tab
-  label, `B25`); `screen` returns the visible rows of the active tab
+  label, `B25`), `grid_rect` (the grid panel on screen, for a mouse test) and
+  `side_scroll`/`side_visible`/`side_rects` (the card list as it is drawn,
+  `B32`); `screen` returns the visible rows of the active tab
   (history included) and `resize` applies to every tab.
 - `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
 
@@ -179,9 +200,13 @@ Features implemented in the Java version of TorTTY.
   alt screen with its resume hint, a `cargo` printing its final line — are in
   the snapshot instead of being cut by the hangup. A wide snapshot reflows in a narrow
   window by the same code a live resize uses. See `L17`.
-- Args: `--config`, `--debug-socket`, `--debug-log`, `--dump-to`, `--no-vsync`,
+- Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
+  so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,
-  `--cols`, `--rows`, `--no-state`, `--selftest`.
+  `--cols`, `--rows`, `--no-state`, `--quit-after SECS` (closes by itself, through
+  the same exit as the close button, so the state and the snapshots are written),
+  `-V`/`--version` (prints `tortty-java <version>` from the jar manifest and
+  leaves without a window) and `--selftest` (`B30`).
 - Maven + shaded jar (`target/tortty-java.jar`).
 - `./run.sh` uses zsh and compiles if the jar does not exist.
 - PID file at `/tmp/tortty-java.pid`.
