@@ -161,7 +161,11 @@ Features implemented in the Java version of TorTTY.
   button, `exit` in the last shell, `quit` on the socket); a directory that is
   gone opens the tab on the shell's default, and a crooked file only means
   "default window". `--no-state` ignores the file and does not write it.
-- `restore_state` (`none`/`layout`/`content`, `B26`): `layout` (the default) is the
+- `restore_state` (`none`/`layout`/`content`, `B26`): **`content` is opt-in** — with
+  the default `layout` only the windows file is written and the `.ans` files are
+  removed, so "the tabs came back but the content did not" means this key is not
+  set (`state` over the socket reports `restore_state`, and so does the debug
+  log). `layout` (the default) is the
   paragraph above; `none` behaves like `--no-state` (nothing read, nothing
   written); `content` also writes one `session-<ws>-<tab>.ans` per tab beside
   `window.json` — the tab's history and screen as ANSI, produced by

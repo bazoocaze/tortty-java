@@ -300,7 +300,7 @@ public final class Main {
             if (o.debugSocket != null) startDebugServer();
             installSignals();
             debug.Log.ln("tortty-java — " + frame.getContentPane().getWidth() + "px window, "
-                    + workspaces.size() + " workspace(s)");
+                    + workspaces.size() + " workspace(s), restore_state " + restoreName());
         }
 
         // ------------------------------------------------------ tab bar (`B25`)
@@ -557,6 +557,15 @@ public final class Main {
                 }
             }
             return out;
+        }
+
+        /** The ladder in words, for the socket and the log. */
+        private String restoreName() {
+            return switch (cfg.restoreState) {
+                case Config.RESTORE_NONE -> "none";
+                case Config.RESTORE_CONTENT -> "content";
+                default -> "layout";
+            };
         }
 
         /** The snapshot of one tab of the previous run, or {@code null}. */
@@ -1279,6 +1288,7 @@ public final class Main {
                     m.put("side", sideShown);
                     m.put("side_w", sideShown ? split.getDividerLocation() : 0);
                     m.put("ligatures", cfg.ligatures);
+                    m.put("restore_state", restoreName());
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {

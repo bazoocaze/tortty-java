@@ -450,3 +450,13 @@ the default and the error); Xvfb `:99` with `font_size 22` — `state` reported
 a screenshot with ligatures on was **pixel-identical** to the same screen with
 them off (DejaVu Sans Mono carries no programming ligature, `L18`), and editing
 the config file moved the live value from 0 to 1 without a restart.
+
+**Follow-up (same day).** The owner validated `B26` and saw the tabs return but not
+the content. The plumbing was right: `restore_state` is a ladder and `content` is
+opt-in, exactly as in Rust (`config.rs`, `Layout` is the default), so a run
+without the key writes `window.json` and *deletes* any `session-*.ans`. To keep
+that from being a guessing game the socket's `state` now carries `restore_state`
+and the startup log line names it. Re-verified with a real `zsh`: 2 workspaces × 2
+tabs each came back with their own text (`WS0-TAB0`, `WS0-TAB1`, `WS1-TAB0`,
+`WS1-TAB1` in the right slot), and the marker scrolls the last two content lines
+into the history exactly as the Rust string at `app.rs:2967` does.
