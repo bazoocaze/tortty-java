@@ -18,6 +18,10 @@ Features implemented in the Java version of TorTTY.
   (per-cell link), 9/777 (notifications; the `9;4` progress form is ignored),
   10/11/12 (foreground/background/cursor query/set), and 104/110/111/112
   (palette/colour resets).
+- xterm window ops (`CSI t`): `14`/`16` report the text area and the cell in
+  pixels (what `kitten icat` asks before an image), `18` the rows/cols, and
+  `22`/`23` are the title stack (cap 16) — without the pop an app that sets a
+  title and restores it on exit left the tab stuck on it (Rust `B37`).
 - Block/beam/underline cursor via DECSCUSR (`CSI Ps SP q`) and blink via `?12`.
 - Alternate screen (`?47`, `?1047`, `?1049`) and saved/restored cursor.
 - Scroll region (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.

@@ -258,3 +258,30 @@ following the selected tab (`alt+1`/`alt+2` on an unnamed workspace), rename to
 workspace cleared on entry, click on a row then typing landing in the terminal,
 `sideW` written and restored across a restart, and doom-fire 771 fps / 33.1 MB/s
 at 61x18 (font 17, `--no-state`).
+
+## 2026-11-08 — CSI t: title stack and size reports (B28)
+
+**Context.** The next batch from the Rust version started with "OSC 1", which
+turned out to be a dead end: Rust **ignores** the icon title on purpose
+(`MIGRATION.md` C10) and Java already does the same, so there was nothing to
+port. The hole in the same area was bigger: Java had no `CSI t` at all, and the
+title stack is the defect Rust fixed in `B37` — `mc` and `vim` push before
+setting a title and pop on exit, so without `22`/`23` the tab stayed stuck on
+their title for the rest of the session.
+
+**Implemented** (`term/Term.java`).
+- `CSI 22 [;Ps] t` pushes the title and `CSI 23 [;Ps] t` pops it, for `Ps` 0, 1
+  and 2 (xterm distinguishes icon and window title; there is one title here, so
+  every `Ps` saves the same thing and the sequence stays symmetric). Cap of 16,
+  an empty stack is a no-op, and any other `Ps` is not a push or a pop.
+- `CSI 14 t` reports the text area in pixels, `CSI 16 t` the cell, `CSI 18 t`
+  the rows/cols — `14` and `16` are what `kitten icat` asks before an image.
+- `reset()` does not clear the stack, matching Rust, and none of it is sent to
+  the child except the three reports.
+
+**Verification.** Headless: 14/14 checks (`18`/`14`/`16` bytes with a 10x20 cell,
+the `mc` sequence and the nested `vim` one, the cap, `Ps` 3 ignored, the empty
+pop); `mvn -q package`. Xvfb `:99` via the debug socket: the `mc` cycle going
+`tortty-java` → `mc [user@host]:/tmp` → `tortty-java`, a nested `base` → `A` →
+`B` → `A` → `base`, and the child reading `ESC[8;24;79t` and `ESC[4;624;1106t`
+back on its own stdin (79x24, cell 14x26).

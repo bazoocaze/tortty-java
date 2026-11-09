@@ -34,6 +34,8 @@ public final class Term {
     public boolean decckm;
     public String title = "";
     public boolean titleExplicit;
+    /** `CSI 22 t` pushes here, `CSI 23 t` pops; cap 16 as in the Rust version. */
+    private final java.util.ArrayList<String> titleStack = new java.util.ArrayList<>();
     public String cwd = "";
     /** Working directory of the child, kept by the app from /proc (no OSC 7). */
     public String shellCwd = "";
@@ -150,6 +152,11 @@ public final class Term {
 
     // replies to the child (DA, CPR, etc.)
     private final ByteArrayOutputStream childOut = new ByteArrayOutputStream();
+
+    /** One reply line to the child (`CSI t`, `CSI n`, ...). */
+    private void reply(String r) {
+        try { childOut.write(r.getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
+    }
 
     // saved cursor (DECSC)
     private int svX, svY;
@@ -1362,6 +1369,28 @@ public final class Term {
                     try { childOut.write("\u001b[>1;100;0c".getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 } else if (npar == 0 || (params[0] < 0 || params[0] == 0)) {
                     try { childOut.write("\u001b[?62c".getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
+                }
+            }
+            // xterm's window ops (`B28`): 14/16 report the text area and the cell
+            // in pixels — what `kitten icat` asks before sending an image —, 18
+            // the rows/cols, and 22/23 are the title stack. Any Ps of 0/1/2 saves
+            // the one title here (OSC 1 is ignored, as in Rust); without the pop
+            // an app that sets a title and pops on exit leaves the tab stuck on it
+            // (Rust B37: mc and vim both push before and pop after).
+            case 't' -> {
+                int ps = p0 >= 0 ? p0 : 0;
+                if (ps == 14) {
+                    reply(String.format(java.util.Locale.ROOT, "\u001b[4;%d;%dt", rows * cellH, cols * cellW));
+                } else if (ps == 16) {
+                    reply(String.format(java.util.Locale.ROOT, "\u001b[6;%d;%dt", cellH, cellW));
+                } else if (ps == 18) {
+                    reply(String.format(java.util.Locale.ROOT, "\u001b[8;%d;%dt", rows, cols));
+                } else if ((ps == 22 || ps == 23) && (p1 < 0 || p1 <= 2)) {
+                    if (ps == 22) {
+                        if (titleStack.size() < 16) titleStack.add(title);
+                    } else if (!titleStack.isEmpty()) {
+                        title = titleStack.remove(titleStack.size() - 1);
+                    }
                 }
             }
             default -> {}
