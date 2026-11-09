@@ -356,3 +356,31 @@ with the Rust version — which needs a suite that runs without a window.
 target/tortty-java.jar --selftest` → 234 checks, all passed, exit 0; `mc` in
 Xvfb `:99` drawing `┌─┐│` frames read back through the `text` verb and checked
 on a screenshot.
+
+## 2026-11-08 — tab bar: wheel cycles, drag reorders (B25)
+
+**Context.** The tab strip answered only clicks: moving between tabs needed
+`Alt+<n>` or the keyboard, and the tabs had a fixed order for the life of the
+session. Rust has had both since I10/I11 (`tab_at`, `bar_drag`, the half-label
+threshold).
+
+**Implemented** (`Main.java`).
+- Wheel over a tab label cycles one tab per detent; up goes to the previous tab
+  (the history's direction). A touchpad fraction accumulates until it completes
+  a notch and a direction change drops the remainder — the same rule the grid
+  already used — and the wheel elsewhere keeps going to the grid/history.
+- Drag with button 1 held on the strip: the tab moves one label per label-width
+  of travel, the anchor advances with it (so a barely-moving hand does not walk
+  the tab to the end), and nothing moves before half a label. The active tab
+  follows the drag. `moveTab` rebuilds the pane in the new order (Swing has no
+  move) with `tabSelected` silenced by a `reordering` flag.
+- `state` now carries `tab_rects`: the screen coordinates of each tab label,
+  which is what automation needs to click the strip (the app is the only one
+  that knows where Swing put them).
+
+**Verification.** `mvn -q package`; `--selftest` 234 checks green; Xvfb `:99`
+with `xdotool` and three titled tabs — wheel up/down moved the active tab 2→1→2
+without reordering, the wheel over the grid left the tabs alone, a drag of tab 1
+to the end gave `[two, three, one]` with the dragged tab still active, a drag
+back gave `[one, two, three]`, a 1 px shake changed nothing, and a click on a
+label still selects it.

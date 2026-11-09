@@ -87,7 +87,11 @@ Features implemented in the Java version of TorTTY.
   tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`),
   with `~` for the home directory, a cut at 24 characters and a `•` marker
   when a background tab received a notification; the window title mirrors the
-  active tab. A dead shell closes its tab; the last one closes the app.
+  active tab. A dead shell closes its tab; the last one closes the app. The
+  wheel over the strip cycles one tab per detent (a touchpad's travel
+  accumulates, a direction change drops the rest); a drag with the button held
+  reorders, and the tab only moves after passing half of its own label, so a
+  shake does not wobble it (`B25`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column takes no grid
   rows — only columns, and the width is dragged and remembered — while the tabs
@@ -129,7 +133,8 @@ Features implemented in the Java version of TorTTY.
   `delete`.
 - `state` also reports `history`, `view`, `bells`, `notifs`, `notif`, `sync`,
   the mouse protocol flags, `kbd_flags`, `images`/`placements`, and
-  `tabs`/`active`/`titles`; `screen` returns the visible rows of the active tab
+  `tabs`/`active`/`titles` (and `tab_rects`, the screen coordinates of each tab
+  label, `B25`); `screen` returns the visible rows of the active tab
   (history included) and `resize` applies to every tab.
 - `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
 

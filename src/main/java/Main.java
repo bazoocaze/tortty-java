@@ -150,6 +150,12 @@ public final class Main {
         String name = "";
         int active = -1;
         String card = "";
+        /** Wheel travel accumulated on the tab bar (`B25`); a detent is 1. */
+        double barFrac;
+        long barWheelNanos;
+        int barWheelDir;
+        /** Set while the pane is rebuilt in a new order, so `tabSelected` waits. */
+        boolean reordering;
 
         Tab activeTab() {
             return active >= 0 && active < tabs.size() ? tabs.get(active) : null;
@@ -293,6 +299,118 @@ public final class Main {
                     + workspaces.size() + " workspace(s)");
         }
 
+        // ------------------------------------------------------ tab bar (`B25`)
+
+        /**
+         * The tab strip of one workspace: the wheel cycles one tab per detent
+         * (a touchpad's travel accumulates, a direction change drops the rest)
+         * and a drag with the button held reorders, passing half of the label
+         * before the tab moves. Rust has both (`app.rs` `bar_drag`, I10/I11).
+         */
+        private void bindTabBar(Workspace w) {
+            w.pane.addMouseWheelListener(e -> {
+                int i = tabAt(w, e.getX(), e.getY());
+                if (i < 0) return; // not on the strip: the grid keeps the wheel
+                double raw = -e.getPreciseWheelRotation(); // up is positive
+                int n = barNotches(w, raw);
+                if (n != 0) {
+                    int dest = Math.max(0, Math.min(w.tabs.size() - 1, w.pane.getSelectedIndex() - n));
+                    w.pane.setSelectedIndex(dest);
+                }
+                e.consume();
+            });
+            MouseAdapter drag = new MouseAdapter() {
+                private int from = -1;
+                private int anchorX;
+
+                @Override public void mousePressed(MouseEvent e) {
+                    if (e.getButton() != MouseEvent.BUTTON1) return;
+                    int i = tabAt(w, e.getX(), e.getY());
+                    if (i < 0) return;
+                    from = i;
+                    anchorX = e.getX();
+                    w.pane.setSelectedIndex(i); // a press selects, as before
+                }
+
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (from < 0 || (e.getModifiersEx() & java.awt.event.InputEvent.BUTTON1_DOWN_MASK) == 0) return;
+                    int step = Math.max(1, w.pane.getBoundsAt(from) == null
+                            ? 1 : w.pane.getBoundsAt(from).width);
+                    double dx = e.getX() - anchorX;
+                    // the destination and the press point that goes with it: with
+                    // the anchor fixed, every motion event would spend the same
+                    // travel again and a hand that barely moved would walk the tab
+                    // to the end of the bar
+                    int n = (int) Math.round(dx / step);
+                    if (n == 0) return;
+                    int dest = n > 0
+                            ? Math.min(w.tabs.size() - 1, from + n)
+                            : Math.max(0, from + n);
+                    if (dest == from) return;
+                    moveTab(w, from, dest);
+                    anchorX += (dest - from) * step;
+                    from = dest;
+                }
+
+                @Override public void mouseReleased(MouseEvent e) { from = -1; }
+            };
+            w.pane.addMouseListener(drag);
+            w.pane.addMouseMotionListener(drag);
+        }
+
+        /** Index of the tab under {@code (x, y)}, or -1 outside the strip. */
+        private int tabAt(Workspace w, int x, int y) {
+            for (int i = 0; i < w.pane.getTabCount(); i++) {
+                java.awt.Rectangle r = w.pane.getBoundsAt(i);
+                if (r != null && r.contains(x, y)) return i;
+            }
+            return -1;
+        }
+
+        /**
+         * Wheel notches for the bar: a detent is one tab; a touchpad fraction
+         * accumulates until it completes one, and a direction change drops the
+         * remainder. The same rule the grid uses in {@code TermPanel}.
+         */
+        private int barNotches(Workspace w, double raw) {
+            if (Math.abs(raw) == 1.0) {
+                long now = System.nanoTime();
+                int dir = raw > 0 ? 1 : -1;
+                boolean repeated = w.barWheelDir == dir && now - w.barWheelNanos < 10_000_000L;
+                w.barWheelNanos = now;
+                w.barWheelDir = dir;
+                return repeated ? 0 : dir;
+            }
+            if (w.barFrac * raw < 0) w.barFrac = 0;
+            w.barFrac += raw;
+            int n = (int) w.barFrac;
+            w.barFrac -= n;
+            return n;
+        }
+
+        /**
+         * Reorders: removes from {@code i} and inserts at {@code d}; the active
+         * tab follows. The pane is rebuilt in the new order because Swing's
+         * tab API has no move, and a rebuild is exact for the few tabs there are.
+         */
+        private void moveTab(Workspace w, int i, int d) {
+            if (i < 0 || d < 0 || i >= w.tabs.size()) return;
+            d = Math.min(d, w.tabs.size() - 1);
+            if (i == d) return;
+            Tab t = w.tabs.remove(i);
+            w.tabs.add(d, t);
+            w.reordering = true;
+            try {
+                for (int k = 0; k < w.pane.getTabCount(); k++) w.pane.removeTabAt(0);
+                for (Tab x : w.tabs) w.pane.addTab(x.label(), x.panel);
+                w.active = d;
+                w.pane.setSelectedIndex(d);
+            } finally {
+                w.reordering = false;
+            }
+            activate(w.activeTab());
+        }
+
         // ---------------------------------------------------------- workspaces
 
         private Workspace front() {
@@ -331,6 +449,7 @@ public final class Main {
             w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
             w.pane.setFocusable(false);
             w.pane.addChangeListener(e -> tabSelected(w));
+            bindTabBar(w);
             workspaces.add(w);
             host.add(w.pane, w.card);
             return w;
@@ -782,6 +901,7 @@ public final class Main {
 
         /** The tab strip of {@code w} changed: the front one follows it. */
         private void tabSelected(Workspace w) {
+            if (w.reordering) return;
             int i = w.pane.getSelectedIndex();
             if (i < 0) return;
             if (i == w.active && w == front()) return;
@@ -1073,6 +1193,19 @@ public final class Main {
                     java.util.List<String> labels = new java.util.ArrayList<>();
                     if (w != null) for (Tab tab : w.tabs) labels.add(tab.label());
                     m.put("titles", labels);
+                    // screen coordinates of each tab label (`B25`): automation
+                    // needs them to click the strip, and the app is the only one
+                    // that knows where Swing put them
+                    java.util.List<int[]> rects = new java.util.ArrayList<>();
+                    if (w != null && w.pane.isShowing()) {
+                        java.awt.Point origin = w.pane.getLocationOnScreen();
+                        for (int i = 0; i < w.pane.getTabCount(); i++) {
+                            java.awt.Rectangle r = w.pane.getBoundsAt(i);
+                            rects.add(r == null ? new int[] {0, 0, 0, 0}
+                                    : new int[] {origin.x + r.x, origin.y + r.y, r.width, r.height});
+                        }
+                    }
+                    m.put("tab_rects", rects);
                     m.put("workspaces", workspaces.size());
                     m.put("ws", ws);
                     java.util.List<String> names = new java.util.ArrayList<>();
