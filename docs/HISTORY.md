@@ -460,3 +460,40 @@ and the startup log line names it. Re-verified with a real `zsh`: 2 workspaces �
 tabs each came back with their own text (`WS0-TAB0`, `WS0-TAB1`, `WS1-TAB0`,
 `WS1-TAB1` in the right slot), and the marker scrolls the last two content lines
 into the history exactly as the Rust string at `app.rs:2967` does.
+
+## 2026-11-09 — the last words and the sticky mark (B48, B26 fixes)
+
+**Context.** The owner restored a tab with `restore_state = content` and found
+less in it than it had held: the picture came back shorter than the screen it was
+taken from, and what was missing was always near the bottom of the previous run.
+
+**Two real defects.**
+1. **The child was cut before it could say goodbye.** `windowClosing` (and
+   `SIGTERM`, and the socket's `quit`) called `ChildPty.destroy()`, which
+   interrupts the reader, and only then did the hook photograph the tabs. A child
+   that prints on its way out — `pi` leaving the alt screen to print "To resume
+   this session", `cargo` printing its last line — never reached the grid. This is
+   Rust `B48` (`last_words`: hangup, drain a quarter of a second, then save) which
+   had not been ported. Now `lastWords()` hangs the ptys up with a new
+   `ChildPty.hangup()` (no reader interrupt), keeps the readers feeding the grids
+   for up to 250 ms while the event loop is parked, and photographs only then;
+   the hook writes that photograph. While draining, the reader feeds the grid
+   itself — the event loop is sleeping in the drain and would never run the
+   `invokeLater` that normally delivers the bytes.
+2. **The decoration mark was sticky.** A row was marked chrome when the restore
+   marker wrote it and never unmarked when real content was written over it, so
+   every row an app repainted kept the mark and was skipped by the next snapshot.
+   Two rows per restore, more for an app that repaints in place, and the loss is
+   invisible until the picture comes back short — with the head of a wrapped
+   paragraph missing, exactly what the owner saw. The flag now follows the bytes:
+   `rowChrome[cy] = chromeFeed`.
+
+**Verification.** `mvn package` and `--selftest` 279 checks (two new ones fail
+without the `rowChrome` fix: a repainted marker row is content again); Xvfb `:99`
+with metacity, real `zsh` and a real window-manager close:
+`trap 'printf FAREWELL' TERM` now appears in the snapshot (it did not before), the
+alt-screen case saves the primary content plus the farewell and never the TUI
+frame, 300 lines survive the X button and come back as 279 history rows with `H0001`
+still the oldest, `Shift+Home` and the wheel reach both ends, and a second restore
+followed by a command over the marker rows keeps every line (301 lines, first
+`H0001`) instead of eating two per restart.

@@ -15,7 +15,7 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 | L15 | AWT does not deliver horizontal wheel or extra buttons (`8`/`9`, back/forward) | those gestures do nothing; the code maps button numbers `4`/`5` if a platform ever delivers them |
 | L16 | kitty images: no animation (`a=f`/`a=a`), z-index, placement id, Unicode placeholder or source crop, and `t=s` (shared memory) is refused | an animated GIF stays a still frame and some `icat` variants fall back to `t=d` |
 | L18 | Java2D has no `dlig`/`calt` switch and shapes no single-cell run: `ligatures standard` and `all` behave the same (`B27`), and a run of one cell is never joined | the two values differ only in intent; a font without the ligature (DejaVu Sans Mono has none) shows no difference at all |
-| L17 | `restore_state = content` restores a photograph, not the process: a new shell starts in the same directory and the previous programs are gone | a restored tab shows what it held, but its processes did not survive |
+| L17 | `restore_state = content` restores a photograph, not the process: a new shell starts in the same directory and the previous programs are gone. The photograph is the grid **and** the scrollback the terminal itself wrote; a full-screen app that scrolls inside its own buffer (`pi`, `less`, `vim`) never puts that scrollback in the byte stream, so it cannot come back — only what the terminal saw scroll off its grid does | a restored tab shows what it held, its processes did not survive, and an app's own history is gone with the app |
 
 `L1`, `L2`, `L10`, `L11`, and `L12` were resolved by `B6`–`B10` on 2026-11-07;
 `L6` was resolved by `B5` on the same day; `L14` was resolved by `B13` and

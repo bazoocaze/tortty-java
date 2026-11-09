@@ -172,7 +172,12 @@ Features implemented in the Java version of TorTTY.
   `Term.snapshot()`. On the way in the bytes are fed to a fresh `Term` **before**
   the shell exists, followed by a dim `── content restored from the previous
   run ──` marker drawn as decoration (a chrome row), so the screenshot is not
-  content: it never enters the next snapshot. A wide snapshot reflows in a narrow
+  content: it never enters the next snapshot — and the mark follows the bytes,
+  not the row, so a row an app repaints is content again.
+  On the way out the children are hung up first and drained for up to 250 ms
+  before the picture is taken (Rust `B48`): the last words — a `pi` leaving the
+  alt screen with its resume hint, a `cargo` printing its final line — are in
+  the snapshot instead of being cut by the hangup. A wide snapshot reflows in a narrow
   window by the same code a live resize uses. See `L17`.
 - Args: `--config`, `--debug-socket`, `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,

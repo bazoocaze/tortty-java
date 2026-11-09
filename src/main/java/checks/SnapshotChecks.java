@@ -105,9 +105,22 @@ public final class SnapshotChecks {
         file = new String(t.snapshot(), java.nio.charset.StandardCharsets.UTF_8);
         c.is("the marker stays out after scrolling", !file.contains("restored"));
         // and after a reflow
+        // a reflow
         t.resize(14, 4);
         file = new String(t.snapshot(), java.nio.charset.StandardCharsets.UTF_8);
         c.is("the marker stays out after a reflow", !file.contains("restored"));
+        // the mark follows the bytes, not the row: an app that repaints the row
+        // the marker left behind is content again (`B26` fix)
+        Term over = new Term(30, 6);
+        Check.feed(over, "prompt\r\n");
+        byte[] m2 = (E + "[6;1H\r\n" + E + "[2m-- restored --" + E + "[0m\r\n")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        over.feedChrome(m2, 0, m2.length);
+        int markRow = over.rows - 2;
+        Check.feed(over, E + "[" + (markRow + 1) + ";1Hrepainted by the app");
+        String f2 = new String(over.snapshot(), java.nio.charset.StandardCharsets.UTF_8);
+        c.is("a row the app repainted is content again", f2.contains("repainted by the app"));
+        c.is("and the marker of that row is gone", !f2.contains("restored"));
     }
 
     private static void links(Check c) {

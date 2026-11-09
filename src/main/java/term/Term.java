@@ -960,7 +960,12 @@ public final class Term {
             lineFeed();
         }
         int base = cy * cols;
-        if (chromeFeed) rowChrome[cy] = true;
+        // the flag follows the bytes, not the row (`B26`): a row is decoration
+        // while it holds the restore marker, and stops being decoration the
+        // moment real content is written over it. Without the `else` the marker's
+        // two rows stayed flagged and every line the shell later put there — or
+        // that scrolled through them — vanished from the next snapshot.
+        rowChrome[cy] = chromeFeed;
         if (insert) {
             for (int j = cols - 1; j >= cx + w; j--) {
                 cp[base + j] = cp[base + j - w];

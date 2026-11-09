@@ -199,6 +199,14 @@ public final class Main {
         private Session session = new Session();
         private final java.awt.Rectangle normalBounds = new java.awt.Rectangle();
         private boolean maximized;
+        /**
+         * True while the app is leaving: the reader threads feed the grids
+         * themselves because the event loop is busy in {@link #lastWords()}
+         * (`B48`). Only touched on the event loop, read by the readers.
+         */
+        private volatile boolean draining;
+        /** The content photographed before the exit, written by the hook. */
+        private volatile java.util.List<Snapshots.Snap> exitSnaps;
         private boolean debugResizing;
         /** Set while the layout moves the divider, so a drag is not confused with it. */
         private boolean syncingSide;
@@ -278,6 +286,7 @@ public final class Main {
                     forEachTab(t -> t.panel.requestFullRepaint());
                 }
                 @Override public void windowClosing(java.awt.event.WindowEvent e) {
+                    exitSnaps = lastWords();
                     forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
                     System.exit(0);
                 }
@@ -527,6 +536,41 @@ public final class Main {
             return s;
         }
 
+        /**
+         * The hangup and the farewell (`B48`, Rust `last_words`): every child is
+         * asked to leave, and the readers keep feeding the grids for a quarter of
+         * a second (or until every child is gone) before the picture is taken. A
+         * `pi` leaving the alt screen and printing its resume hint, or a `cargo`
+         * printing its last line, only exist in the snapshot because of this.
+         *
+         * <p>Runs on the event loop, so the photograph is taken from one thread.
+         * Returns {@code null} when there is no content to write.
+         */
+        private java.util.List<Snapshots.Snap> lastWords() {
+            if (o.noState || cfg.restoreState != Config.RESTORE_CONTENT) return null;
+            forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
+            draining = true;
+            try {
+                long deadline = System.currentTimeMillis() + 250;
+                while (System.currentTimeMillis() < deadline && anyChildAlive()) {
+                    try { Thread.sleep(10); } catch (InterruptedException e) { break; }
+                }
+            } finally {
+                draining = false;
+            }
+            return sessionSnapshots();
+        }
+
+        /** True while any tab still has a live child. */
+        private boolean anyChildAlive() {
+            for (Workspace w : workspaces) {
+                for (Tab t : w.tabs) {
+                    if (t.pty != null && !t.pty.childExited()) return true;
+                }
+            }
+            return false;
+        }
+
         /** Reads only the model, so the shutdown hook is safe. */
         private void saveSession() {
             if (o.noState || cfg.restoreState == Config.RESTORE_NONE) return;
@@ -535,11 +579,20 @@ public final class Main {
             } catch (Exception ignored) {
             }
             if (cfg.restoreState == Config.RESTORE_CONTENT) {
-                // the ptys are gone but the reader thread may still be holding the
-                // child's last words: a short drain puts them in the photograph
-                try { Thread.sleep(200); } catch (InterruptedException ignored) { }
+                // the normal way out photographed the tabs already, with the
+                // children's last words in them (`B48`); a signal that skipped
+                // that path still gets a blind drain here
+                java.util.List<Snapshots.Snap> snaps = exitSnaps;
+                if (snaps == null) {
+                    try { Thread.sleep(200); } catch (InterruptedException ignored) { }
+                    try {
+                        snaps = sessionSnapshots();
+                    } catch (Exception e) {
+                        snaps = java.util.List.of();
+                    }
+                }
                 try {
-                    Snapshots.saveAll(sessionSnapshots());
+                    Snapshots.saveAll(snaps);
                 } catch (Exception ignored) {
                 }
             } else {
@@ -1081,7 +1134,21 @@ public final class Main {
 
         private void wire(final Tab t) {
             final Term term = t.term;
-            t.pty.setConsumer(chunk -> SwingUtilities.invokeLater(() -> {
+            t.pty.setConsumer(chunk -> {
+                // while the app is leaving, the event loop is parked in the drain
+                // and would never run an `invokeLater`: the reader feeds the grid
+                // itself, which is what puts the child's last words in the
+                // picture (`B48`)
+                if (draining) feedChunk(t, chunk, false);
+                else SwingUtilities.invokeLater(() -> feedChunk(t, chunk, true));
+            });
+            wireRest(t);
+        }
+
+        /** One chunk of the child, on the event loop (or on the reader, draining). */
+        private void feedChunk(Tab t, byte[] chunk, boolean ui) {
+            Term term = t.term;
+            {
                 boolean lat = Boolean.getBoolean("tortty.debug.latency");
                 long feedT0 = System.nanoTime();
                 if (lat) System.err.printf("LAT feed-start t=%d len=%d%n", feedT0, chunk.length);
@@ -1090,6 +1157,7 @@ public final class Main {
                 if (lat) System.err.printf("LAT feed-end t=%d dur=%.3fms%n", System.nanoTime(), (System.nanoTime() - feedT0) / 1e6);
                 byte[] replies = term.takeChildOut();
                 if (replies.length > 0 && t.pty != null) t.pty.write(replies);
+                if (!ui) return;
                 if (activeTab() == t) {
                     syncFrameTitle();
                     // a background tab keeps a badge instead of a toast, as in
@@ -1108,8 +1176,11 @@ public final class Main {
                     if (wasSync) t.panel.requestFullRepaint();
                     else t.panel.repaintDamage();
                 }
-            }));
+            }
+        }
 
+        private void wireRest(final Tab t) {
+            final Term term = t.term;
             t.panel.setOnGridChange((cols, rows) -> {
                 term.resize(cols, rows);
                 if (t.pty != null) t.pty.resize(cols, rows);
@@ -1414,6 +1485,7 @@ public final class Main {
                 }
                 @Override public void quit() {
                     SwingUtilities.invokeLater(() -> {
+                        exitSnaps = lastWords();
                         forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
                         System.exit(0);
                     });
@@ -1486,6 +1558,7 @@ public final class Main {
                         sig -> SwingUtilities.invokeLater(this::dump));
                 sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> SwingUtilities.invokeLater(() -> {
                     dump();
+                    exitSnaps = lastWords();
                     forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
                     System.exit(0);
                 }));

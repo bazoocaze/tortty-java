@@ -160,6 +160,15 @@ public final class ChildPty {
         }
     }
 
+    /**
+     * Asks the child to leave without cutting the wire (`B48`): the reader keeps
+     * delivering, so whatever the child prints on its way out still lands in the
+     * grid before the picture is taken. {@link #destroy()} is the hard version.
+     */
+    public void hangup() {
+        try { proc.destroy(); } catch (Exception ignored) { }
+    }
+
     public void destroy() {
         closed = true;
         final PtyProcess p = proc;
