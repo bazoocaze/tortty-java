@@ -941,8 +941,18 @@ public final class Main {
             Tab cur = w.activeTab();
             if (cur == null) cur = activeTab();
             if (cur != null) {
-                cols = Math.max(1, cur.panel.gridCols());
-                rows = Math.max(1, cur.panel.gridRows());
+                // the grid of the neighbour tab is the width to restore at, and at
+                // startup the panel is not laid out yet (`gridCols` answers 1x1)
+                // while the `Term` beside it already knows its size. Feeding a
+                // snapshot into 1x1 turned every line into a one-cell wrapped row:
+                // the reflow then glued thousands of them into one paragraph and
+                // the scrollback collapsed to nothing (`B26` fix).
+                cols = Math.max(1, cur.term.cols);
+                rows = Math.max(1, cur.term.rows);
+                if (cols < 2 || rows < 2) {
+                    cols = Math.max(1, o.cols);
+                    rows = Math.max(1, o.rows);
+                }
             } else if (first && frame != null) {
                 cols = Math.max(1, o.cols);
                 rows = Math.max(1, o.rows);
@@ -967,6 +977,8 @@ public final class Main {
             // this run lands below the marker (`B26`)
             if (snapshot != null && snapshot.length > 0) {
                 term.feed(snapshot, 0, snapshot.length);
+                debug.Log.ln("restore: " + snapshot.length + " bytes into " + cols + "x" + rows
+                        + " -> history " + term.historySize() + ", limit " + cfg.scrollback);
                 byte[] marker = Snapshots.restoredMarker(term.rows);
                 term.feedChrome(marker, 0, marker.length);
             }

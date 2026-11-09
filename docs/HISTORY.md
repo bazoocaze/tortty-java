@@ -488,6 +488,17 @@ taken from, and what was missing was always near the bottom of the previous run.
    paragraph missing, exactly what the owner saw. The flag now follows the bytes:
    `rowChrome[cy] = chromeFeed`.
 
+3. **Every tab after the first was restored into a `1x1` grid.** `newTab` sized the
+   new `Term` from `cur.panel.gridCols()`, and at startup the panel has not been
+   laid out yet — it answers 1x1 while the `Term` beside it already knows its own
+   size. Feeding a 104 KB snapshot into one column turned every line into a
+   one-cell wrapped row, and the reflow that followed glued thousands of them into
+   a single paragraph: a tab holding 963 lines of `dmesg` came back with **no
+   history at all** and half a screen of text — precisely "it restored only the
+   visible screen, and there is nothing to scroll". The width now comes from the
+   neighbour's `Term` (falling back to `--cols/--rows` when that is not sized
+   either), so a snapshot is fed at the width it was taken at.
+
 **Verification.** `mvn package` and `--selftest` 279 checks (two new ones fail
 without the `rowChrome` fix: a repainted marker row is content again); Xvfb `:99`
 with metacity, real `zsh` and a real window-manager close:
@@ -496,4 +507,9 @@ alt-screen case saves the primary content plus the farewell and never the TUI
 frame, 300 lines survive the X button and come back as 279 history rows with `H0001`
 still the oldest, `Shift+Home` and the wheel reach both ends, and a second restore
 followed by a command over the marker rows keeps every line (301 lines, first
-`H0001`) instead of eating two per restart.
+`H0001`) instead of eating two per restart. The owner's own state dir (963 lines
+of `dmesg` in one tab) was the regression case: before the fix that tab came back
+with `history 0`, after it with **911 rows**, `Shift+Home` reaching the first
+`pci_bus` line of the boot log and the wheel scrolling back down; the debug log
+line `restore: <bytes> into <cols>x<rows> -> history <n>` is what made the 1x1
+visible.
