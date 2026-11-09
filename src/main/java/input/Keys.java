@@ -27,6 +27,105 @@ public final class Keys {
 
     private Keys() {}
 
+    /**
+     * A key from a textual spec ({@code ctrl+shift+t}, {@code f5}, {@code é}) —
+     * the `keys` verb of the debug socket (`B23`), which must travel the same
+     * encoder as the real keyboard, not a parallel table.
+     */
+    public record Spec(int keyCode, char keyChar, int modifiers) {}
+
+    /** {@code null} when the spec names no key this encoder knows. */
+    public static Spec spec(String text) {
+        if (text == null || text.isEmpty()) return null;
+        int modifiers = 0;
+        String key = text;
+        int plus;
+        while ((plus = key.indexOf('+')) >= 0) {
+            switch (key.substring(0, plus).toLowerCase(java.util.Locale.ROOT)) {
+                case "ctrl", "control" -> modifiers |= InputEvent.CTRL_DOWN_MASK;
+                case "alt", "meta" -> modifiers |= InputEvent.ALT_DOWN_MASK;
+                case "shift" -> modifiers |= InputEvent.SHIFT_DOWN_MASK;
+                case "super", "logo" -> modifiers |= InputEvent.META_DOWN_MASK;
+                default -> { }
+            }
+            key = key.substring(plus + 1);
+        }
+        if (key.isEmpty()) return null;
+        Integer named = namedKeyCode(key);
+        if (named != null) {
+            char c = switch (named) {
+                case KeyEvent.VK_ENTER -> '\r';
+                case KeyEvent.VK_TAB -> '\t';
+                case KeyEvent.VK_BACK_SPACE -> '\u007f';
+                case KeyEvent.VK_ESCAPE -> '\u001b';
+                case KeyEvent.VK_SPACE -> ' ';
+                default -> KeyEvent.CHAR_UNDEFINED;
+            };
+            return new Spec(named, c, modifiers);
+        }
+        if (key.codePointCount(0, key.length()) == 1) {
+            int cp = key.codePointAt(0);
+            Character.UnicodeBlock block = Character.UnicodeBlock.of(cp);
+            boolean letter = block == Character.UnicodeBlock.BASIC_LATIN;
+            int code = letter ? asciiKeyCode(cp) : KeyEvent.VK_UNDEFINED;
+            return new Spec(code, (char) cp, modifiers);
+        }
+        return null;
+    }
+
+    /** Key code for an ASCII character, or {@code VK_UNDEFINED} for the rest. */
+    private static int asciiKeyCode(int cp) {
+        if (cp >= 'a' && cp <= 'z') return KeyEvent.VK_A + (cp - 'a');
+        if (cp >= 'A' && cp <= 'Z') return KeyEvent.VK_A + (cp - 'A');
+        if (cp >= '0' && cp <= '9') return KeyEvent.VK_0 + (cp - '0');
+        return switch (cp) {
+            case ' ' -> KeyEvent.VK_SPACE;
+            case '-' -> KeyEvent.VK_MINUS;
+            case '=' -> KeyEvent.VK_EQUALS;
+            case '[' -> KeyEvent.VK_OPEN_BRACKET;
+            case ']' -> KeyEvent.VK_CLOSE_BRACKET;
+            case '\\' -> KeyEvent.VK_BACK_SLASH;
+            case ';' -> KeyEvent.VK_SEMICOLON;
+            case '\'' -> KeyEvent.VK_QUOTE;
+            case ',' -> KeyEvent.VK_COMMA;
+            case '.' -> KeyEvent.VK_PERIOD;
+            case '/' -> KeyEvent.VK_SLASH;
+            case '`' -> KeyEvent.VK_BACK_QUOTE;
+            default -> KeyEvent.VK_UNDEFINED;
+        };
+    }
+
+    /** The names {@code keys} accepts, as in Rust's {@code key_from_spec}. */
+    private static Integer namedKeyCode(String name) {
+        String k = name.toLowerCase(java.util.Locale.ROOT);
+        if (k.length() > 1 && k.charAt(0) == 'f' && k.substring(1).matches("\\d{1,2}")) {
+            int n = Integer.parseInt(k.substring(1));
+            // AWT keeps F1-F12 at 112..123 and F13-F24 at 61440..61451: they are
+            // not one arithmetic sequence, and the encoder relies on that split.
+            if (n >= 1 && n <= 12) return KeyEvent.VK_F1 + (n - 1);
+            if (n >= 13 && n <= 24) return KeyEvent.VK_F13 + (n - 13);
+            return null;
+        }
+        return switch (k) {
+            case "enter", "return" -> KeyEvent.VK_ENTER;
+            case "esc", "escape" -> KeyEvent.VK_ESCAPE;
+            case "tab" -> KeyEvent.VK_TAB;
+            case "bs", "backspace" -> KeyEvent.VK_BACK_SPACE;
+            case "space" -> KeyEvent.VK_SPACE;
+            case "up" -> KeyEvent.VK_UP;
+            case "down" -> KeyEvent.VK_DOWN;
+            case "left" -> KeyEvent.VK_LEFT;
+            case "right" -> KeyEvent.VK_RIGHT;
+            case "home" -> KeyEvent.VK_HOME;
+            case "end" -> KeyEvent.VK_END;
+            case "pgup", "pageup" -> KeyEvent.VK_PAGE_UP;
+            case "pgdn", "pagedown" -> KeyEvent.VK_PAGE_DOWN;
+            case "del", "delete" -> KeyEvent.VK_DELETE;
+            case "ins", "insert" -> KeyEvent.VK_INSERT;
+            default -> null;
+        };
+    }
+
     public static byte[] encode(int keyCode, char keyChar, int modifiers, boolean appCursor) {
         return encodeEvent(keyCode, keyChar, modifiers, appCursor, 0, EV_PRESS);
     }

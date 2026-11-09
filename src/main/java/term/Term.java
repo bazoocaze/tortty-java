@@ -615,6 +615,63 @@ public final class Term {
         return out.toString();
     }
 
+    // ------------------------------------------------- readable text (`B23`)
+
+    /** Trailing spaces are not content: the socket, the dump and the copy drop them. */
+    private static String trimEnd(CharSequence s) {
+        int n = s.length();
+        while (n > 0 && s.charAt(n - 1) == ' ') n--;
+        return s.toString().substring(0, n);
+    }
+
+    /** Right-trimmed text of one absolute line (history row or live grid). */
+    private String absText(long abs) {
+        int[] t = rowCpAt(abs);
+        if (t == null) return "";
+        String[] cl = rowClusterAt(abs);
+        int off = rowOffsetAt(abs);
+        if (off < 0) return "";
+        int w = Math.min(cols, t.length - off);
+        if (w <= 0) return "";
+        StringBuilder out = new StringBuilder(w);
+        for (int x = 0; x < w; x++) out.append(cellString(t, cl, off + x));
+        return trimEnd(out);
+    }
+
+    /** Text of a live-grid row (`y` 0..rows-1), independent of the view offset. */
+    public String screenText(int y) {
+        return (y < 0 || y >= rows) ? "" : absText(totalLines + y);
+    }
+
+    /** Text of the row shown at `y` with the view offset applied (what is on screen). */
+    public String viewText(int y) {
+        return (y < 0 || y >= rows) ? "" : absText(absoluteLine(y));
+    }
+
+    /**
+     * History lines {@code [start, start+count)}, oldest first, right-trimmed —
+     * the same shape as the Rust {@code history_text}.
+     */
+    public java.util.List<String> historyText(int start, int count) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (count <= 0) return out;
+        int i = 0;
+        for (Row r : hist) {
+            if (i++ < start) continue;
+            out.add(rowText(r));
+            if (out.size() >= count) break;
+        }
+        return out;
+    }
+
+    /** One stored history row as text (trailing spaces dropped). */
+    private String rowText(Row r) {
+        int w = Math.min(cols, r.t.length);
+        StringBuilder out = new StringBuilder(w);
+        for (int x = 0; x < w; x++) out.append(cellString(r.t, r.cl, x));
+        return trimEnd(out);
+    }
+
     public void clearDamage() { dirtyAll = false; if (dirty != null) java.util.Arrays.fill(dirty, false); }
 
     public byte[] takeChildOut() {

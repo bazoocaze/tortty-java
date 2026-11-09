@@ -108,7 +108,22 @@ Features implemented in the Java version of TorTTY.
 ## Debug / profiler
 
 - Unix JSON socket per line, 0600 permission.
-- Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`.
+- Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`, and — for
+  automation (`B23`) — `text`, `keys` and `log`.
+- `text` returns the lines of the active tab: `where` = `view` (default),
+  `screen` (the live grid, offset ignored) or `history`, with `start`/`count`
+  (count clamped to 1..2000); lines are right-trimmed.
+- `keys` takes a spec (`ctrl+shift+t`, `f5`, `alt+a`, `enter`) through the same
+  path as the keyboard: the fixed shortcut first, then the panel's own keys
+  (copy/paste, history scroll), then the encoder — and answers `keys: [n]`,
+  `hex` and `handled`, so a test asserts the bytes without a screen. It does
+  not open the F2 rename dialog.
+- `log` turns the debug log on, off (`off`) or elsewhere at runtime; the same
+  sink is `debug_log` in the config and `--debug-log` on the CLI.
+- `--dump-to FILE` (default `/tmp/tortty-dump.txt`) writes the text of every
+  tab — workspace/tab headers when there is more than one, the last 40 lines of
+  each scrollback, and the viewport header with the history offset and the
+  background mark. `SIGUSR1` writes it; `SIGTERM` writes it and leaves cleanly.
 - `tools/imgtest.py` (not part of the terminal) sends a kitty image to the
   terminal it runs in: `png`, `rgba`, `file`, `chunked`, `scroll`, `query`,
   `delete`.

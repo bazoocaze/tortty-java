@@ -727,46 +727,9 @@ public final class TermPanel extends JPanel implements KeyListener {
         boolean wasCtrl = ctrlDown;
         ctrlDown = e.isControlDown();
         if (wasCtrl != ctrlDown) requestFullRepaint();
-        if (e.isControlDown() && e.isShiftDown()) {
-            if (e.getKeyCode() == KeyEvent.VK_C) {
-                copySelection();
-                e.consume();
-                return;
-            }
-            if (e.getKeyCode() == KeyEvent.VK_V) {
-                pasteClipboard();
-                e.consume();
-                return;
-            }
-        }
-        if (e.isShiftDown() && !term.inAltScreen() && term.historySize() > 0) {
-            switch (e.getKeyCode()) {
-                case KeyEvent.VK_PAGE_UP -> {
-                    term.scrollView(term.rows - 1);
-                    requestFullRepaint();
-                    e.consume();
-                    return;
-                }
-                case KeyEvent.VK_PAGE_DOWN -> {
-                    term.scrollView(-(term.rows - 1));
-                    requestFullRepaint();
-                    e.consume();
-                    return;
-                }
-                case KeyEvent.VK_HOME -> {
-                    term.scrollView(term.historySize());
-                    requestFullRepaint();
-                    e.consume();
-                    return;
-                }
-                case KeyEvent.VK_END -> {
-                    term.scrollToBottom();
-                    requestFullRepaint();
-                    e.consume();
-                    return;
-                }
-                default -> { }
-            }
+        if (localKey(e.getKeyCode(), e.getModifiersEx())) {
+            e.consume();
+            return;
         }
         int keyCode = e.getKeyCode();
         // AWT repeats keyPressed while the key is held and never says so; the
@@ -787,6 +750,53 @@ public final class TermPanel extends JPanel implements KeyListener {
             send(bytes);
             e.consume();
         }
+    }
+
+    /**
+     * The panel's own keys: `Ctrl+Shift+C/V` (clipboard) and `Shift+PgUp/PgDn/`
+     * `Home/End` over the history. Returns true when the key was taken and the
+     * child must not see it. The debug socket's `keys` verb calls this too
+     * (`B23`), so an automated key is the keyboard's key.
+     */
+    public boolean localKey(int keyCode, int modifiers) {
+        boolean ctrl = (modifiers & java.awt.event.InputEvent.CTRL_DOWN_MASK) != 0;
+        boolean shift = (modifiers & java.awt.event.InputEvent.SHIFT_DOWN_MASK) != 0;
+        if (ctrl && shift) {
+            if (keyCode == KeyEvent.VK_C) {
+                copySelection();
+                return true;
+            }
+            if (keyCode == KeyEvent.VK_V) {
+                pasteClipboard();
+                return true;
+            }
+        }
+        if (shift && !term.inAltScreen() && term.historySize() > 0) {
+            switch (keyCode) {
+                case KeyEvent.VK_PAGE_UP -> {
+                    term.scrollView(term.rows - 1);
+                    requestFullRepaint();
+                    return true;
+                }
+                case KeyEvent.VK_PAGE_DOWN -> {
+                    term.scrollView(-(term.rows - 1));
+                    requestFullRepaint();
+                    return true;
+                }
+                case KeyEvent.VK_HOME -> {
+                    term.scrollView(term.historySize());
+                    requestFullRepaint();
+                    return true;
+                }
+                case KeyEvent.VK_END -> {
+                    term.scrollToBottom();
+                    requestFullRepaint();
+                    return true;
+                }
+                default -> { }
+            }
+        }
+        return false;
     }
 
     @Override public void keyReleased(KeyEvent e) {

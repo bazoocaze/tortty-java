@@ -22,6 +22,8 @@ public final class Config {
     public int windowPaddingWidth = 0;
     public int bell = 0;                 // 0 none, 1 visual, 2 audible
     public boolean copyOnSelect = true;  // Java keeps the B5 copy-on-release behaviour
+    /** Debug log path (`B23`); empty = off. */
+    public String debugLog = "";
     public int foreground = 0xD6D6D6;
     public int background = 0x000000;
     public int cursorColor = 0xD6D6D6;
@@ -114,6 +116,7 @@ public final class Config {
                 default -> throw new IllegalArgumentException("none, visual or audible");
             };
             case "copy_on_select" -> copyOnSelect = parseBool(value);
+            case "debug_log" -> debugLog = value.equals("off") ? "" : value;
             case "foreground" -> foreground = parseColor(value);
             case "background" -> background = parseColor(value);
             case "cursor_color" -> cursorColor = parseColor(value);

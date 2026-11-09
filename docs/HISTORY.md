@@ -285,3 +285,40 @@ pop); `mvn -q package`. Xvfb `:99` via the debug socket: the `mc` cycle going
 `tortty-java` → `mc [user@host]:/tmp` → `tortty-java`, a nested `base` → `A` →
 `B` → `A` → `base`, and the child reading `ESC[8;24;79t` and `ESC[4;624;1106t`
 back on its own stdin (79x24, cell 14x26).
+
+## 2026-11-08 — socket automation and dump (B23)
+
+**Context.** The socket could drive the terminal (`write`, `resize`) and read
+the screen (`screen`), but not inject a key the way the keyboard does nor leave
+a text copy to diff against the Rust version — the half `benchrun.py` and any
+behavior comparison need. Rust answers this with `text`, `keys`, `log`,
+`--dump-to` and `SIGUSR1`.
+
+**Implemented.**
+- `term/Term.java`: `screenText`, `viewText`, `historyText(start, count)` and
+  `rowText`, all right-trimmed like the Rust `Row::text`, so the socket and the
+  dump read the same content.
+- `debug/DebugServer.java`: verbs `text` (`where` = view/screen/history,
+  `start`, `count` clamped to 1..2000), `keys` and `log`; a response now carries
+  the handler's `ok`, so an unknown key is a real error.
+- `input/Keys.java`: `spec(...)` parses `ctrl+shift+t`, `f5`, `alt+a`, `enter`;
+  a printable travels as text, as `keyTyped` does.
+- `Main.java`: `localShortcut` extracted from `bindKeys`, so the socket takes
+  the same shortcut path as the keyboard; `TermPanel.localKey` extracted from
+  `keyPressed` for copy/paste and the history keys. `dumpText`/`dumpTab`/`dump`
+  in the Rust shape, `--dump-to` (default `/tmp/tortty-dump.txt`), `SIGUSR1`
+  dumping and `SIGTERM` dumping then exiting, through `sun.misc.Signal`.
+- `debug/Log.java`: the append-only sink with `+ms` stamps; `debug_log` in the
+  config, `--debug-log` on the CLI, and the `log` verb at runtime.
+- Bug found by the new check: `Keys.spec("f13".."f24")` used `VK_F1 + n`, and
+  AWT keeps F13-F24 at 61440+, not after F12.
+
+**Verification.** `mvn -q package`; headless 27 checks (text trimming, history
+order/start/count, view vs screen with an offset, a wide cell, the spec parser);
+Xvfb `:99` via the socket — `text` in the three modes, `count=99999` clamped to
+24 rows, `keys` `h`/`enter`/`f5`/`alt+a`/`shift+pgup` answering the expected
+hex, `ctrl+shift+t`/`ctrl+shift+w` taken as shortcuts (tabs 1→2→1, `keys:[0]`),
+an unknown key as `ok:false`, `shift+pgup` scrolling to view 17 and `shift+end`
+back to 0, the log recording each event, `SIGUSR1` writing the dump and
+`SIGTERM` dumping and exiting, and a `debug_log` line in a config file opening
+the log.

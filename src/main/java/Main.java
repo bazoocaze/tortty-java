@@ -48,6 +48,10 @@ public final class Main {
         String configPath;
         String cmd;
         boolean noState;
+        /** Where `--dump-to`/SIGUSR1 write; {@code null} = /tmp/tortty-dump.txt. */
+        String dumpTo;
+        /** `--debug-log` path; {@code null} = whatever the config says. */
+        String debugLog;
         int cols = 80, rows = 24;
 
         static Opts parse(String[] args) {
@@ -56,6 +60,8 @@ public final class Main {
             while (i < args.length) {
                 switch (args[i]) {
                     case "--debug-socket" -> { o.debugSocket = args[++i]; }
+                    case "--debug-log" -> o.debugLog = args[++i];
+                    case "--dump-to" -> o.dumpTo = args[++i];
                     case "--no-vsync" -> o.noVsync = true;
                     case "--prof" -> o.prof = true;
                     case "--font-size" -> o.fontSize = Float.parseFloat(args[++i]);
@@ -197,6 +203,8 @@ public final class Main {
             for (String err : cfg.errors) System.err.println("tortty-java: config: " + err);
             o.applyTo(cfg);
             theme = cfg.theme();
+            // the log is a sink: whoever asks for it (CLI or config) gets it
+            debug.Log.set(o.debugLog != null ? o.debugLog : cfg.debugLog);
             session = o.noState ? new Session() : Session.load();
 
             frame = new JFrame("tortty-java");
@@ -271,6 +279,9 @@ public final class Main {
             new javax.swing.Timer(1000, e -> refreshCwd()).start();
 
             if (o.debugSocket != null) startDebugServer();
+            installSignals();
+            debug.Log.ln("tortty-java — " + frame.getContentPane().getWidth() + "px window, "
+                    + workspaces.size() + " workspace(s)");
         }
 
         // ---------------------------------------------------------- workspaces
@@ -958,45 +969,44 @@ public final class Main {
         }
 
         /**
-         * Fixed shortcuts, as in the Rust version: they are taken before the
-         * panel sees the key, so the child never gets a `Ctrl+Shift+T`.
-         * `Ctrl+Shift+<n>` picks a workspace, `Alt+<n>` picks a tab.
+         * The fixed shortcuts, taken before the panel sees the key, so the child
+         * never gets a `Ctrl+Shift+T`. `Ctrl+Shift+<n>` picks a workspace,
+         * `Alt+<n>` picks a tab. The debug socket's `keys` verb calls this same
+         * one (`B23`), so a shortcut driven from a test is not a second table;
+         * F2 (rename) stays out of it because the socket must not open a dialog.
          */
-        private void bindKeys() {
-            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
-                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
-                int kc = e.getKeyCode();
-                boolean digit = kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9;
-                boolean ctrlShift = e.isControlDown() && e.isShiftDown() && !e.isAltDown() && !e.isMetaDown();
-                boolean altOnly = e.isAltDown() && !e.isControlDown() && !e.isShiftDown() && !e.isMetaDown();
-                if (altOnly && digit) {
-                    selectTab(kc - KeyEvent.VK_1);
-                    return true;
-                }
-                if (!ctrlShift) return false;
-                if (kc == KeyEvent.VK_T) {
-                    newTab(front(), cwdOf(activeTab()), false);
-                    return true;
-                }
-                if (kc == KeyEvent.VK_W) {
+        private boolean localShortcut(int kc, boolean ctrl, boolean alt, boolean shift, boolean meta) {
+            boolean digit = kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9;
+            boolean ctrlShift = ctrl && shift && !alt && !meta;
+            boolean altOnly = alt && !ctrl && !shift && !meta;
+            if (altOnly && digit) {
+                selectTab(kc - KeyEvent.VK_1);
+                return true;
+            }
+            if (!ctrlShift) return false;
+            switch (kc) {
+                case KeyEvent.VK_T -> newTab(front(), cwdOf(activeTab()), false);
+                case KeyEvent.VK_W -> {
                     Tab t = activeTab();
                     Workspace w = front();
                     if (t != null && w != null) closeTab(w, t);
-                    return true;
                 }
-                if (kc == KeyEvent.VK_N) {
-                    newWorkspace(cwdOf(activeTab()), false);
-                    return true;
-                }
-                if (kc == KeyEvent.VK_Q) {
-                    closeWorkspace(ws);
-                    return true;
-                }
-                if (digit) {
+                case KeyEvent.VK_N -> newWorkspace(cwdOf(activeTab()), false);
+                case KeyEvent.VK_Q -> closeWorkspace(ws);
+                default -> {
+                    if (!digit) return false;
                     selectWorkspace(kc - KeyEvent.VK_1);
-                    return true;
                 }
-                return false;
+            }
+            return true;
+        }
+
+        /** Both dispatchers: the fixed shortcuts, then F2 (rename). */
+        private void bindKeys() {
+            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
+                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
+                return localShortcut(e.getKeyCode(), e.isControlDown(), e.isAltDown(),
+                        e.isShiftDown(), e.isMetaDown());
             });
             // F2 renames the workspace in front (the Rust version does the same)
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
@@ -1115,6 +1125,76 @@ public final class Main {
                     m.put("view", t == null ? 0 : t.term.viewOff());
                     return m;
                 }
+                @Override public java.util.Map<String, Object> text(String where, int start, int count) {
+                    java.util.List<String> lines = new java.util.ArrayList<>();
+                    Tab t = activeTab();
+                    if (t != null) {
+                        Term term = t.term;
+                        switch (where) {
+                            case "history" -> lines.addAll(term.historyText(start, count));
+                            case "screen" -> {
+                                for (int y = start; y < Math.min(start + count, term.rows); y++) {
+                                    lines.add(term.screenText(y));
+                                }
+                            }
+                            default -> {
+                                for (int y = start; y < Math.min(start + count, term.rows); y++) {
+                                    lines.add(term.viewText(y));
+                                }
+                            }
+                        }
+                    }
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("lines", lines);
+                    return m;
+                }
+                @Override public java.util.Map<String, Object> keys(String spec) {
+                    input.Keys.Spec k = input.Keys.spec(spec);
+                    if (k == null) return java.util.Map.of("ok", false, "err", "unknown key: " + spec);
+                    Tab t = activeTab();
+                    if (t == null) return java.util.Map.of("ok", false, "err", "no tab");
+                    int mods = k.modifiers();
+                    boolean ctrl = (mods & java.awt.event.InputEvent.CTRL_DOWN_MASK) != 0;
+                    boolean alt = (mods & java.awt.event.InputEvent.ALT_DOWN_MASK) != 0;
+                    boolean shift = (mods & java.awt.event.InputEvent.SHIFT_DOWN_MASK) != 0;
+                    boolean meta = (mods & java.awt.event.InputEvent.META_DOWN_MASK) != 0;
+                    if (localShortcut(k.keyCode(), ctrl, alt, shift, meta)
+                            || t.panel.localKey(k.keyCode(), mods)) {
+                        debug.Log.ln("keys " + spec + ": local, 0 B");
+                        return java.util.Map.of("keys", new int[] {0}, "hex", "", "handled", true);
+                    }
+                    byte[] bytes = input.Keys.encodeEvent(k.keyCode(), k.keyChar(), mods,
+                            t.term.decckm, t.term.kbdFlags, input.Keys.EV_PRESS);
+                    if (bytes == null) {
+                        // a printable character travels as text, as `keyTyped` does
+                        char c = k.keyChar();
+                        if (c != KeyEvent.CHAR_UNDEFINED && c >= 0x20 && c != 0x7f) {
+                            byte[] body = String.valueOf(c).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                            if (alt) {
+                                bytes = new byte[body.length + 1];
+                                bytes[0] = 0x1b;
+                                System.arraycopy(body, 0, bytes, 1, body.length);
+                            } else {
+                                bytes = body;
+                            }
+                        }
+                    }
+                    if (bytes == null) bytes = new byte[0];
+                    StringBuilder hex = new StringBuilder(bytes.length * 2);
+                    for (byte b : bytes) hex.append(String.format(java.util.Locale.ROOT, "%02x", b & 0xff));
+                    debug.Log.ln("keys " + spec + ": " + bytes.length + " B " + hex);
+                    if (bytes.length > 0) {
+                        t.term.scrollToBottom();
+                        if (t.pty != null) t.pty.write(bytes);
+                    }
+                    return java.util.Map.of("keys", new int[] {bytes.length}, "hex", hex.toString(),
+                            "handled", false);
+                }
+                @Override public java.util.Map<String, Object> log(String value) {
+                    debug.Log.set(value);
+                    o.debugLog = (value == null || value.isEmpty() || value.equals("off")) ? null : value;
+                    return java.util.Map.of("path", value == null ? "" : value);
+                }
                 @Override public void wsNew() {
                     newWorkspace(cwdOf(activeTab()), false);
                 }
@@ -1137,6 +1217,78 @@ public final class Main {
                 }
             });
             server.start();
+        }
+
+        // ------------------------------------------------------- dump (`B23`)
+
+        /**
+         * The text of every tab, in the Rust `dump_text` shape: workspaces and
+         * tabs get a header only when there is more than one, the scrollback
+         * shows its last 40 lines, and the viewport header carries the offset
+         * and whether the tab was in the background.
+         */
+        private String dumpText() {
+            java.util.List<String> parts = new java.util.ArrayList<>();
+            boolean multiWs = workspaces.size() > 1;
+            for (int i = 0; i < workspaces.size(); i++) {
+                Workspace w = workspaces.get(i);
+                if (multiWs) {
+                    parts.add(w.name.isEmpty()
+                            ? "=== workspace " + (i + 1) + " ==="
+                            : "=== workspace " + (i + 1) + ": " + w.name + " ===");
+                }
+                boolean multiTab = w.tabs.size() > 1;
+                for (int j = 0; j < w.tabs.size(); j++) {
+                    Tab t = w.tabs.get(j);
+                    if (multiTab) {
+                        parts.add("=== tab " + (j + 1) + ": " + t.term.windowTitle() + " ===");
+                    }
+                    dumpTab(t, j == w.active, parts);
+                }
+            }
+            return String.join("\n", parts) + "\n";
+        }
+
+        private void dumpTab(Tab t, boolean active, java.util.List<String> out) {
+            int hist = t.term.historySize();
+            if (hist > 0) {
+                out.add("=== scrollback (" + hist + ") ===");
+                out.addAll(t.term.historyText(Math.max(0, hist - 40), 40));
+            }
+            String off = t.term.viewOff() > 0 ? " (history +" + t.term.viewOff() + ")" : "";
+            String mark = active ? "" : " [background]";
+            out.add("=== viewport " + t.term.cols + "x" + t.term.rows + off + mark + " ===");
+            for (int y = 0; y < t.term.rows; y++) out.add(t.term.screenText(y));
+        }
+
+        /** Writes the dump where `--dump-to` said, else /tmp/tortty-dump.txt. */
+        private void dump() {
+            String path = o.dumpTo != null ? o.dumpTo : "/tmp/tortty-dump.txt";
+            try {
+                Files.writeString(Paths.get(path), dumpText());
+                debug.Log.ln("dump: " + path);
+            } catch (Exception e) {
+                System.err.println("tortty-java: dump failed: " + path + ": " + e.getMessage());
+            }
+        }
+
+        /**
+         * `SIGUSR1` dumps, `SIGTERM` dumps and leaves cleanly, as in Rust. The
+         * handler only queues the work: reading the grid and the state of every
+         * tab is the event loop's business, not a signal's.
+         */
+        private void installSignals() {
+            try {
+                sun.misc.Signal.handle(new sun.misc.Signal("USR1"),
+                        sig -> SwingUtilities.invokeLater(this::dump));
+                sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> SwingUtilities.invokeLater(() -> {
+                    dump();
+                    forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
+                    System.exit(0);
+                }));
+            } catch (Throwable e) {
+                System.err.println("tortty-java: signals: " + e);
+            }
         }
 
         private void applyLive(Config c, Tab t) {

@@ -29,6 +29,12 @@ public final class DebugServer {
         void write(String data);
         Map<String, Object> prof();
         Map<String, Object> screen();
+        /** Lines of the active tab: {@code view}, {@code history} or {@code screen}. */
+        Map<String, Object> text(String where, int start, int count);
+        /** A key through the same encoder as the real keyboard, answering what left. */
+        Map<String, Object> keys(String spec);
+        /** Debug log on/off/where, at runtime. */
+        Map<String, Object> log(String value);
         void wsNew();
         void wsSelect(int index);
         void wsClose(int index);
@@ -62,6 +68,7 @@ public final class DebugServer {
                 Files.setPosixFilePermissions(p, PosixFilePermissions.fromString("rw-------"));
             } catch (Exception ignored) {
             }
+            Log.ln("debug socket: " + path);
             while (running) {
                 SocketChannel sc = ssc.accept();
                 Thread clientThread = new Thread(() -> handleClient(sc), "debug-client");
@@ -107,11 +114,7 @@ public final class DebugServer {
         return onEdt(() -> {
             switch (cmd) {
                 case "state" -> {
-                    Map<String, Object> m = new java.util.LinkedHashMap<>(handler.state());
-                    Map<String, Object> r = new java.util.LinkedHashMap<>();
-                    r.put("ok", true);
-                    for (var e : m.entrySet()) if (!"ok".equals(e.getKey())) r.put(e.getKey(), e.getValue());
-                    return r;
+                    return resp(handler.state());
                 }
                 case "resize" -> {
                     int c = req.has("cols") ? req.get("cols").getAsInt() : 0;
@@ -125,18 +128,31 @@ public final class DebugServer {
                     return Map.of("ok", true);
                 }
                 case "prof" -> {
-                    Map<String, Object> m = new java.util.LinkedHashMap<>(handler.prof());
-                    Map<String, Object> r = new java.util.LinkedHashMap<>();
-                    r.put("ok", true);
-                    for (var e : m.entrySet()) if (!"ok".equals(e.getKey())) r.put(e.getKey(), e.getValue());
-                    return r;
+                    return resp(handler.prof());
                 }
                 case "screen" -> {
-                    Map<String, Object> m = new java.util.LinkedHashMap<>(handler.screen());
-                    Map<String, Object> r = new java.util.LinkedHashMap<>();
-                    r.put("ok", true);
-                    for (var e : m.entrySet()) if (!"ok".equals(e.getKey())) r.put(e.getKey(), e.getValue());
-                    return r;
+                    return resp(handler.screen());
+                }
+                // `text` (`B23`): the lines of the active tab, as Rust answers.
+                // `count` is clamped to 1..2000 so one request cannot ask for a
+                // whole history of 100k lines.
+                case "text" -> {
+                    String where = req.has("where") ? req.get("where").getAsString() : "view";
+                    int start = req.has("start") ? Math.max(0, req.get("start").getAsInt()) : 0;
+                    int count = req.has("count") ? req.get("count").getAsInt() : 40;
+                    count = Math.max(1, Math.min(2000, count));
+                    return resp(handler.text(where, start, count));
+                }
+                // `keys` (`B23`): local shortcut first (which may eat the key),
+                // then the encoder. The hex is what went to the pty, so a test
+                // can assert the bytes without a screen.
+                case "keys" -> {
+                    if (!req.has("data")) return Map.of("ok", false, "err", "keys needs data");
+                    return resp(handler.keys(req.get("data").getAsString()));
+                }
+                case "log" -> {
+                    String value = req.has("value") ? req.get("value").getAsString() : "off";
+                    return resp(handler.log(value));
                 }
                 case "ws_new" -> {
                     handler.wsNew();
@@ -164,6 +180,18 @@ public final class DebugServer {
                 }
             }
         });
+    }
+
+    /**
+     * One response: `ok` is true unless the handler said otherwise, and the
+     * payload keys are flattened beside it (the line protocol is one object).
+     */
+    private static Map<String, Object> resp(Map<String, Object> payload) {
+        Map<String, Object> r = new java.util.LinkedHashMap<>();
+        Object ok = payload.get("ok");
+        r.put("ok", ok == null ? true : ok);
+        for (var e : payload.entrySet()) if (!"ok".equals(e.getKey())) r.put(e.getKey(), e.getValue());
+        return r;
     }
 
     private void write(BufferedWriter out, Map<String, Object> resp) throws Exception {

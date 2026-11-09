@@ -9,7 +9,10 @@ comment. A repeated key uses the last value.
 ```
 
 The file is optional: the defaults below are built in. CLI options override the
-file. `--config PATH` selects another file.
+file. `--config PATH` selects another file. The other flags: `--debug-socket
+PATH`, `--debug-log PATH`, `--dump-to FILE` (`B23`), `--font-size`, `--font-family`,
+`--scrollback`, `--dpi`, `--cmd`, `--cols`, `--rows`, `--no-state`, `--prof`,
+`--no-vsync`.
 
 ## Keys
 
@@ -24,6 +27,7 @@ file. `--config PATH` selects another file.
 | `window_padding_width` | `0` | margin around the grid in px (0..200) |
 | `bell` | `none` | `none`, `visual` or `audible` |
 | `copy_on_select` | `on` | drag selection also goes to the CLIPBOARD; the PRIMARY selection is always set |
+| `debug_log` | empty | append-only debug log path (`B23`); empty = off. The `log` verb of the socket changes it at runtime |
 | `foreground` | `#d6d6d6` | text colour |
 | `background` | `#000000` | background colour |
 | `cursor_color` | `#d6d6d6` | cursor colour |
