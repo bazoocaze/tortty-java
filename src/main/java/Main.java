@@ -405,7 +405,9 @@ public final class Main {
             w.tabs.add(d, t);
             w.reordering = true;
             try {
-                for (int k = 0; k < w.pane.getTabCount(); k++) w.pane.removeTabAt(0);
+                // `while`, not `for k < getTabCount()`: the count shrinks as the
+                // tabs are removed and the loop would stop with one left behind
+                while (w.pane.getTabCount() > 0) w.pane.removeTabAt(0);
                 for (Tab x : w.tabs) w.pane.addTab(x.label(), x.panel);
                 w.active = d;
                 w.pane.setSelectedIndex(d);
