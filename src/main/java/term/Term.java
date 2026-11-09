@@ -54,6 +54,12 @@ public final class Term {
     public boolean sync;
     public boolean lnm;
     public boolean focusEvents;
+    /**
+     * `DECKPAM` (`ESC =`) — the keypad application mode. Only the state is
+     * kept: `DECRQM` answers it as 66, and `DECSTR`/`RIS` take it back. The
+     * keypad bytes do not change with it, as in the Rust version.
+     */
+    public boolean keypadApp;
 
     // attention: BEL and OSC 9/777 notifications
     public long bells, bellSeq;
@@ -191,8 +197,14 @@ public final class Term {
         if (h > 0) cellH = h;
     }
 
+    /** The scroll region as {@code top:bot}, both 0-based (the checks read it). */
+    public String scrollRegion() { return top + ":" + bot; }
+
     /** Depth of the `CSI 22 t` stack (the checks read it, as Rust's tests do). */
     public int titleStackSize() { return titleStack.size(); }
+
+    /** The whole logical line of an absolute row: a triple click selects it. */
+    public record LineSpan(long first, long last, int endCol) {}
 
     public Term(int cols, int rows) {
         this.cols = cols; this.rows = rows;
@@ -218,7 +230,7 @@ public final class Term {
     public void reset() {
         penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; penUl = 0; penUlColor = DEFAULT; insert = false;
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
-        decckm = false; lnm = false; alt = false;
+        decckm = false; lnm = false; alt = false; keypadApp = false;
         title = ""; titleExplicit = false; cwd = "";
         cursorVisible = true; cursorShape = defaultCursorShape; cursorBlink = defaultCursorBlink;
         mouseMode = 0; mouseSgr = false; mouseUtf8 = false; mousePixels = false;
@@ -1155,6 +1167,8 @@ public final class Term {
             case 'E' -> { cx = 0; if (cy == bot) scrollUp(1); else if (cy < rows - 1) cy++; state = GROUND; }
             case 'M' -> { if (cy == top) scrollDown(1); else if (cy > 0) cy--; state = GROUND; }
             case 'c' -> { reset(); state = GROUND; }
+            case '=' -> { keypadApp = true; state = GROUND; }  // DECKPAM
+            case '>' -> { keypadApp = false; state = GROUND; } // DECKPNM
             case 'n', 'o' -> state = GROUND; // SS2/SS3
             case 'H' -> state = GROUND; // HTS ignored
             case 'P', 'X', '^' -> state = SKIP; // DCS/PM/SOS consume until ST
@@ -1614,6 +1628,17 @@ public final class Term {
                     try { childOut.write(r.getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 }
             }
+            // DECRQM (`CSI ? Ps $ p`) and DECSTR (`CSI ! p`). xterm's "is this
+            // mode on?" is what vim, tmux and mc ask before they trust a mode
+            // they are about to rely on; the answer is `CSI ? Ps ; Pm $ y`,
+            // with Pm 1 = set, 2 = reset, 0 = not recognised.
+            case 'p' -> {
+                // the intermediates stay in the buffer, so `$` and `!` are read
+                // where they landed, not as a prefix
+                int last = csiLen > 0 ? (csiBuf[csiLen - 1] & 0xff) : 0;
+                if (last == '$') decrqm();
+                else if (last == '!') decstr();
+            }
             case 'c' -> {
                 boolean privateGt = csiLen > 0 && csiBuf[0] == '>';
                 if (privateGt) {
@@ -1646,6 +1671,100 @@ public final class Term {
             }
             default -> {}
         }
+    }
+
+    /**
+     * `DECRQM` (`CSI ? Ps $ p`): the state of a mode, as xterm reports it.
+     * The private modes are the ones this parser tracks; the ANSI ones (4 IRM,
+     * 20 LNM) are answered too, which the Rust version leaves as 0.
+     */
+    private void decrqm() {
+        boolean priv = csiLen > 0 && csiBuf[0] == '?';
+        int i = priv ? 1 : 0;
+        int ps = 0;
+        boolean any = false;
+        while (i < csiLen) {
+            int b = csiBuf[i] & 0xff;
+            if (b < '0' || b > '9') break;
+            any = true;
+            ps = ps * 10 + (b - '0');
+            i++;
+        }
+        if (!any) ps = 0;
+        int st = modeState(ps, priv);
+        reply(String.format(java.util.Locale.ROOT, "\u001b[%s%d;%d$y", priv ? "?" : "", ps, st));
+    }
+
+    /** 1 = set, 2 = reset, 0 = not recognised — the DECRQM answer. */
+    private int modeState(int p, boolean priv) {
+        if (!priv) {
+            return switch (p) {
+                case 4 -> insert ? 1 : 2;
+                case 20 -> lnm ? 1 : 2;
+                default -> 0;
+            };
+        }
+        return switch (p) {
+            case 1 -> decckm ? 1 : 2;
+            case 66 -> keypadApp ? 1 : 2;
+            case 25 -> cursorVisible ? 1 : 2;
+            case 47, 1047, 1049 -> alt ? 1 : 2;
+            case 1000 -> mouseMode == 1 ? 1 : 2;
+            case 1002 -> mouseMode == 2 ? 1 : 2;
+            case 1003 -> mouseMode == 3 ? 1 : 2;
+            case 1004 -> focusEvents ? 1 : 2;
+            case 1005 -> mouseUtf8 ? 1 : 2;
+            case 1006 -> mouseSgr ? 1 : 2;
+            case 1016 -> mousePixels ? 1 : 2;
+            case 2004 -> bracketed ? 1 : 2;
+            case 2026 -> sync ? 1 : 2;
+            default -> 0;
+        };
+    }
+
+    /**
+     * `DECSTR` (`CSI ! p`): the soft reset. vim and tmux send it on entry to
+     * leave the terminal in a known state without wiping the screen — colours,
+     * attributes, cursor visibility, DECCKM, the keypad mode and the scroll
+     * region go back to the defaults, the grid stays.
+     */
+    private void decstr() {
+        penFg = DEFAULT; penBg = DEFAULT; penUlColor = DEFAULT;
+        penAttr = 0; penUl = 0; insert = false;
+        cursorVisible = true; decckm = false; keypadApp = false;
+        top = 0; bot = rows - 1; wrapPending = false;
+        dirtyAll = true;
+        java.util.Arrays.fill(dirty, true);
+    }
+
+    /** True when the row at {@code abs} is soft-wrapped into the next one. */
+    public boolean wrappedAt(long abs) {
+        Row r = historyRow(abs);
+        if (r != null) return r.wrapped;
+        if (abs >= totalLines && abs < totalLines + rows) return rowWrapped[(int) (abs - totalLines)];
+        return false;
+    }
+
+    /**
+     * The whole logical line of {@code abs} (a triple click): from column 0 of
+     * the first row of the paragraph to the last cell with ink on the last one.
+     * A soft-wrapped line is **one** line — the rows below a wrapped one belong
+     * to it —, which is what makes copying a wrapped log line one click.
+     */
+    public LineSpan lineSpan(long abs) {
+        long first = abs;
+        while (first > 0 && wrappedAt(first - 1)) first--;
+        long last = abs;
+        while (wrappedAt(last)) last++;
+        int end = 0;
+        int[] cps = rowCpAt(last);
+        int off = rowOffsetAt(last);
+        if (cps != null && off >= 0) {
+            for (int x = cols - 1; x >= 0; x--) {
+                if (cps[off + x] != ' ') { end = x; break; }
+            }
+        }
+        return new LineSpan(first, last, end);
     }
 
     private void sgr() {

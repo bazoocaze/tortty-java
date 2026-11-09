@@ -85,4 +85,11 @@ public final class Check {
     public static String childOut(Term t) {
         return new String(t.takeChildOut(), StandardCharsets.UTF_8);
     }
+
+    /** Feeds {@code query} and returns the reply it produced (a request/answer pair). */
+    public static String childOut(Term t, String query) {
+        t.takeChildOut();
+        feed(t, query);
+        return childOut(t);
+    }
 }

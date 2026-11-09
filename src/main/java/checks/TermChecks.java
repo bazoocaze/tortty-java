@@ -29,6 +29,8 @@ public final class TermChecks {
         modes(c);
         kidKeyboard(c);
         replies(c);
+        modeReports(c);
+        logicalLines(c);
         resizing(c);
     }
 
@@ -338,6 +340,87 @@ public final class TermChecks {
         c.eq("DA2", Check.childOut(t), E + "[>1;100;0c");
         Check.feed(t, E + "]10;?" + "\u0007");
         c.is("OSC 10 ? answers the foreground", Check.childOut(t).startsWith(E + "]10;rgb:"));
+    }
+
+    /** `DECRQM`, `DECSTR` and `DECKPAM`: the modes an app asks about before use. */
+    private static void modeReports(Check c) {
+        Term t = new Term(20, 4);
+        c.eq("a mode that is off answers 2", Check.childOut(t, E + "[?1006$p"), E + "[?1006;2$y");
+        c.eq("a mode that is on answers 1", Check.childOut(t, E + "[?25$p"), E + "[?25;1$y");
+        c.eq("an unknown mode answers 0", Check.childOut(t, E + "[?9999$p"), E + "[?9999;0$y");
+        c.eq("the private form carries the ? in the answer",
+                Check.childOut(t, E + "[?1049$p"), E + "[?1049;2$y");
+        c.eq("a bare Ps is not a private mode", Check.childOut(t, E + "[1049$p"), E + "[1049;0$y");
+
+        // the modes this parser tracks, one by one
+        Check.feed(t, E + "[?1h" + E + "[?1002h" + E + "[?2004h" + E + "[?2026h");
+        c.eq("DECCKM set", Check.childOut(t, E + "[?1$p"), E + "[?1;1$y");
+        c.eq("button-event mouse set", Check.childOut(t, E + "[?1002$p"), E + "[?1002;1$y");
+        c.eq("other mouse modes stay reset", Check.childOut(t, E + "[?1000$p"), E + "[?1000;2$y");
+        c.eq("bracketed paste set", Check.childOut(t, E + "[?2004$p"), E + "[?2004;1$y");
+        c.eq("synchronized output set", Check.childOut(t, E + "[?2026$p"), E + "[?2026;1$y");
+
+        // DECKPAM is a mode with a number of its own (66)
+        c.eq("the keypad starts in numeric mode", Check.childOut(t, E + "[?66$p"), E + "[?66;2$y");
+        Check.feed(t, E + "=");
+        c.is("ESC = enters the application keypad", t.keypadApp);
+        c.eq("and DECRQM says so", Check.childOut(t, E + "[?66$p"), E + "[?66;1$y");
+        Check.feed(t, E + ">");
+        c.is("ESC > leaves it", !t.keypadApp);
+
+        // DECSTR: the soft reset vim and tmux send on entry
+        Term s = new Term(10, 3);
+        Check.feed(s, E + "[?1h" + E + "[?25l" + E + "=" + E + "[1;31m" + E + "[3;1H"
+                + E + "[2;3r" + E + "[4h"); // DECCKM, hidden cursor, DECKPAM, red, region, IRM
+        Check.feed(s, E + "[!p");
+        c.is("DECSTR shows the cursor again", s.cursorVisible);
+        c.is("DECSTR takes DECCKM back", !s.decckm);
+        c.is("DECSTR takes the keypad back", !s.keypadApp);
+        c.eq("DECSTR paints with the default colours again", s.fg[0], Color.DEFAULT);
+        c.is("DECSTR resets the scroll region", s.scrollRegion().equals("0:2"));
+        c.eq("the screen survives DECSTR", s.screenText(0), "");
+        c.eq("IRM is reported as reset afterwards",
+                Check.childOut(s, "\u001b[4$p"), "\u001b[4;2$y");
+
+        // IRM off after DECSTR: typing overwrites instead of inserting
+        Term ins = new Term(6, 2);
+        Check.feed(ins, "abc" + E + "[1;1H" + E + "[4h" + "X");
+        c.eq("insert mode shifts the text right", ins.screenText(0), "Xabc");
+        Check.feed(ins, E + "[!p" + "Y");
+        c.eq("after DECSTR a key overwrites the cell under the cursor", ins.screenText(0), "XYbc");
+
+        // a mode DECSTR does not own: the alt screen stays until ?1049l
+        Term a = new Term(10, 3);
+        Check.feed(a, E + "[?1049h");
+        c.eq("the alt screen is reported set", Check.childOut(a, E + "[?1049$p"), E + "[?1049;1$y");
+        Check.feed(a, E + "[!p");
+        c.is("DECSTR does not leave the alt screen", a.alt);
+    }
+
+    /** Triple-click spans: a soft-wrapped paragraph is one logical line. */
+    private static void logicalLines(Check c) {
+        Term t = new Term(5, 6);
+        Check.feed(t, "abcdefghij\r\nshort");
+        c.is("row 0 wrapped", t.wrappedAt(t.absoluteLine(0)));
+        c.is("row 1 does not wrap into row 2", !t.wrappedAt(t.absoluteLine(1)));
+
+        Term.LineSpan sp = t.lineSpan(t.absoluteLine(1));
+        c.eq("the span starts at the head of the paragraph", sp.first(), 0L);
+        c.eq("and ends on the row that holds the tail", sp.last(), 1L);
+        c.eq("the last cell with ink is the end column", sp.endCol(), 4);
+
+        Term.LineSpan one = t.lineSpan(t.absoluteLine(2));
+        c.eq("a plain line is its own span", one.first(), 2L);
+        c.eq("with its own end", one.last(), 2L);
+        c.eq("and the last letter of 'short'", one.endCol(), 4);
+
+        // three rows of one paragraph
+        Term w = new Term(4, 8);
+        Check.feed(w, "abcdefghij");           // 4 + 4 + 2 cells: 3 rows, 2 wrapped
+        Term.LineSpan longSpan = w.lineSpan(w.absoluteLine(1));
+        c.eq("a longer paragraph is one span", longSpan.first(), 0L);
+        c.eq("over every row it fills", longSpan.last(), 2L);
+        c.eq("ending where the ink ends", longSpan.endCol(), 1);
     }
 
     private static void resizing(Check c) {

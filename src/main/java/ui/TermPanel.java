@@ -959,7 +959,11 @@ public final class TermPanel extends JPanel implements KeyListener {
         selecting = false;
         long abs = term.absoluteLine(y);
         if (wholeLine) {
-            selAX = 0; selAbsAY = abs; selBX = term.cols - 1; selAbsBY = abs;
+            // a soft-wrapped line is one line: the span walks the paragraph and
+            // stops at the last cell with ink (Rust `line_span`)
+            Term.LineSpan sp = term.lineSpan(abs);
+            selAX = 0; selAbsAY = sp.first();
+            selBX = sp.endCol(); selAbsBY = sp.last();
         } else {
             int[] cps = term.rowCpAt(abs);
             int off = term.rowOffsetAt(abs);
@@ -984,13 +988,13 @@ public final class TermPanel extends JPanel implements KeyListener {
         int c = term.cols;
         StringBuilder out = new StringBuilder();
         for (long abs = aL; abs <= bL; abs++) {
+            // a row that continues a soft-wrapped one is not a new line: the
+            // copy keeps the paragraph as the child wrote it
+            if (abs > aL && !term.wrappedAt(abs - 1)) out.append('\n');
             int[] cps = term.rowCpAt(abs);
             String[] cls = term.rowClusterAt(abs);
             int off = term.rowOffsetAt(abs);
-            if (cps == null || off < 0) {
-                if (abs < bL) out.append('\n');
-                continue;
-            }
+            if (cps == null || off < 0) continue;
             int from = (abs == aL) ? aC : 0;
             int to = (abs == bL) ? bC : c - 1;
             from = Math.max(0, Math.min(c - 1, from));
@@ -1005,7 +1009,6 @@ public final class TermPanel extends JPanel implements KeyListener {
                 line.setLength(line.length() - 1);
             }
             out.append(line);
-            if (abs < bL) out.append('\n');
         }
         return out.toString();
     }

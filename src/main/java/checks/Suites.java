@@ -18,6 +18,7 @@ public final class Suites {
         l.add(new Area("snapshot", SnapshotChecks::run));
         l.add(new Area("keys", KeyChecks::run));
         l.add(new Area("config", ConfigChecks::run));
+        l.add(new Area("cli", CliChecks::run));
         l.add(new Area("session", SessionChecks::run));
         return l;
     }

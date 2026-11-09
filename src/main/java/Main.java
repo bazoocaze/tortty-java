@@ -31,6 +31,7 @@ import pty.ChildPty;
 import term.Term;
 import term.Theme;
 import ui.TermPanel;
+import config.Cli;
 import config.Config;
 import config.ConfigWatcher;
 import state.Session;
@@ -38,62 +39,13 @@ import state.Snapshots;
 
 public final class Main {
 
-    static final class Opts {
-        String debugSocket;
-        boolean noVsync;
-        boolean prof;
-        Float fontSize;
-        float dpi = -1;
-        String family;
-        Integer scrollback;
-        String configPath;
-        String cmd;
-        boolean noState;
-        /** Where `--dump-to`/SIGUSR1 write; {@code null} = /tmp/tortty-dump.txt. */
-        String dumpTo;
-        /** `--debug-log` path; {@code null} = whatever the config says. */
-        String debugLog;
-        /** `--cols`/`--rows` for automation (the benchmark uses it). */
-        int cols = 80, rows = 24;
-        /** Runs the headless checks and exits, without opening a window (`B24`). */
-        boolean selftest;
-
-        static Opts parse(String[] args) {
-            Opts o = new Opts();
-            int i = 0;
-            while (i < args.length) {
-                switch (args[i]) {
-                    case "--debug-socket" -> { o.debugSocket = args[++i]; }
-                    case "--debug-log" -> o.debugLog = args[++i];
-                    case "--dump-to" -> o.dumpTo = args[++i];
-                    case "--no-vsync" -> o.noVsync = true;
-                    case "--prof" -> o.prof = true;
-                    case "--font-size" -> o.fontSize = Float.parseFloat(args[++i]);
-                    case "--font-family" -> o.family = args[++i];
-                    case "--scrollback" -> o.scrollback = Integer.parseInt(args[++i]);
-                    case "--config" -> o.configPath = args[++i];
-                    case "--dpi" -> o.dpi = Float.parseFloat(args[++i]);
-                    case "--cmd" -> o.cmd = args[++i];
-                    case "--no-state" -> o.noState = true;
-                    case "--cols" -> o.cols = Integer.parseInt(args[++i]);
-                    case "--rows" -> o.rows = Integer.parseInt(args[++i]);
-                    case "--selftest" -> o.selftest = true;
-                    default -> System.err.println("tortty-java: ignoring arg " + args[i]);
-                }
-                i++;
-            }
-            return o;
-        }
-
-        void applyTo(Config c) {
-            if (family != null) c.fontFamily = family;
-            if (fontSize != null) c.fontSize = fontSize;
-            if (scrollback != null) c.scrollback = Math.max(0, Math.min(100000, scrollback));
-        }
-    }
-
     public static void main(String[] args) {
-        Opts o = Opts.parse(args);
+        Cli.Opts o = Cli.Opts.parse(args);
+        // `--version` is the one flag that answers and leaves: no AWT, no state
+        if (o.version) {
+            System.out.println("tortty-java " + Cli.version());
+            return;
+        }
         // `--selftest` never touches AWT: the checks are pure, so it runs
         // headless (CI, ssh with no display) as the Rust version does
         if (o.selftest) {
@@ -182,7 +134,7 @@ public final class Main {
     }
 
     private static final class App {
-        private final Opts o;
+        private final Cli.Opts o;
         private Config cfg;
         private Theme theme;
         private float dpi;
@@ -193,6 +145,16 @@ public final class Main {
         private Side side;
         private int sideW = 150;
         private boolean sideShown;
+        /**
+         * First workspace card drawn in the column: with more workspaces than
+         * rows the list scrolls, or a card past the bottom could not be reached
+         * by the mouse (Rust `B42`).
+         */
+        private int sideScroll;
+        /** Travel still owed to the card list, in detents (a touchpad fraction). */
+        private double sideFrac;
+        private int sideWheelDir;
+        private long sideWheelNanos;
         private final java.util.List<Workspace> workspaces = new java.util.ArrayList<>();
         private int ws = -1;
         private int nextCard;
@@ -211,7 +173,7 @@ public final class Main {
         /** Set while the layout moves the divider, so a drag is not confused with it. */
         private boolean syncingSide;
 
-        App(Opts o) { this.o = o; }
+        App(Cli.Opts o) { this.o = o; }
 
         void start() {
             if (o.prof) Prof.set(true);
@@ -286,9 +248,7 @@ public final class Main {
                     forEachTab(t -> t.panel.requestFullRepaint());
                 }
                 @Override public void windowClosing(java.awt.event.WindowEvent e) {
-                    exitSnaps = lastWords();
-                    forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
-                    System.exit(0);
+                    quitNow("window close");
                 }
             });
 
@@ -308,6 +268,14 @@ public final class Main {
 
             if (o.debugSocket != null) startDebugServer();
             installSignals();
+            // `--quit-after SECS`: the window leaves by itself, through the same
+            // exit as the close button, so the state and the snapshots are written
+            if (o.quitAfter != null) {
+                int secs = Math.max(0, o.quitAfter);
+                javax.swing.Timer qt = new javax.swing.Timer(secs * 1000, e -> quitNow("quit-after " + secs + "s"));
+                qt.setRepeats(false);
+                qt.start();
+            }
             debug.Log.ln("tortty-java — " + frame.getContentPane().getWidth() + "px window, "
                     + workspaces.size() + " workspace(s), restore_state " + restoreName());
         }
@@ -632,6 +600,9 @@ public final class Main {
             Workspace w = front();
             if (w == null) return;
             cardLayout.show(host, w.card);
+            // the card of the workspace in front comes into sight: entering by
+            // keyboard must not leave it out of the column (Rust `B42`)
+            revealCard(ws);
             // entering a workspace acknowledges every badge of its tabs (M-K)
             for (Tab t : w.tabs) ack(t);
             syncSide();
@@ -649,6 +620,27 @@ public final class Main {
             if (i < 0 || i >= workspaces.size() || i == ws) return;
             ws = i;
             showWorkspace();
+        }
+
+        /** Walks the card list by {@code delta} cards, clamped to it. */
+        private void scrollSide(int delta) {
+            int at = Math.max(0, Math.min(side.maxScroll(), sideScroll + delta));
+            if (at == sideScroll) return;
+            sideScroll = at;
+            side.repaint();
+        }
+
+        /** Scrolls the least it takes to put card {@code i} in the column. */
+        private void revealCard(int i) {
+            int n = side.visibleRows();
+            if (i < sideScroll) sideScroll = i;
+            else if (i >= sideScroll + n) sideScroll = i + 1 - n;
+            clampSide();
+        }
+
+        /** Closing a workspace or growing the window can leave the offset past the end. */
+        private void clampSide() {
+            sideScroll = Math.max(0, Math.min(side.maxScroll(), sideScroll));
         }
 
         /** Closes a workspace and every pty it owns. */
@@ -697,6 +689,8 @@ public final class Main {
         private final class Side extends JComponent {
             static final int HEAD = 26;   // room for the caption
             static final int ROW = 27;
+            /** Space kept at the bottom for the `F2 rename` hint. */
+            static final int HINT = 16;
             static final int MIN_W = 110;
             static final int MAX_W = 420;
             private final Font base = labelFont();
@@ -731,6 +725,59 @@ public final class Main {
                         }
                     }
                 });
+                // a taller window fits more cards: the offset has to come back
+                // inside the list, or the column would end in blank space
+                addComponentListener(new ComponentAdapter() {
+                    @Override public void componentResized(ComponentEvent e) { clampSide(); }
+                });
+                // the wheel over the column walks the card list, one detent per
+                // card: a workspace past the bottom has no other way in with the
+                // mouse (Rust `B42`). Up (positive) goes back one card.
+                addMouseWheelListener(e -> {
+                    double raw = -e.getPreciseWheelRotation();
+                    int n = sideNotches(raw);
+                    if (n != 0) scrollSide(-n);
+                });
+            }
+
+            /** Cards that fit in the column, the `+ new` row included, at least one. */
+            private int visibleRows() {
+                return Math.max(1, (getHeight() - HEAD - HINT) / ROW);
+            }
+
+            /** The list is the cards plus the `+ new` row. */
+            private int contentRows() { return workspaces.size() + 1; }
+
+            private int maxScroll() { return Math.max(0, contentRows() - visibleRows()); }
+
+            private int sideNotches(double raw) {
+                if (Math.abs(raw) == 1.0) {
+                    long now = System.nanoTime();
+                    int dir = raw > 0 ? 1 : -1;
+                    boolean repeated = sideWheelDir == dir && now - sideWheelNanos < 10_000_000L;
+                    sideWheelNanos = now;
+                    sideWheelDir = dir;
+                    return repeated ? 0 : dir;
+                }
+                if (sideFrac * raw < 0) sideFrac = 0;
+                sideFrac += raw;
+                int n = (int) sideFrac;
+                sideFrac -= n;
+                return n;
+            }
+
+            private int rowY(int i) { return HEAD + (i - sideScroll) * ROW; }
+
+            /** Screen coordinates of each card drawn, for automation (like tab_rects). */
+            private java.util.List<int[]> rects() {
+                java.util.List<int[]> out = new java.util.ArrayList<>();
+                if (!isShowing()) return out;
+                java.awt.Point origin = getLocationOnScreen();
+                int end = Math.min(sideScroll + visibleRows(), workspaces.size());
+                for (int i = sideScroll; i < end; i++) {
+                    out.add(new int[] {origin.x, origin.y + rowY(i), getWidth(), ROW});
+                }
+                return out;
             }
 
             private Font labelFont() {
@@ -738,18 +785,20 @@ public final class Main {
                 return f == null ? new Font("Dialog", Font.PLAIN, 12) : f;
             }
 
-            private int rowY(int i) { return HEAD + i * ROW; }
-
             /** Row under {@code y}, or -1 for the caption, the `+` row and below. */
             private int rowAt(int y) {
-                if (y < HEAD) return -1;
-                int i = (y - HEAD) / ROW;
-                return i < workspaces.size() ? i : -1;
+                int i = rowIndexAt(y);
+                return (i >= 0 && i < workspaces.size()) ? i : -1;
             }
 
-            private boolean overPlus(int y) {
-                int y0 = rowY(workspaces.size());
-                return y >= y0 && y < y0 + ROW;
+            private boolean overPlus(int y) { return rowIndexAt(y) == workspaces.size(); }
+
+            /** Index of the row under {@code y}, counting the `+ new` row; -1 outside. */
+            private int rowIndexAt(int y) {
+                if (y < HEAD) return -1;
+                int d = (y - HEAD) / ROW;
+                if (d >= visibleRows()) return -1; // below the last row drawn
+                return sideScroll + d;
             }
 
             @Override public String getToolTipText(MouseEvent e) {
@@ -792,10 +841,21 @@ public final class Main {
                 g.drawString("WORKSPACES", 9, 18);
 
                 FontMetrics fmTiny = g.getFontMetrics();
-                for (int i = 0; i < workspaces.size(); i++) {
+                // the list is drawn from `sideScroll` and clipped: a row that
+                // does not fit must not paint over the caption or the hint
+                java.awt.Shape clip = g.getClip();
+                g.clipRect(0, HEAD, getWidth(), Math.max(0, getHeight() - HEAD - HINT));
+                int end = Math.min(sideScroll + visibleRows() + 1, contentRows());
+                for (int i = sideScroll; i < end; i++) {
+                    int y = rowY(i);
+                    if (i == workspaces.size()) {
+                        g.setFont(base);
+                        g.setColor(muted);
+                        g.drawString("+ new", 9, y + 18);
+                        break;
+                    }
                     Workspace w = workspaces.get(i);
                     boolean sel = i == ws;
-                    int y = rowY(i);
                     if (sel) {
                         g.setColor(chip);
                         g.fillRect(0, y, getWidth(), ROW);
@@ -835,11 +895,8 @@ public final class Main {
                         g.drawString(n, getWidth() - 9 - fmTiny.stringWidth(n), y + 18);
                     }
                 }
+                g.setClip(clip);
 
-                int y = rowY(workspaces.size());
-                g.setFont(base);
-                g.setColor(muted);
-                g.drawString("+ new", 9, y + 18);
                 g.setFont(tiny);
                 String hint = "F2 rename";
                 g.drawString(hint, Math.max(9, getWidth() - 9 - fmTiny.stringWidth(hint)),
@@ -862,6 +919,7 @@ public final class Main {
         /** Shows the column from the second workspace on; a lone one is hidden. */
         private void syncSide() {
             boolean want = workspaces.size() > 1;
+            clampSide();
             if (sideShown != want) {
                 sideShown = want;
                 syncingSide = true;
@@ -1303,8 +1361,19 @@ public final class Main {
             w.pane.setSelectedIndex(index);
         }
 
+        /**
+         * `--debug-socket auto` becomes `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`
+         * (or `/tmp` without it), so two instances do not fight over one path —
+         * the Rust name carries `-java` and the pid for the same reason.
+         */
+        private String debugSocketPath() {
+            if (!"auto".equals(o.debugSocket)) return o.debugSocket;
+            return Cli.autoSocketPath();
+        }
+
         private void startDebugServer() {
-            DebugServer server = new DebugServer(o.debugSocket, new DebugServer.Handler() {
+            String sock = debugSocketPath();
+            DebugServer server = new DebugServer(sock, new DebugServer.Handler() {
                 @Override public java.util.Map<String, Object> state() {
                     java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
                     Tab t = activeTab();
@@ -1348,6 +1417,15 @@ public final class Main {
                         }
                     }
                     m.put("tab_rects", rects);
+                    // the grid on screen: a mouse test needs the cell the pointer
+                    // is over, and only the app knows where Swing put the panel
+                    int[] grid = new int[] {0, 0, 0, 0};
+                    Tab act = activeTab();
+                    if (act != null && act.panel.isShowing()) {
+                        java.awt.Point po = act.panel.getLocationOnScreen();
+                        grid = new int[] {po.x, po.y, act.panel.getWidth(), act.panel.getHeight()};
+                    }
+                    m.put("grid_rect", grid);
                     m.put("workspaces", workspaces.size());
                     m.put("ws", ws);
                     java.util.List<String> names = new java.util.ArrayList<>();
@@ -1370,6 +1448,11 @@ public final class Main {
                     m.put("ws_labels", wsLabels);
                     m.put("side", sideShown);
                     m.put("side_w", sideShown ? split.getDividerLocation() : 0);
+                    // the card list as it is drawn (`B32`): first card, cards
+                    // that fit, and where the column is on screen
+                    m.put("side_scroll", sideScroll);
+                    m.put("side_visible", side.visibleRows());
+                    m.put("side_rects", sideShown ? side.rects() : new java.util.ArrayList<int[]>());
                     m.put("ligatures", cfg.ligatures);
                     m.put("restore_state", restoreName());
                     return m;
@@ -1496,11 +1579,7 @@ public final class Main {
                     syncSide();
                 }
                 @Override public void quit() {
-                    SwingUtilities.invokeLater(() -> {
-                        exitSnaps = lastWords();
-                        forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
-                        System.exit(0);
-                    });
+                    SwingUtilities.invokeLater(() -> quitNow("quit over the socket"));
                 }
             });
             server.start();
@@ -1570,13 +1649,25 @@ public final class Main {
                         sig -> SwingUtilities.invokeLater(this::dump));
                 sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> SwingUtilities.invokeLater(() -> {
                     dump();
-                    exitSnaps = lastWords();
-                    forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
-                    System.exit(0);
+                    quitNow("SIGTERM");
                 }));
             } catch (Throwable e) {
                 System.err.println("tortty-java: signals: " + e);
             }
+        }
+
+        /**
+         * The one way out of the window: the children are hung up and
+         * drained first (`B48` in the Rust version), so their last words land in
+         * the snapshot, and only then
+         * the process leaves. The close button, `quit` on the socket, `SIGTERM`
+         * and `--quit-after` all end here, so no path can skip the picture.
+         */
+        private void quitNow(String why) {
+            debug.Log.ln("quit: " + why);
+            exitSnaps = lastWords();
+            forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
+            System.exit(0);
         }
 
         private void applyLive(Config c, Tab t) {
