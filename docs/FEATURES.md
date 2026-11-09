@@ -79,6 +79,10 @@ Features implemented in the Java version of TorTTY.
 - OSC 8 links: Ctrl underlines links and Ctrl+click opens `http/https/file/ftp/mailto`.
 - `BEL` and OSC 9/777 show a bottom-right toast (queue, 8 s timeout) and a
   visual/audible bell selected by the config.
+- `ligatures` off/standard/all (`B27`): on, each run of same-style cells is shaped
+  by Java2D (`TextLayout`, the font's own `liga`/kern), so a font with ligatures
+  joins `->`, `!=`, `=>`. Runs are broken at the cursor and the selection, and off
+  is one glyph per cell. See `L18`.
 - Configurable mono font; default DejaVu Sans Mono 17 pt; per-glyph fallback to
   CJK and symbol fonts. Colour emoji is not rendered by Java2D (see `L13`).
 - Window padding and fg/bg/cursor palette from the config.

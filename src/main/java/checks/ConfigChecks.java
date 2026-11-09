@@ -78,13 +78,17 @@ public final class ConfigChecks {
             Config last = load(c, "font_size 12\nfont_size 14\n");
             c.eq("the last key wins", last.fontSize, 14f);
 
-            Config off = load(c, "debug_log off\n");
-            c.eq("debug_log off means no path", off.debugLog, "");
+            Config off = load(c, "debug_log off\n");            c.eq("debug_log off means no path", off.debugLog, "");
 
-            Config restore = load(c, "restore_state content\n");
-            c.eq("restore_state content", restore.restoreState, Config.RESTORE_CONTENT);
+            Config restore = load(c, "restore_state content\n");            c.eq("restore_state content", restore.restoreState, Config.RESTORE_CONTENT);
             c.eq("the default is layout", load(c, "").restoreState, Config.RESTORE_LAYOUT);
             c.eq("restore_state none", load(c, "restore_state none\n").restoreState, Config.RESTORE_NONE);
+
+            c.eq("ligatures is off by default", load(c, "").ligatures, 0);
+            c.eq("ligatures standard", load(c, "ligatures standard\n").ligatures, 1);
+            c.eq("ligatures all", load(c, "ligatures all\n").ligatures, 2);
+            c.eq("ligatures off", load(c, "ligatures off\n").ligatures, 0);
+            c.is("ligatures bogus is an error", !load(c, "ligatures maybe\n").errors.isEmpty());
 
             Config blobs = load(c, "# a comment\n\n   \nfont_size 22\n");
             c.eq("comments and blank lines are skipped", blobs.fontSize, 22f);
@@ -102,10 +106,11 @@ public final class ConfigChecks {
                     "bell loud",
                     "foreground 123456",
                     "restore_state everything",
+                    "ligatures maybe",
                     "nope 1",
                     "font_size",
                     "scrollback 12"));
-            c.is("errors were collected", bad.errors.size() >= 7);
+            c.is("errors were collected", bad.errors.size() >= 8);
             c.eq("a good line after bad ones still applies", bad.scrollback, 12);
             c.eq("the bad value kept the default", bad.fontSize, 17f);
 

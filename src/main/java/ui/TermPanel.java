@@ -60,6 +60,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     private char[] runBuf = new char[0];
     private Font[] fallbackFonts = new Font[0];
     private final java.util.HashMap<Long, Font> glyphFontCache = new java.util.HashMap<>();
+    /** Ligatures on (`B27`): a run of same-style cells is shaped as one text run. */
+    private boolean ligatures;
 
     // kitty images: decoded once per (id, version) and dropped when it changes.
     private final java.util.HashMap<Integer, java.awt.image.BufferedImage> imageCache = new java.util.HashMap<>();
@@ -290,6 +292,13 @@ public final class TermPanel extends JPanel implements KeyListener {
     public void setBellMode(int mode) { this.bellMode = mode; }
     public void setCopyOnSelect(boolean on) { this.copyOnSelect = on; }
 
+    /** `ligatures off|standard|all` (`B27`); off is one glyph per cell. */
+    public void setLigatures(boolean on) {
+        if (ligatures == on) return;
+        ligatures = on;
+        requestFullRepaint();
+    }
+
     /** Called after feeding a chunk: turns BEL/OSC 9/777 into bell and toast. */
     public void checkNotifications() {
         if (term.bellSeq != lastBellSeq) {
@@ -476,11 +485,15 @@ public final class TermPanel extends JPanel implements KeyListener {
                 if (sel) { int t = rf; rf = rb; rb = t; }
                 Font font = fontFor(a);
                 int run = x + 1;
-                while (run < cols) {
+                // the cursor is its own run with ligatures on: a `->` under the
+                // block cursor would otherwise be shaped and then painted over
+                if (ligatures && term.viewOff() == 0 && y == term.cy && x == term.cx) run = x + 1;
+                else while (run < cols) {
                     int j = off + run;
                     boolean jsel = isSelected(run, y);
                     if (fg[j] != f || bg[j] != b || attr[j] != a
                             || ul[j] != uStyle || ulColor[j] != uColor || jsel != sel) break;
+                    if (ligatures && term.viewOff() == 0 && y == term.cy && run == term.cx) break;
                     run++;
                 }
                 int xPx = padding + x * cellW;
@@ -667,7 +680,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                 continue;
             }
             if (buf > 0) {
-                g2.drawChars(runBuf, 0, buf, xPx + start * cellW(), baseline);
+                drawTextRun(g2, runBuf, buf, xPx + start * cellW(), baseline, font);
                 buf = 0;
             }
             if (c == Term.WIDE_CONT) {
@@ -687,7 +700,25 @@ public final class TermPanel extends JPanel implements KeyListener {
             i = j;
             start = i;
         }
-        if (buf > 0) g2.drawChars(runBuf, 0, buf, xPx + start * cellW(), baseline);
+        if (buf > 0) drawTextRun(g2, runBuf, buf, xPx + start * cellW(), baseline, font);
+    }
+
+    /**
+     * One run of plain cells. With ligatures on the run is shaped by Java2D (the
+     * font's own `liga`/kern features), which is what turns `->` into a single
+     * glyph in a font that has one; off, it is the historical glyph-per-cell
+     * draw. Runs are already broken by style and by the selection, and the caller
+     * breaks them at the cursor, so a ligature never spans the cursor or the
+     * selection (`B27`).
+     */
+    private void drawTextRun(Graphics2D g2, char[] b, int n, int x, int baseline, Font font) {
+        if (!ligatures || n < 2) {
+            g2.drawChars(b, 0, n, x, baseline);
+            return;
+        }
+        java.awt.font.TextLayout tl = new java.awt.font.TextLayout(
+                new String(b, 0, n), font, g2.getFontRenderContext());
+        tl.draw(g2, x, baseline);
     }
 
     private Font fontFor(int a) {

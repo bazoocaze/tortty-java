@@ -28,6 +28,9 @@ public final class Config {
     // what comes back on the next run (`B26`)
     public static final int RESTORE_NONE = 0, RESTORE_LAYOUT = 1, RESTORE_CONTENT = 2;
     public int restoreState = RESTORE_LAYOUT;
+
+    /** Ligatures (`B27`): 0 off, 1 standard, 2 all. */
+    public int ligatures = 0;
     public int foreground = 0xD6D6D6;
     public int background = 0x000000;
     public int cursorColor = 0xD6D6D6;
@@ -120,6 +123,12 @@ public final class Config {
                 default -> throw new IllegalArgumentException("none, visual or audible");
             };
             case "copy_on_select" -> copyOnSelect = parseBool(value);
+            case "ligatures" -> ligatures = switch (value.toLowerCase()) {
+                case "off", "none" -> 0;
+                case "standard", "on" -> 1;
+                case "all" -> 2;
+                default -> throw new IllegalArgumentException("off, standard or all");
+            };
             case "restore_state" -> restoreState = switch (value.toLowerCase()) {
                 case "none" -> RESTORE_NONE;
                 case "layout" -> RESTORE_LAYOUT;

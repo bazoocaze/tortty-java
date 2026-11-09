@@ -895,6 +895,7 @@ public final class Main {
             panel.setPadding(cfg.windowPaddingWidth);
             panel.setBellMode(cfg.bell);
             panel.setCopyOnSelect(cfg.copyOnSelect);
+            panel.setLigatures(cfg.ligatures != 0);
             panel.initFonts();
             final Tab tab = new Tab(term, panel);
 
@@ -1275,6 +1276,7 @@ public final class Main {
                     m.put("ws_labels", wsLabels);
                     m.put("side", sideShown);
                     m.put("side_w", sideShown ? split.getDividerLocation() : 0);
+                    m.put("ligatures", cfg.ligatures);
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {
@@ -1488,6 +1490,7 @@ public final class Main {
             t.term.cursorBlink = c.cursorBlink;
             t.panel.setBellMode(c.bell);
             t.panel.setCopyOnSelect(c.copyOnSelect);
+            t.panel.setLigatures(c.ligatures != 0);
             Theme liveTheme = c.theme();
             t.term.setTheme(liveTheme);
             t.panel.setTheme(liveTheme);

@@ -424,3 +424,29 @@ Xvfb `:99` with a throw-away `XDG_STATE_HOME`: a tab with lines 1–30 restored
 kept exactly one marker and no duplicated line, the snapshot on disk never
 contained the marker, `layout` deleted the `.ans`, and `none` left `window.json`
 byte-identical.
+
+## 2026-11-08 — ligatures (B27)
+
+**Context.** The panel drew one glyph per cell, so a font's `->`, `!=`, `=>`
+never joined — the most visible difference from the Rust version for anyone
+reading code. Rust shapes runs with `rustybuzz` (`app/shape.rs`) behind the
+`ligatures` key.
+
+**Implemented.**
+- `Config.ligatures` (`off`/`standard`/`all`, default `off`), applied to every
+  panel at creation and on hot reload; `state` reports the value.
+- `TermPanel.drawTextRun`: a run of same-style plain cells is drawn by `TextLayout`
+  (the font's own `liga`/kern) instead of `drawChars` when ligatures are on and
+  the run has more than one cell. Style runs already broke on colour, attributes,
+  underline and the selection; the run now also breaks at the cursor cell, so a
+  ligature never spans the block and the cell under it stays its own glyph —
+  the rule Rust settled on.
+- Wide cells, clusters, fallback glyphs and non-ASCII keep the old per-cell path,
+  so the shaping path only touches what a monospace ligature can affect.
+
+**Verification.** `mvn package`; `--selftest` 277 checks (the key's four values,
+the default and the error); Xvfb `:99` with `font_size 22` — `state` reported
+`ligatures: 1` from the config, the text read back through `text` was unchanged,
+a screenshot with ligatures on was **pixel-identical** to the same screen with
+them off (DejaVu Sans Mono carries no programming ligature, `L18`), and editing
+the config file moved the live value from 0 to 1 without a restart.

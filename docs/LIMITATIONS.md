@@ -14,6 +14,7 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 | L13 | No colour emoji: Java2D does not draw the colour tables; non-BMP emoji fall back to monochrome or tofu | emoji may look monochrome or missing |
 | L15 | AWT does not deliver horizontal wheel or extra buttons (`8`/`9`, back/forward) | those gestures do nothing; the code maps button numbers `4`/`5` if a platform ever delivers them |
 | L16 | kitty images: no animation (`a=f`/`a=a`), z-index, placement id, Unicode placeholder or source crop, and `t=s` (shared memory) is refused | an animated GIF stays a still frame and some `icat` variants fall back to `t=d` |
+| L18 | Java2D has no `dlig`/`calt` switch and shapes no single-cell run: `ligatures standard` and `all` behave the same (`B27`), and a run of one cell is never joined | the two values differ only in intent; a font without the ligature (DejaVu Sans Mono has none) shows no difference at all |
 | L17 | `restore_state = content` restores a photograph, not the process: a new shell starts in the same directory and the previous programs are gone | a restored tab shows what it held, but its processes did not survive |
 
 `L1`, `L2`, `L10`, `L11`, and `L12` were resolved by `B6`–`B10` on 2026-11-07;
