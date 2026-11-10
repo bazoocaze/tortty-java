@@ -91,11 +91,10 @@ public final class TermPanel extends JPanel implements KeyListener {
         addFocusListener(new java.awt.event.FocusAdapter() {
             // A key that goes down and never comes up (focus went away) must not
             // turn the next press into a repeat under kitty flag 2.
-            @Override public void focusLost(java.awt.event.FocusEvent e) {
-                downKeys.clear();
-                // the Super release may be lost to a grab (`L20`)
-                input.SuperKey.lost();
-            }
+            // only the key bookkeeping: a workspace switch moves the focus between
+            // panels and must not forget that Super is still down (`L20`). The
+            // window-level listener in `Main` handles a real deactivation.
+            @Override public void focusLost(java.awt.event.FocusEvent e) { downKeys.clear(); }
         });
         addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }

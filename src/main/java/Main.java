@@ -266,6 +266,14 @@ public final class Main {
             // source, as in the Rust version
             new javax.swing.Timer(1000, e -> refreshCwd()).start();
 
+            // A window manager may grab the Super chord and swallow its release;
+            // losing the window's focus is the honest sign that the key state can
+            // no longer be trusted (`L20`).
+            frame.addWindowFocusListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowLostFocus(java.awt.event.WindowEvent e) {
+                    input.SuperKey.lost();
+                }
+            });
             if (o.debugSocket != null) startDebugServer();
             installDrop();
             installSignals();
