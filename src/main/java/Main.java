@@ -267,6 +267,7 @@ public final class Main {
             new javax.swing.Timer(1000, e -> refreshCwd()).start();
 
             if (o.debugSocket != null) startDebugServer();
+            installDrop();
             installSignals();
             // `--quit-after SECS`: the window leaves by itself, through the same
             // exit as the close button, so the state and the snapshots are written
@@ -1306,10 +1307,26 @@ public final class Main {
          */
         private boolean localShortcut(int kc, boolean ctrl, boolean alt, boolean shift, boolean meta) {
             boolean digit = kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9;
+            boolean digit0 = kc == KeyEvent.VK_0;
             boolean ctrlShift = ctrl && shift && !alt && !meta;
             boolean altOnly = alt && !ctrl && !shift && !meta;
             if (altOnly && digit) {
                 selectTab(kc - KeyEvent.VK_1);
+                return true;
+            }
+            // Super+N/Q and Super+1..9 (0 = the tenth): the workspace alias, as in
+            // the Rust `super_only`. The window manager may swallow them; when
+            // they arrive they act, and the child never sees them (`B35`).
+            boolean superOnly = meta && !ctrl && !alt;
+            if (superOnly) {
+                switch (kc) {
+                    case KeyEvent.VK_N -> newWorkspace(cwdOf(activeTab()), false);
+                    case KeyEvent.VK_Q -> closeWorkspace(ws);
+                    default -> {
+                        if (!digit && !digit0) return false;
+                        selectWorkspace(digit0 ? 9 : kc - KeyEvent.VK_1);
+                    }
+                }
                 return true;
             }
             if (!ctrlShift) return false;
@@ -1573,6 +1590,9 @@ public final class Main {
                 @Override public void wsClose(int index) {
                     closeWorkspace(index);
                 }
+                @Override public void drop(java.util.List<String> paths) {
+                    dropPaths(paths);
+                }
                 @Override public void wsRename(int index, String name) {
                     if (index < 0 || index >= workspaces.size()) return;
                     workspaces.get(index).name = sanitizeName(name == null ? "" : name);
@@ -1583,6 +1603,62 @@ public final class Main {
                 }
             });
             server.start();
+        }
+
+        // ------------------------------------------------- drop (`B33`)
+
+        /**
+         * A file dropped on the window becomes its path — quoted for the shell
+         * and written into the child like a paste (bracketed when the app asked
+         * for it). The quoting is ours because the path is not: a name with a
+         * space, a quote or a `$` would otherwise run as shell syntax. Several
+         * files are one paste, separated by a space, in the file manager's order.
+         */
+        private void installDrop() {
+            try {
+                new java.awt.dnd.DropTarget(frame.getContentPane(),
+                        java.awt.dnd.DnDConstants.ACTION_COPY,
+                        new java.awt.dnd.DropTargetAdapter() {
+                            @Override public void drop(java.awt.dnd.DropTargetDropEvent e) {
+                                try {
+                                    e.acceptDrop(java.awt.dnd.DnDConstants.ACTION_COPY);
+                                    java.awt.datatransfer.Transferable tr = e.getTransferable();
+                                    java.util.List<String> paths = new java.util.ArrayList<>();
+                                    if (tr.isDataFlavorSupported(
+                                            java.awt.datatransfer.DataFlavor.javaFileListFlavor)) {
+                                        Object v = tr.getTransferData(
+                                                java.awt.datatransfer.DataFlavor.javaFileListFlavor);
+                                        if (v instanceof java.util.List<?> list) {
+                                            for (Object o : list) {
+                                                if (o instanceof java.io.File f) {
+                                                    paths.add(f.getAbsolutePath());
+                                                }
+                                            }
+                                        }
+                                    }
+                                    e.dropComplete(!paths.isEmpty());
+                                    dropPaths(paths);
+                                } catch (Exception ex) {
+                                    e.dropComplete(false);
+                                    System.err.println("tortty-java: drop failed: " + ex);
+                                }
+                            }
+                        }, true);
+            } catch (Throwable e) {
+                // a display without DnD is not a reason to refuse to start
+                System.err.println("tortty-java: no drop target: " + e);
+            }
+        }
+
+        /** The quoted paths as one paste into the front tab (`B33`). */
+        private void dropPaths(java.util.List<String> paths) {
+            if (paths.isEmpty()) return;
+            Tab t = activeTab();
+            if (t == null) return;
+            String text = util.ShellQuote.quoteAll(paths);
+            debug.Log.ln("drop: " + text);
+            t.panel.pasteText(text);
+            t.panel.requestFocusInWindow();
         }
 
         // ------------------------------------------------------- dump (`B23`)

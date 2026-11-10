@@ -39,6 +39,8 @@ public final class DebugServer {
         void wsSelect(int index);
         void wsClose(int index);
         void wsRename(int index, String name);
+        /** Paths as if dropped on the window (`B33`); the app quotes and pastes them. */
+        void drop(java.util.List<String> paths);
         void quit();
     }
 
@@ -170,6 +172,18 @@ public final class DebugServer {
                     handler.wsRename(req.has("index") ? req.get("index").getAsInt() : -1,
                             req.has("name") ? req.get("name").getAsString() : "");
                     return Map.of("ok", true);
+                }
+                case "drop" -> {
+                    java.util.List<String> paths = new java.util.ArrayList<>();
+                    if (req.has("paths")) {
+                        for (com.google.gson.JsonElement el : req.getAsJsonArray("paths")) {
+                            paths.add(el.getAsString());
+                        }
+                    }
+                    if (req.has("data")) paths.add(req.get("data").getAsString());
+                    if (paths.isEmpty()) return Map.of("ok", false, "err", "drop needs data or paths");
+                    handler.drop(paths);
+                    return resp(Map.of("pasted", util.ShellQuote.quoteAll(paths)));
                 }
                 case "quit" -> {
                     handler.quit();

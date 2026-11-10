@@ -203,9 +203,13 @@ public final class TermPanel extends JPanel implements KeyListener {
         String fam = found ? familyName : "Monospaced";
         base = new Font(fam, Font.PLAIN, 12).deriveFont(fontPx);
         plain = base;
-        bold = base.deriveFont(Font.BOLD);
-        italic = base.deriveFont(Font.ITALIC);
-        boldItalic = base.deriveFont(Font.BOLD | Font.ITALIC);
+        // the real faces of the family, when it has them (`B36`): deriveFont(BOLD)
+        // on a family without a bold face gets Java2D to smear the regular one
+        Font[] all = GraphicsEnvironment.getLocalGraphicsEnvironment().getAllFonts();
+        Font[] quad = Fonts.faces(all, fam, base);
+        bold = quad[1].deriveFont(fontPx);
+        italic = quad[2].deriveFont(fontPx);
+        boldItalic = quad[3].deriveFont(fontPx);
         FontMetrics fm = getFontMetrics(plain);
         LineMetrics lm = plain.getLineMetrics("M", fm.getFontRenderContext());
         cw = (float) plain.getStringBounds("M", fm.getFontRenderContext()).getWidth();
@@ -1056,13 +1060,24 @@ public final class TermPanel extends JPanel implements KeyListener {
             if (cb == null) return;
             Object v = cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
             if (v == null) return;
-            term.scrollToBottom();
-            String s = v.toString().replace("\r\n", "\r").replace('\n', '\r');
-            if (term.bracketed) s = "\u001b[200~" + s + "\u001b[201~";
-            send(s.getBytes(StandardCharsets.UTF_8));
+            pasteText(v.toString());
         } catch (Exception e) {
             System.err.println("tortty-java: clipboard paste failed: " + e);
         }
+    }
+
+    /**
+     * Writes {@code text} to the child the way a paste does: the view goes back
+     * to live and the text is bracketed when the app asked for it (`?2004`).
+     * A dropped file arrives here, already quoted for the shell (`B33`).
+     */
+    public void pasteText(String text) {
+        if (pty == null || text == null || text.isEmpty()) return;
+        term.scrollToBottom();
+        String s = text.replace("\r\n", "\r").replace('\n', '\r');
+        if (term.bracketed) s = "\u001b[200~" + s + "\u001b[201~";
+        send(s.getBytes(StandardCharsets.UTF_8));
+        requestFullRepaint();
     }
 
     private void sendMouse(MouseEvent e, boolean press) {
@@ -1101,7 +1116,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
         int n = wheelNotches(raw);
         if (n == 0) return;
-        int button = n > 0 ? 64 : 65;
+        int button = n > 0 ? input.Mouse.WHEEL_UP : input.Mouse.WHEEL_DOWN;
         for (int i = 0; i < Math.abs(n); i++) sendMouseEvent(e, button, true, false);
     }
 
@@ -1124,10 +1139,6 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private void sendMouseEvent(MouseEvent e, int button, boolean press, boolean motion) {
         if (pty == null) return;
-        int mod = modifiers(e);
-        int code = button | mod;
-        if (motion) code |= 32;
-        boolean sgr = term.mouseSgr || term.mousePixels;
         int x, y;
         if (term.mousePixels) {
             x = Math.max(0, Math.min(term.cols * cellW() - 1, e.getX() - padding));
@@ -1136,46 +1147,18 @@ public final class TermPanel extends JPanel implements KeyListener {
             x = cellX(e);
             y = cellY(e);
         }
-        if (sgr) {
-            String seq = String.format("\u001b[<%d;%d;%d%c", code, x + 1, y + 1, press ? 'M' : 'm');
-            send(seq.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return;
-        }
-        if (!press) code = 3 | mod;
-        int max = term.mouseUtf8 ? 2014 : 222;
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(12);
-        out.write(0x1b); out.write('['); out.write('M');
-        out.write(32 + (code & 0xff));
-        mouseCoord(out, Math.min(x, max) + 33, term.mouseUtf8);
-        mouseCoord(out, Math.min(y, max) + 33, term.mouseUtf8);
-        send(out.toByteArray());
+        send(input.Mouse.encode(
+                new input.Mouse.Ev(button, x, y, press, motion, modifiers(e)),
+                new input.Mouse.Proto(term.mouseSgr || term.mousePixels, term.mouseUtf8)));
     }
 
-    private static void mouseCoord(java.io.ByteArrayOutputStream out, int v, boolean utf8) {
-        if (utf8) {
-            byte[] b = new String(Character.toChars(v)).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            out.write(b, 0, b.length);
-        } else {
-            out.write(v & 0xff);
-        }
-    }
-
-    private static int mouseButton(int awtButton) {
-        return switch (awtButton) {
-            case MouseEvent.BUTTON1 -> 0;
-            case MouseEvent.BUTTON2 -> 1;
-            case MouseEvent.BUTTON3 -> 2;
-            case 4 -> 128; // back
-            case 5 -> 129; // forward
-            default -> -1;
-        };
-    }
+    private static int mouseButton(int awtButton) { return input.Mouse.fromAwt(awtButton); }
 
     private int modifiers(MouseEvent e) {
         int mod = 0;
-        if (e.isShiftDown()) mod |= 4;
-        if (e.isAltDown()) mod |= 8;
-        if (e.isControlDown()) mod |= 16;
+        if (e.isShiftDown()) mod |= input.Mouse.MOD_SHIFT;
+        if (e.isAltDown()) mod |= input.Mouse.MOD_ALT;
+        if (e.isControlDown()) mod |= input.Mouse.MOD_CTRL;
         return mod;
     }
 
