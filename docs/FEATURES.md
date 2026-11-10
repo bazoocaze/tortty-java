@@ -154,6 +154,34 @@ Features implemented in the Java version of TorTTY.
   does not know what is running.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
+## Toast (`B38`)
+
+The app's own feedback channel, ported from `tortty-python`: the messages that
+used to end in stderr — the config that was kept after a bad edit, the reload
+that applied, `no path (no HOME)` when there is no config to open, a failed drop,
+a debug socket that did not come up — now land on the screen, which is the only
+place a launch from a desktop icon can show anything.
+
+- One **glass pane over the whole window**, not per tab: the notice survives a
+  tab, workspace or pane switch. An idle pane is invisible, so it does not eat
+  the grid's clicks.
+- **Severity** decides the colours and the time: `ok` dark green for 3 s, `warn`
+  amber and `err` dark red for 10 s (python's ratios). Title plus an optional
+  detail line that wraps to three lines, so an error message fits.
+- The box is python's: 14 px radius, a 1 px accent border, a 4 px accent bar,
+  half the font height as padding, the title 2 px above the detail, centred and
+  28 px off the bottom, over a `0 3px 10px` shadow, sliding up in 220 ms with a
+  fade. The font is the grid's, so it follows `font_family`/`font_size` and the
+  live reload.
+- **A queue**, as in python: a second notice waits instead of replacing the one
+  on screen, eight deep. A click dismisses the box and what was waiting; on an
+  error the click also opens the configuration (`B37`) — the fix is one click
+  away. A click *beside* the box is forwarded to the grid.
+- `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
+  background tab keeps its badge, as before.
+- The colours are their own token set (`ui/Toast.Sev`), not derived from the
+  terminal palette, so the box stays dark and readable on a light theme (`L21`).
+
 ## Debug / profiler
 
 - Unix JSON socket per line, 0600 permission.
@@ -172,6 +200,10 @@ Features implemented in the Java version of TorTTY.
 - `drop` takes a path (`data`) or several (`paths`), quotes them as the drop
   would and writes the paste to the front tab, answering `pasted` — the gesture
   without a file manager (`B33`).
+- `toast` raises a real notice (`title`, optional `detail`, `sev` = `ok`, `warn`
+  or `err`), so the toast is driven without a screen or OCR (`B38`); `state`
+  answers `toast` (the title on screen, empty when none), `toast_sev`,
+  `toast_queued` and `toast_visible`.
 - `--dump-to FILE` (default `/tmp/tortty-dump.txt`) writes the text of every
   tab — workspace/tab headers when there is more than one, the last 40 lines of
   each scrollback, and the viewport header with the history offset and the
@@ -240,7 +272,7 @@ Features implemented in the Java version of TorTTY.
 ## Tests
 
 - Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
-  keys, config, session), asserting the grid after feeding bytes: printing and
+  keys, config, session, toast), asserting the grid after feeding bytes: printing and
   wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
   clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
   modes, kitty keyboard flags, replies to the child, and reflow.
@@ -252,6 +284,11 @@ Features implemented in the Java version of TorTTY.
   row in its own pixel band, a still screen painting the same picture twice, the
   cursor in its cell, a ligature run that does not spill, and bold that comes
   from a real face. `--keep DIR` writes the PNGs.
+- The toast is covered headlessly too (`checks/ToastChecks`): the model's life
+  driven with an injected clock (durations, queue, the swap, the click, the
+  220 ms slide), the python palette's contrast measured as WCAG ratios, and the
+  painter run into an offscreen image to read back the fill, the accent bar, the
+  border, the 28 px margin, the centring and the wrap.
 
 ## Limitations
 

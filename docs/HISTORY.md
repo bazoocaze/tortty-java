@@ -618,3 +618,38 @@ file, and within a second `state` reported `ligatures 2` and
 the vim tab closed by itself. (A first attempt used `VISUAL="nano --noask"`, and
 the tab vanished under us: nano rejects the option, exits, and a dead shell
 closes its tab. The shortcut had worked; the editor had not.)
+
+## 2026-11-10 — the toast as the window's own channel (B38)
+
+**Context.** The messages the app has to say — the configuration that was kept
+after a bad edit, the reload that applied, `no path (no HOME)` when there is no
+config to open, a failed drop, a debug socket that did not come up — went to
+stderr, where a launch from a desktop icon never sees them. A toast existed in
+`TermPanel`, but it was private and per tab, so it only carried `OSC 9`/`777`.
+
+**Implemented.** The owner picked the `tortty-python` shape, on a glass pane over
+the whole window. `ui/Toast` is the pure model (severity `ok`/`warn`/`err` with
+python's colours and 3 s/10 s, a queue of eight, a 220 ms slide in and out, a
+click that dismisses); `ui/ToastLayer` is the painter and the event loop (14 px
+radius, accent bar, title plus a wrapped detail, 28 px off the bottom, shadow,
+the grid font). `Main.notice` is the one way in, and every stderr site now calls
+it: boot and reload (a bad edit is *delivered* by `ConfigWatcher` instead of
+being swallowed), `openConfig`, the drop, the debug socket — which also warns
+when it is enabled. The `TermPanel` toast is gone, so `OSC 9`/`777` raises a
+window notice (8 s) and a background tab keeps its badge. The socket gained a
+`toast` verb and `state` answers `toast`/`toast_sev`/`toast_queued`/`toast_visible`.
+
+**Verification.** `--selftest` 481 checks (69 in `checks/ToastChecks`: the life
+driven with an injected clock, the python palette's contrast measured as WCAG
+ratios, and the painter run into an offscreen image to read back the fill, the
+accent bar, the border, the margin and the wrap). In Xvfb `:99` over the socket:
+the boot error, the three severities, the queue, `OSC 9` → `Notification`, a
+valid and a broken reload, a click on the box dismissing it, a click on the grid
+not, and a click on an error opening the configuration in a tab.
+
+**Two bugs found by the run.** `passDown` asked
+`getDeepestComponentAt(getParent(), ...)`, which finds the glass pane itself —
+an infinite re-dispatch that killed the event loop with a `StackOverflowError`
+(and `quit` with it); the search now skips the pane. And the model's slide
+started when the paint loop *noticed* the deadline instead of at the deadline,
+so a window that was busy stretched the notice; it now uses the deadline.
