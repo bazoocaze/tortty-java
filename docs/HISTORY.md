@@ -593,3 +593,28 @@ bold, a real oblique and a real bold oblique, all inside their cells. `Super+n`
 over xdotool did **not** act: AWT on this X11 drops Mod4 (the probe shows the
 letter arriving bare), so the shortcut exists and is exercised through the
 socket's `keys super+n`, and `L20` records the gap.
+
+## 2026-11-09 — the config file, edited from the terminal (B37)
+
+**Context.** The Java version could read, re-read and validate the configuration,
+but not *get to* it: the file lived at a path you had to know and open yourself.
+The Rust `P33` answers that with one shortcut.
+
+**Implemented.** `Ctrl+Shift+F2` (in the `Ctrl+Shift` block, before encoding, so
+an editor never sees the chord) resolves the file this run reads, creates its
+directory, and opens a **new tab** running `$VISUAL`, else `$EDITOR`, else `vim`
+with the quoted path — the Rust `open_config`. `config.Editor` holds the rule as
+a pure function (precedence, quoting, never-empty editor) and the tab is the
+`newTab` overload with a command that replaces the shell, so nothing about the
+normal path changed. `BACKLOG` gains nothing: it is done in the same breath.
+
+**Verification.** `--selftest` 412 checks (7 for the editor rule: `VISUAL` beats
+`EDITOR` beats `vim`, blank values are not editors, paths with space and with an
+apostrophe are quoted). In Xvfb `:98`: `Ctrl+Shift+F2` grew the workspace from
+one tab to two and vim opened with `font_size 17` / `scrollback 2000` on screen;
+inside that tab `ggdG`, `iligatures all`, `restore_state content`, `:wq` wrote the
+file, and within a second `state` reported `ligatures 2` and
+`restore_state content` — the hot reload picked it up without a restart — while
+the vim tab closed by itself. (A first attempt used `VISUAL="nano --noask"`, and
+the tab vanished under us: nano rejects the option, exits, and a dead shell
+closes its tab. The shortcut had worked; the editor had not.)

@@ -16,6 +16,7 @@ public final class ConfigChecks {
         defaults(c);
         keys(c);
         errors(c);
+        editor(c);
     }
 
     private static Config load(Check c, String content) throws Exception {
@@ -124,5 +125,19 @@ public final class ConfigChecks {
         } catch (Exception e) {
             c.is("the config suite could write a temp file: " + e, false);
         }
+    }
+
+    /** `Ctrl+Shift+F2` runs `$VISUAL`, else `$EDITOR`, else `vim`, plus the quoted path (`P33`). */
+    private static void editor(Check c) {
+        String path = "/home/user/.config/tortty-java/tortty.conf";
+        c.eq("VISUAL wins", config.Editor.command("kate", "nano", path), "kate " + path);
+        c.eq("EDITOR is the fallback", config.Editor.command(null, "nano", path), "nano " + path);
+        c.eq("vim when nobody says", config.Editor.command(null, null, path), "vim " + path);
+        c.eq("an empty value is not an editor", config.Editor.command("  ", "", path), "vim " + path);
+        c.eq("a path with a space is quoted",
+                config.Editor.command(null, null, "/tmp/a b/tortty.conf"), "vim '/tmp/a b/tortty.conf'");
+        c.eq("and an apostrophe survives",
+                config.Editor.command("kate", null, "/tmp/it's/tortty.conf"), "kate '/tmp/it'\\''s/tortty.conf'");
+        c.eq("editor alone never quotes", config.Editor.editor("code --wait", null), "code --wait");
     }
 }

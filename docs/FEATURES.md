@@ -73,6 +73,9 @@ Features implemented in the Java version of TorTTY.
   a cursor-only move (no cell written) still repaints the cursor row.
 - Full repaint on expose, focus, resize, and show.
 - Block, beam, or underline cursor, with blink.
+- `Ctrl+Shift+F2` opens the configuration file in `$VISUAL`/`$EDITOR` (else
+  `vim`) in a new tab, as the Rust `P33` does (`B37`); saving it applies the change
+  through the hot reload, and the tab goes away when the editor exits.
 - Shortcuts: Ctrl+Shift+T/W/N/Q and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
   and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
   (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`

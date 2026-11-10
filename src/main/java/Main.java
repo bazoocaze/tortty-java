@@ -172,6 +172,8 @@ public final class Main {
         private boolean debugResizing;
         /** Set while the layout moves the divider, so a drag is not confused with it. */
         private boolean syncingSide;
+        /** The configuration file this run reads, for `Ctrl+Shift+F2` (`P33`). */
+        private java.nio.file.Path cfgPath;
 
         App(Cli.Opts o) { this.o = o; }
 
@@ -185,6 +187,7 @@ public final class Main {
             }
             final java.nio.file.Path cfgPath = (o.configPath != null)
                     ? Paths.get(o.configPath) : Config.defaultPath();
+            this.cfgPath = cfgPath;
             cfg = Config.load(cfgPath);
             for (String err : cfg.errors) System.err.println("tortty-java: config: " + err);
             o.applyTo(cfg);
@@ -1004,6 +1007,11 @@ public final class Main {
         }
 
         private void newTab(Workspace w, String cwd, boolean first, byte[] snapshot) {
+            newTab(w, cwd, first, snapshot, null);
+        }
+
+        /** {@code cmd} runs instead of the shell — the config editor uses it. */
+        private void newTab(Workspace w, String cwd, boolean first, byte[] snapshot, String cmd) {
             int cols = o.cols, rows = o.rows;
             Tab cur = w.activeTab();
             if (cur == null) cur = activeTab();
@@ -1063,7 +1071,7 @@ public final class Main {
             w.pane.setSelectedComponent(panel);
 
             try {
-                tab.pty = new ChildPty(o.cmd, cfg.shell, cols, rows, cwd);
+                tab.pty = new ChildPty(cmd != null ? cmd : o.cmd, cfg.shell, cols, rows, cwd);
             } catch (IOException e) {
                 System.err.println("tortty-java: pty spawn failed: " + e);
                 if (w.tabs.size() == 1) System.exit(1);
@@ -1347,6 +1355,9 @@ public final class Main {
                 }
                 case KeyEvent.VK_N -> newWorkspace(cwdOf(activeTab()), false);
                 case KeyEvent.VK_Q -> closeWorkspace(ws);
+                // the config file in the editor, as the Rust `P33` does; taken
+                // before encoding so an editor never sees the chord
+                case KeyEvent.VK_F2 -> openConfig();
                 default -> {
                     if (!digit) return false;
                     selectWorkspace(kc - KeyEvent.VK_1);
@@ -1624,6 +1635,31 @@ public final class Main {
                 }
             });
             server.start();
+        }
+
+        // --------------------------------------- the config file (`P33`)
+
+        /**
+         * `Ctrl+Shift+F2`: the configuration file in `$VISUAL`/`$EDITOR`, in a
+         * new tab, the way the Rust version does it. The directory is created
+         * because the editor only creates the file on save — and saving is what
+         * arms the live reload, so the edit applies without a restart.
+         */
+        private void openConfig() {
+            if (cfgPath == null) {
+                System.err.println("tortty-java: config: no path (no HOME)");
+                return;
+            }
+            if (cfgPath.getParent() != null) {
+                try {
+                    java.nio.file.Files.createDirectories(cfgPath.getParent());
+                } catch (java.io.IOException e) {
+                    System.err.println("tortty-java: config dir: " + e);
+                }
+            }
+            String cmd = config.Editor.command(cfgPath.toString());
+            debug.Log.ln("config: " + cmd);
+            newTab(front(), cwdOf(activeTab()), false, null, cmd);
         }
 
         // ------------------------------------------------- drop (`B33`)

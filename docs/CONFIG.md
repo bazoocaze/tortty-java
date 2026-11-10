@@ -40,6 +40,13 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 Colours are `#rgb` or `#rrggbb`. Booleans accept `on/yes/true/1` and
 `off/no/false/0`.
 
+## Editing it from the terminal
+
+`Ctrl+Shift+F2` opens this very file in `$VISUAL`, else `$EDITOR`, else `vim`,
+in a **new tab** (`B37`, the Rust `P33`); the directory is created first, because
+an editor only creates the file when you save. Closing the editor closes the tab.
+Saving is what makes the edit live — the next section.
+
 ## Hot reload
 
 Editing the file is noticed within ~500 ms. A valid file is applied to the live
