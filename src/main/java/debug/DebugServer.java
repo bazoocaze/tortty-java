@@ -41,11 +41,15 @@ public final class DebugServer {
         void wsRename(int index, String name);
         /** Paths as if dropped on the window (`B33`); the app quotes and pastes them. */
         void drop(java.util.List<String> paths);
+        /** A notice as the app would raise it (`B38`): `ok`, `warn` or `err`. */
+        Map<String, Object> toast(String title, String detail, String sev);
         void quit();
     }
 
     private final String path;
     private final Handler handler;
+    /** Told when the socket cannot be opened, so the app can say it on screen. */
+    private java.util.function.Consumer<String> onError;
     private final Gson gson = new Gson();
     private volatile boolean running = true;
 
@@ -53,6 +57,8 @@ public final class DebugServer {
         this.path = path;
         this.handler = handler;
     }
+
+    public void setOnError(java.util.function.Consumer<String> c) { this.onError = c; }
 
     public void start() {
         Thread t = new Thread(this::run, "debug-sock");
@@ -79,6 +85,7 @@ public final class DebugServer {
             }
         } catch (Exception e) {
             System.err.println("debug socket failed: " + e);
+            if (onError != null) onError.accept(String.valueOf(e.getMessage()));
         }
     }
 
@@ -184,6 +191,15 @@ public final class DebugServer {
                     if (paths.isEmpty()) return Map.of("ok", false, "err", "drop needs data or paths");
                     handler.drop(paths);
                     return resp(Map.of("pasted", util.ShellQuote.quoteAll(paths)));
+                }
+                // `toast` (`B38`): raises a real notice, so the pixel gate and the
+                // E2E runs can drive the window without OCR
+                case "toast" -> {
+                    String sevName = req.has("sev") ? req.get("sev").getAsString() : "ok";
+                    String title = req.has("title") ? req.get("title").getAsString() : "";
+                    String detail = req.has("detail") ? req.get("detail").getAsString() : "";
+                    if (title.isEmpty()) return Map.of("ok", false, "err", "toast needs title");
+                    return resp(handler.toast(title, detail, sevName));
                 }
                 case "quit" -> {
                     handler.quit();

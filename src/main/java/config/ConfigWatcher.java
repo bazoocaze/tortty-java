@@ -6,8 +6,10 @@ import java.nio.file.attribute.FileTime;
 import java.util.function.Consumer;
 
 /**
- * Polls the configuration file's mtime. A valid edit is delivered to the
- * callback; any parse error keeps the configuration already in effect.
+ * Polls the configuration file's mtime and delivers what the file says, valid
+ * or not: keeping the configuration already in effect is the caller's decision,
+ * and so is saying so — a watcher that swallows an error leaves the user with a
+ * silent editor and no reason for the old settings (`B38`).
  */
 public final class ConfigWatcher {
 
@@ -47,12 +49,7 @@ public final class ConfigWatcher {
             FileTime now = mtime(path);
             if (now == null || now.equals(last)) continue;
             last = now;
-            Config c = Config.load(path);
-            if (!c.errors.isEmpty()) {
-                for (String err : c.errors) System.err.println("tortty-java: config: " + err);
-                continue;
-            }
-            onReload.accept(c);
+            onReload.accept(Config.load(path));
         }
     }
 }

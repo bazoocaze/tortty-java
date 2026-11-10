@@ -22,6 +22,7 @@ public final class Suites {
         l.add(new Area("drop", DropChecks::run));
         l.add(new Area("mouse", MouseChecks::run));
         l.add(new Area("fonts", FontsChecks::run));
+        l.add(new Area("toast", ToastChecks::run));
         l.add(new Area("session", SessionChecks::run));
         return l;
     }

@@ -9,6 +9,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import ui.Toast;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -139,6 +140,8 @@ public final class Main {
         private Theme theme;
         private float dpi;
         private JFrame frame;
+        /** The window toast (`B38`): one glass pane over the whole window. */
+        private ui.ToastLayer toastLayer;
         private JPanel host;
         private CardLayout cardLayout;
         private JSplitPane split;
@@ -217,6 +220,15 @@ public final class Main {
                 if (v instanceof Integer n && n >= Side.MIN_W && n <= Side.MAX_W) sideW = n;
             });
             frame.setContentPane(split);
+            // the notice belongs to the window, not to the tab in front: a
+            // glass pane survives tab, workspace and pane switches, and an idle
+            // one is invisible so it does not eat the grid's clicks
+            toastLayer = new ui.ToastLayer(() -> {
+                Tab t = activeTab();
+                return t == null ? null : t.panel.font();
+            });
+            toastLayer.setOnErrorClick(this::openConfig);
+            frame.setGlassPane(toastLayer);
             bindKeys();
             restore();
 
@@ -256,12 +268,19 @@ public final class Main {
             });
 
             final ConfigWatcher watcher = new ConfigWatcher(cfgPath, updated -> SwingUtilities.invokeLater(() -> {
+                if (!updated.errors.isEmpty()) {
+                    // the edit is kept in the file, the running config is not
+                    for (String err : updated.errors) System.err.println("tortty-java: config: " + err);
+                    notice("Configuration error", firstError(updated), ui.Toast.Sev.ERR);
+                    return;
+                }
                 o.applyTo(updated);
                 cfg = updated;
                 forEachTab(t -> applyLive(updated, t));
                 syncSide();
                 System.err.println("tortty-java: config reloaded (family=" + updated.fontFamily
                         + " size=" + updated.fontSize + " scrollback=" + updated.scrollback + ")");
+                notice("Configuration applied", configLabel(updated), ui.Toast.Sev.OK);
             }));
             watcher.start();
 
@@ -287,6 +306,9 @@ public final class Main {
                 javax.swing.Timer qt = new javax.swing.Timer(secs * 1000, e -> quitNow("quit-after " + secs + "s"));
                 qt.setRepeats(false);
                 qt.start();
+            }
+            if (!cfg.errors.isEmpty()) {
+                notice("Configuration error", firstError(cfg), ui.Toast.Sev.ERR);
             }
             debug.Log.ln("tortty-java — " + frame.getContentPane().getWidth() + "px window, "
                     + workspaces.size() + " workspace(s), restore_state " + restoreName());
@@ -1248,8 +1270,12 @@ public final class Main {
                 if (activeTab() == t) {
                     syncFrameTitle();
                     // a background tab keeps a badge instead of a toast, as in
-                    // the Rust version
-                    t.panel.checkNotifications();
+                    // the Rust version; the front one raises the window notice
+                    String notif = t.panel.checkNotifications();
+                    if (notif != null) {
+                        // `ui` is a boolean in this method: the package name is shadowed
+                        notice("Notification", notif, Toast.Sev.OK, Toast.NOTIF_MS);
+                    }
                 } else if (!t.badge && term.notifs != t.ackedNotifs) {
                     t.badge = true;
                     Workspace w = workspaceOf(t);
@@ -1504,6 +1530,13 @@ public final class Main {
                     m.put("side_rects", sideShown ? side.rects() : new java.util.ArrayList<int[]>());
                     m.put("ligatures", cfg.ligatures);
                     m.put("restore_state", restoreName());
+                    // the notice on screen (`B38`), for automation and the gate
+                    ui.Toast.Shown shown = toastLayer == null ? null
+                            : toastLayer.toast().visible(System.currentTimeMillis());
+                    m.put("toast", shown == null ? "" : shown.title());
+                    m.put("toast_sev", shown == null ? "" : shown.sev().label);
+                    m.put("toast_queued", toastLayer == null ? 0 : toastLayer.toast().queued());
+                    m.put("toast_visible", toastLayer != null && toastLayer.isShowing());
                     return m;
                 }
                 @Override public void resize(int cols, int rows) {
@@ -1630,11 +1663,64 @@ public final class Main {
                     workspaces.get(index).name = sanitizeName(name == null ? "" : name);
                     syncSide();
                 }
+                @Override public java.util.Map<String, Object> toast(String title, String detail, String sevName) {
+                    ui.Toast.Sev sev = switch (sevName == null ? "ok" : sevName) {
+                        case "warn" -> ui.Toast.Sev.WARN;
+                        case "err", "error" -> ui.Toast.Sev.ERR;
+                        default -> ui.Toast.Sev.OK;
+                    };
+                    notice(title, detail, sev);
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("title", title);
+                    m.put("detail", detail);
+                    m.put("sev", sev.label);
+                    m.put("ms", sev.millis);
+                    return m;
+                }
                 @Override public void quit() {
                     SwingUtilities.invokeLater(() -> quitNow("quit over the socket"));
                 }
             });
+            server.setOnError(msg -> SwingUtilities.invokeLater(
+                    () -> notice("Debug socket", msg, ui.Toast.Sev.ERR)));
             server.start();
+            notice("Security warning", "debug socket enabled: " + sock, ui.Toast.Sev.WARN);
+        }
+
+        // ------------------------------------------------------ toast (`B38`)
+
+        /**
+         * The app's own feedback channel, as in the Rust and the Python versions:
+         * a launch from an icon has no terminal behind it, so a message that only
+         * reaches stderr reaches nobody. Kept out of the way of the grid, over the
+         * whole window, and dismissed by a click.
+         */
+        private void notice(String title, String detail, ui.Toast.Sev sev) {
+            notice(title, detail, sev, sev.millis);
+        }
+
+        private void notice(String title, String detail, ui.Toast.Sev sev, long millis) {
+            debug.Log.ln("toast " + sev.label + ": " + title
+                    + (detail.isEmpty() ? "" : " \u2014 " + detail));
+            if (toastLayer == null) {                 // headless, or before the frame
+                System.err.println("tortty-java: " + title + (detail.isEmpty() ? "" : ": " + detail));
+                return;
+            }
+            toastLayer.show(new ui.Toast.Msg(title, detail, sev, millis));
+        }
+
+        /** python's `first_error`: the first error plus a count, to fit one box. */
+        private static String firstError(Config c) {
+            if (c.errors.isEmpty()) return "";
+            String first = c.errors.get(0);
+            return c.errors.size() > 1 ? first + " \u00b7 (+" + (c.errors.size() - 1) + ")" : first;
+        }
+
+        /** python's `"%s %g pt"`: what a reload actually applied. */
+        private static String configLabel(Config c) {
+            String size = c.fontSize == Math.rint(c.fontSize)
+                    ? String.valueOf((int) c.fontSize) : String.valueOf(c.fontSize);
+            return c.fontFamily + " " + size + " pt";
         }
 
         // --------------------------------------- the config file (`P33`)
@@ -1648,6 +1734,7 @@ public final class Main {
         private void openConfig() {
             if (cfgPath == null) {
                 System.err.println("tortty-java: config: no path (no HOME)");
+                notice("Configuration error", "no path (no HOME)", ui.Toast.Sev.ERR);
                 return;
             }
             if (cfgPath.getParent() != null) {
@@ -1655,6 +1742,7 @@ public final class Main {
                     java.nio.file.Files.createDirectories(cfgPath.getParent());
                 } catch (java.io.IOException e) {
                     System.err.println("tortty-java: config dir: " + e);
+                    notice("Configuration error", String.valueOf(e), ui.Toast.Sev.ERR);
                 }
             }
             String cmd = config.Editor.command(cfgPath.toString());
@@ -1698,12 +1786,14 @@ public final class Main {
                                 } catch (Exception ex) {
                                     e.dropComplete(false);
                                     System.err.println("tortty-java: drop failed: " + ex);
+                                    notice("Drop", String.valueOf(ex), ui.Toast.Sev.ERR);
                                 }
                             }
                         }, true);
             } catch (Throwable e) {
                 // a display without DnD is not a reason to refuse to start
                 System.err.println("tortty-java: no drop target: " + e);
+                notice("Drop", "no drop target in this display", ui.Toast.Sev.WARN);
             }
         }
 

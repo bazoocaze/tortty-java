@@ -67,9 +67,6 @@ public final class TermPanel extends JPanel implements KeyListener {
     private final java.util.HashMap<Integer, java.awt.image.BufferedImage> imageCache = new java.util.HashMap<>();
     private final java.util.HashMap<Integer, Long> imageVersion = new java.util.HashMap<>();
 
-    private String toastText;
-    private long toastUntil;
-    private final java.util.ArrayDeque<String> toastQueue = new java.util.ArrayDeque<>();
     private long lastBellSeq, lastNotifSeq;
     private long flashUntil;
     private javax.swing.Timer blinkTimer, attentionTimer;
@@ -197,6 +194,9 @@ public final class TermPanel extends JPanel implements KeyListener {
         attentionTimer.start();
     }
 
+    /** The plain grid face, in pixels: the toast is drawn with it (`B38`). */
+    public Font font() { return plain; }
+
     public void initFonts() {
         float fontPx = fontSizePt * dpi / 72f;
         Font base;
@@ -306,8 +306,12 @@ public final class TermPanel extends JPanel implements KeyListener {
         requestFullRepaint();
     }
 
-    /** Called after feeding a chunk: turns BEL/OSC 9/777 into bell and toast. */
-    public void checkNotifications() {
+    /**
+     * Called after feeding a chunk: handles BEL here (it belongs to the tab) and
+     * answers the `OSC 9`/`777` text, which the window turns into a toast (`B38`)
+     * — one notice for the window, not one per tab.
+     */
+    public String checkNotifications() {
         if (term.bellSeq != lastBellSeq) {
             lastBellSeq = term.bellSeq;
             if (bellMode == 2) {
@@ -319,41 +323,17 @@ public final class TermPanel extends JPanel implements KeyListener {
         }
         if (term.notifSeq != lastNotifSeq) {
             lastNotifSeq = term.notifSeq;
-            pushToast(term.notifText);
+            return term.notifText;
         }
-    }
-
-    private void pushToast(String text) {
-        if (text == null || text.isEmpty()) return;
-        long now = System.currentTimeMillis();
-        if (toastText == null) {
-            toastText = text;
-            toastUntil = now + 8000;
-        } else {
-            if (toastQueue.size() >= 8) toastQueue.pollFirst();
-            toastQueue.addLast(text);
-        }
-        requestFullRepaint();
+        return null;
     }
 
     private void tickAttention() {
         long now = System.currentTimeMillis();
-        if (toastText != null && now >= toastUntil) {
-            toastText = toastQueue.pollFirst();
-            toastUntil = toastText != null ? now + 8000 : 0;
-            requestFullRepaint();
-        }
         if (flashUntil != 0 && now >= flashUntil) {
             flashUntil = 0;
             requestFullRepaint();
         }
-    }
-
-    private static java.awt.Color blend(int from, int to, double t) {
-        int r = (int) Math.round(((from >> 16) & 0xFF) * (1 - t) + ((to >> 16) & 0xFF) * t);
-        int g = (int) Math.round(((from >> 8) & 0xFF) * (1 - t) + ((to >> 8) & 0xFF) * t);
-        int b = (int) Math.round((from & 0xFF) * (1 - t) + (to & 0xFF) * t);
-        return new java.awt.Color(r, g, b);
     }
 
     private void paintBell(Graphics2D g2) {
@@ -362,30 +342,6 @@ public final class TermPanel extends JPanel implements KeyListener {
         g2.setStroke(new BasicStroke(2));
         g2.drawRect(padding + 1, padding + 1,
                 Math.max(1, term.cols * cellW() - 3), Math.max(1, term.rows * cellH() - 3));
-    }
-
-    private void paintToast(Graphics2D g2) {
-        if (toastText == null) return;
-        g2.setFont(plain);
-        FontMetrics fm = g2.getFontMetrics();
-        int maxW = Math.max(80, term.cols * cellW() / 2);
-        String s = toastText;
-        while (s.length() > 1 && fm.stringWidth(s) + 20 > maxW) {
-            s = s.substring(0, s.length() - 1);
-        }
-        if (!s.equals(toastText)) s = s.substring(0, Math.max(0, s.length() - 1)) + "…";
-        int boxW = Math.min(maxW, fm.stringWidth(s) + 20);
-        int boxH = cellH() + 10;
-        int x = padding + term.cols * cellW() - boxW - Math.max(0, (int) (1.5 * cellW()));
-        int y = padding + term.rows * cellH() - boxH - Math.max(0, (int) (0.5 * cellH()));
-        x = Math.max(0, x);
-        y = Math.max(0, y);
-        g2.setColor(blend(theme.bg, theme.fg, 0.14));
-        g2.fillRoundRect(x, y, boxW, boxH, 8, 8);
-        g2.setColor(new java.awt.Color(theme.fg));
-        g2.drawRoundRect(x, y, boxW, boxH, 8, 8);
-        int baseline = y + (boxH - fm.getHeight()) / 2 + fm.getAscent();
-        g2.drawString(s, x + 10, baseline);
     }
 
     @Override
@@ -566,7 +522,6 @@ public final class TermPanel extends JPanel implements KeyListener {
 
         paintScrollbar(g2);
         paintBell(g2);
-        paintToast(g2);
 
         if (full) {
             term.clearDamage();
