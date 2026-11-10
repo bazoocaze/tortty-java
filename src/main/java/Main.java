@@ -1315,8 +1315,8 @@ public final class Main {
                 return true;
             }
             // Super+N/Q and Super+1..9 (0 = the tenth): the workspace alias, as in
-            // the Rust `super_only`. The window manager may swallow them; when
-            // they arrive they act, and the child never sees them (`B35`).
+            // the Rust `super_only`. `meta` here is AWT's (0 on X11) or the Super
+            // key the dispatcher tracked by hand (`L20`).
             boolean superOnly = meta && !ctrl && !alt;
             if (superOnly) {
                 switch (kc) {
@@ -1350,15 +1350,28 @@ public final class Main {
         /** Both dispatchers: the fixed shortcuts, then F2 (rename). */
         private void bindKeys() {
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
+                // Super by hand (`L20`): AWT hands over the key but never the
+                // modifier, so the press and the release are tracked here.
+                if (e.getID() == KeyEvent.KEY_RELEASED) return input.SuperKey.released(e.getKeyCode());
                 if (e.getID() != KeyEvent.KEY_PRESSED) return false;
-                return localShortcut(e.getKeyCode(), e.isControlDown(), e.isAltDown(),
-                        e.isShiftDown(), e.isMetaDown());
+                if (input.SuperKey.pressed(e.getKeyCode())) return true;
+                boolean meta = e.isMetaDown() || input.SuperKey.held();
+                if (localShortcut(e.getKeyCode(), e.isControlDown(), e.isAltDown(),
+                        e.isShiftDown(), meta)) {
+                    return true;
+                }
+                // A Super chord that is not ours is still not the child's: the
+                // encoder answers null for meta for the same reason.
+                return input.SuperKey.held();
             });
             // F2 renames the workspace in front (the Rust version does the same)
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
                 if (e.getID() != KeyEvent.KEY_PRESSED) return false;
                 if (e.getKeyCode() != KeyEvent.VK_F2) return false;
-                if (e.isControlDown() || e.isShiftDown() || e.isAltDown() || e.isMetaDown()) return false;
+                if (e.isControlDown() || e.isShiftDown() || e.isAltDown() || e.isMetaDown()
+                        || input.SuperKey.held()) {
+                    return false;
+                }
                 if (workspaces.size() < 2) return false;
                 rename(ws);
                 return true;

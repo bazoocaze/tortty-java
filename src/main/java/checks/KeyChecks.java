@@ -27,6 +27,7 @@ public final class KeyChecks {
         keypad(c);
         kitty(c);
         specParser(c);
+        superKey(c);
     }
 
     private static String enc(int code, char ch, int mods, boolean appCursor) {
@@ -153,5 +154,32 @@ public final class KeyChecks {
                 new String(Keys.encodeEvent(k.keyCode(), k.keyChar(), k.modifiers(), false, 0, Keys.EV_PRESS),
                         StandardCharsets.UTF_8),
                 E + "[1;5D");
+    }
+
+    /**
+     * Super tracked by hand (`L20`): AWT never sets `META_DOWN_MASK` for it here,
+     * but it does deliver `VK_WINDOWS` press/release, which is enough to keep the
+     * state the shortcut table needs.
+     */
+    private static void superKey(Check c) {
+        input.SuperKey.lost();
+        c.is("Super starts up", !input.SuperKey.held());
+        c.is("the press is swallowed", input.SuperKey.pressed(java.awt.event.KeyEvent.VK_WINDOWS));
+        c.is("and Super is now held", input.SuperKey.held());
+        c.is("a letter while held is nobody's press", !input.SuperKey.pressed('N'));
+        c.is("still held after the letter", input.SuperKey.held());
+        c.is("the letter's release does not clear it", !input.SuperKey.released('N'));
+        c.is("still held after the letter's release", input.SuperKey.held());
+        c.is("the Super release is swallowed too", input.SuperKey.released(java.awt.event.KeyEvent.VK_WINDOWS));
+        c.is("and Super is up again", !input.SuperKey.held());
+
+        c.is("a second press works", input.SuperKey.pressed(java.awt.event.KeyEvent.VK_WINDOWS));
+        c.is("VK_META is not the Super key here", !input.SuperKey.pressed(java.awt.event.KeyEvent.VK_META));
+        c.is("its release is not either", !input.SuperKey.released(java.awt.event.KeyEvent.VK_META));
+        c.is("and it leaves Super held", input.SuperKey.held());
+        input.SuperKey.lost();
+        c.is("a lost release clears it", !input.SuperKey.held());
+        c.is("so the next press is a press again", input.SuperKey.pressed(java.awt.event.KeyEvent.VK_WINDOWS));
+        input.SuperKey.lost();
     }
 }

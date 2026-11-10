@@ -91,7 +91,11 @@ public final class TermPanel extends JPanel implements KeyListener {
         addFocusListener(new java.awt.event.FocusAdapter() {
             // A key that goes down and never comes up (focus went away) must not
             // turn the next press into a repeat under kitty flag 2.
-            @Override public void focusLost(java.awt.event.FocusEvent e) { downKeys.clear(); }
+            @Override public void focusLost(java.awt.event.FocusEvent e) {
+                downKeys.clear();
+                // the Super release may be lost to a grab (`L20`)
+                input.SuperKey.lost();
+            }
         });
         addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }
@@ -742,7 +746,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             kittyTypedChar = 0;
             return;
         }
-        if (e.isControlDown() || e.isMetaDown()) return;
+        if (e.isControlDown() || e.isMetaDown() || input.SuperKey.held()) return;
         if (c < 0x20 || c == 0x7f) return;
         term.scrollToBottom();
         byte[] bytes;

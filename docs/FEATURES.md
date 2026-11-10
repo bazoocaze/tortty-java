@@ -73,9 +73,12 @@ Features implemented in the Java version of TorTTY.
   a cursor-only move (no cell written) still repaints the cursor row.
 - Full repaint on expose, focus, resize, and show.
 - Block, beam, or underline cursor, with blink.
-- Shortcuts: Ctrl+Shift+T/W/N/Q and Ctrl+Shift+1..9, Alt+1..9, and — where the
-  platform delivers Super to AWT — Super+N/Q and Super+1..9 (0 = the tenth), the
-  workspace alias the Rust version has (`B35`, see `L20`).
+- Shortcuts: Ctrl+Shift+T/W/N/Q and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
+  and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
+  (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
+  tracks the key from its own press and release (`L20`); a Super chord that is
+  no shortcut is swallowed rather than typed into the child, as the encoder
+  already refuses meta.
 - Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End,
   PageUp/PageDown, Insert/Delete, F1–F24, keypad, Ctrl+letter and Ctrl
   one-offs, Alt as ESC prefix. Modifiers travel in the xterm parameter

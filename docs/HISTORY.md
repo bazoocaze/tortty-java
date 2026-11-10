@@ -582,7 +582,7 @@ rest of the keyboard/mouse table, and real bold/italic faces.
   and falls back to plain when the family has none, instead of `deriveFont(BOLD)`
   smearing the regular glyphs.
 
-**Verification.** `mvn package`, `mvn test` and `--selftest` 390 checks (17 new
+**Verification.** `mvn package`, `mvn test` and `--selftest` 405 checks (17 new
 for the fonts, 25 for the mouse, 14 for the quoting, and 21 in the gate). Xvfb
 `:98` with metacity and real `zsh`: a drop of `/tmp/e33/a b/it's file.png` then
 `printf '<%s>\n'`+drop+Enter printed `</tmp/e33/a b/it's file.png>` exactly (and
