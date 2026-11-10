@@ -554,3 +554,42 @@ wrapped `printf` command pastes back the whole line with no newline inside it
 clamped), the wheel over the grid leaves the column alone, `ws_sel 11` reveals the
 last card and a click on the first visible card selects it; growing the window
 took the offset from 4 back to 0.
+
+## 2026-11-09 — four more from Rust: drop, the pixel gate, mouse/Super, faces
+
+**Context.** Continuing the port by relevance/ease, four features the Rust
+version had and this one did not: the dropped-file path, the visual gate, the
+rest of the keyboard/mouse table, and real bold/italic faces.
+
+**Implemented.**
+
+- `B33` — a file dropped on the window becomes its path, quoted for the shell
+  (`util/ShellQuote`, the same two rules as Rust's `shell_quoted`: safe
+  characters go bare, everything else is single-quoted with `'\''` for an
+  embedded quote) and written like a paste, bracketed when the app asked. Several
+  files are one paste separated by a space. The socket gained a `drop` verb so
+  the gesture can be driven without a file manager.
+- `B34` — `tools/render-check.sh` + `render.Gate`: paints a known grid into a
+  `BufferedImage` (no X, no window manager) and checks pixels instead of a
+  committed baseline — SGR 41/42 in the right cell, a glyph inside its own cell
+  with the next one blank, every row in its own band, a still screen painting
+  twice the same, the cursor, a ligature run that does not spill, and bold from a
+  real face.
+- `B35` — the mouse protocols moved to the pure `input/Mouse` (button map
+  `0..3`, `64..67`, `128/129`, modifiers, motion, SGR/UTF-8/legacy shapes) with
+  25 checks; `Super+N/Q/1..9` (0 = tenth) joined the shortcut table.
+- `B36` — `ui/Fonts` picks bold/italic/bold-italic from the family's own faces
+  and falls back to plain when the family has none, instead of `deriveFont(BOLD)`
+  smearing the regular glyphs.
+
+**Verification.** `mvn package`, `mvn test` and `--selftest` 390 checks (17 new
+for the fonts, 25 for the mouse, 14 for the quoting, and 21 in the gate). Xvfb
+`:98` with metacity and real `zsh`: a drop of `/tmp/e33/a b/it's file.png` then
+`printf '<%s>\n'`+drop+Enter printed `</tmp/e33/a b/it's file.png>` exactly (and
+two files, two arguments); `render-check.sh` PASSED with the PNGs kept; a live
+click with `?1006` produced `<ESC>[<0;3;2M`/`m` and the wheel `<64;…`/`<65;…`
+after the encoder moved; and a screenshot of SGR `1`, `3`, `1;3` shows a real
+bold, a real oblique and a real bold oblique, all inside their cells. `Super+n`
+over xdotool did **not** act: AWT on this X11 drops Mod4 (the probe shows the
+letter arriving bare), so the shortcut exists and is exercised through the
+socket's `keys super+n`, and `L20` records the gap.

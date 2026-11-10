@@ -73,13 +73,19 @@ Features implemented in the Java version of TorTTY.
   a cursor-only move (no cell written) still repaints the cursor row.
 - Full repaint on expose, focus, resize, and show.
 - Block, beam, or underline cursor, with blink.
+- Shortcuts: Ctrl+Shift+T/W/N/Q and Ctrl+Shift+1..9, Alt+1..9, and — where the
+  platform delivers Super to AWT — Super+N/Q and Super+1..9 (0 = the tenth), the
+  workspace alias the Rust version has (`B35`, see `L20`).
 - Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End,
   PageUp/PageDown, Insert/Delete, F1–F24, keypad, Ctrl+letter and Ctrl
   one-offs, Alt as ESC prefix. Modifiers travel in the xterm parameter
   (`Ctrl+←` is `CSI 1;5D`); F13–F24 are F1–F12 with Shift, or their own kitty
   numbers when the child asked for the kitty protocol.
 - Mouse: X10, UTF-8 `?1005`, SGR `?1006`, pixel coordinates `?1016`, buttons
-  1–3, drag, motion, and wheel. The wheel reads history when the child is not
+  1–3, drag, motion, and wheel. The encoder lives in `input/Mouse.java` with the
+  full xterm button map — `66`/`67` (wheel left/right) and `128`/`129` (buttons
+  8/9) included (`B35`) — so the shapes are checked without a screen; whether the
+  gesture reaches AWT at all is `L15`. The wheel reads history when the child is not
   tracking the mouse (or with Shift); a detent and a touchpad fraction are
   distinguished, and the fraction accumulates until it completes a notch.
 - Visible selection (drag, double-click on word, triple-click on the whole
@@ -100,6 +106,10 @@ Features implemented in the Java version of TorTTY.
   is one glyph per cell. See `L18`.
 - Configurable mono font; default DejaVu Sans Mono 17 pt; per-glyph fallback to
   CJK and symbol fonts. Colour emoji is not rendered by Java2D (see `L13`).
+- Bold and italic come from the family's **own** faces, never from Java2D's
+  smearing (`B36`): `ui/Fonts` looks the face up by name, and a style the family
+  does not carry falls back to the plain face — bold italic falls back to italic
+  before plain, as in the Rust `Fonts::face`.
 - Window padding and fg/bg/cursor palette from the config.
 - Tabs: one pty, term and panel per tab; Ctrl+Shift+T opens (inheriting the
   shell's cwd from `/proc`), Ctrl+Shift+W closes, Alt+1..9 selects. The
@@ -130,6 +140,12 @@ Features implemented in the Java version of TorTTY.
   still reachable with the mouse. The column takes no keyboard focus: a click on
   it leaves the keys in the terminal and only the rename dialog takes them. A workspace whose last shell dies is closed, promoting the
   first parked one; the last one closes the app.
+- A file dropped on the window becomes its **path**, quoted for the shell and
+  written into the child like a paste (bracketed when the app asked for it,
+  `B33`). The quoting is ours because the path is not: a name with a space, a
+  `'` or a `$` would otherwise run as shell syntax. Several files are one paste,
+  separated by a space. Nothing else happens — no new tab, no `cd`: the terminal
+  does not know what is running.
 - Launcher disables XRender on real X11 (`-Dsun.java2d.xrender=false`) to avoid slow paint.
 
 ## Debug / profiler
@@ -147,6 +163,9 @@ Features implemented in the Java version of TorTTY.
   not open the F2 rename dialog.
 - `log` turns the debug log on, off (`off`) or elsewhere at runtime; the same
   sink is `debug_log` in the config and `--debug-log` on the CLI.
+- `drop` takes a path (`data`) or several (`paths`), quotes them as the drop
+  would and writes the paste to the front tab, answering `pasted` — the gesture
+  without a file manager (`B33`).
 - `--dump-to FILE` (default `/tmp/tortty-dump.txt`) writes the text of every
   tab — workspace/tab headers when there is more than one, the last 40 lines of
   each scrollback, and the viewport header with the history offset and the
@@ -221,6 +240,12 @@ Features implemented in the Java version of TorTTY.
   modes, kitty keyboard flags, replies to the child, and reflow.
 - Two entry points, one source of truth: `--selftest` runs them from the jar
   without a display (exit 0/1), and `mvn test` runs the same list through JUnit.
+- Visual gate (`B34`): `tools/render-check.sh` paints a known grid off screen
+  (`render.Gate`, no X needed) and checks the pixels — SGR 41/42 colouring the
+  right cell, a glyph inside its own cell and a blank cell staying blank, every
+  row in its own pixel band, a still screen painting the same picture twice, the
+  cursor in its cell, a ligature run that does not spill, and bold that comes
+  from a real face. `--keep DIR` writes the PNGs.
 
 ## Limitations
 
