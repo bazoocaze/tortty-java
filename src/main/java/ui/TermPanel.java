@@ -418,6 +418,17 @@ public final class TermPanel extends JPanel implements KeyListener {
             if (term.cursorVisible && term.cy >= 0 && term.cy < rows) {
                 paintRows[term.cy] = true;
             }
+            // Swing may hand us a region that is not ours: a layer above
+            // repainting its own strip (the toast, `B38`), an expose, a resize.
+            // Painting only the rows we recorded would leave the rest showing
+            // whatever sits behind the grid, so every row the clip reaches is
+            // painted too — and only those, so the layer stays cheap.
+            java.awt.Rectangle cb = g.getClipBounds();
+            if (cb != null) {
+                int first = Math.max(0, (cb.y - padding) / cellH);
+                int last = Math.min(rows - 1, (cb.y + cb.height - 1 - padding) / cellH);
+                for (int y = first; y <= last; y++) paintRows[y] = true;
+            }
         }
 
         for (int y = 0; y < rows; y++) {

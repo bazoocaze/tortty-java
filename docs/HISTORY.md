@@ -653,3 +653,17 @@ an infinite re-dispatch that killed the event loop with a `StackOverflowError`
 (and `quit` with it); the search now skips the pane. And the model's slide
 started when the paint loop *noticed* the deadline instead of at the deadline,
 so a window that was busy stretched the notice; it now uses the deadline.
+
+**The flash.** With a notice up, every keystroke made the grid flash light grey.
+The layer repainted *its whole pane*, which marked every pixel of the window
+dirty; the grid paints row by row (only the rows it recorded as damaged), so the
+region it was not asked for was left as the container behind it had just filled
+it — Swing's default light-grey stand-in, a colour this app never uses. Three
+things changed: the whole chain behind the grid (root pane, layered pane, content
+pane, split, host) takes the terminal's own background, so a repaint that misses
+the panel paints the colour behind it instead of a flash; the panel now paints
+every row the clip reaches, not only the rows it recorded, because a region can
+come from a layer above; and the layer marks only the strip a box can occupy
+(full width, tallest box plus slide and shadow) rather than the window. A 4 s
+capture at 50 fps with ten keys typed under a live notice has no bright frame;
+the grid keeps its text and the box leaves no ghost.

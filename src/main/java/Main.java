@@ -220,6 +220,7 @@ public final class Main {
                 if (v instanceof Integer n && n >= Side.MIN_W && n <= Side.MAX_W) sideW = n;
             });
             frame.setContentPane(split);
+            paintChrome(cfg.theme().bg);
             // the notice belongs to the window, not to the tab in front: a
             // glass pane survives tab, workspace and pane switches, and an idle
             // one is invisible so it does not eat the grid's clicks
@@ -1695,6 +1696,25 @@ public final class Main {
          * reaches stderr reaches nobody. Kept out of the way of the grid, over the
          * whole window, and dismissed by a click.
          */
+        /**
+         * Nothing behind the grid has a look of its own: the panel paints every
+         * pixel it owns, so the light-grey stand-in that Swing fills a container
+         * with is dead weight — and worse, it is what shows when another layer
+         * repaints a region the panel only paints row by row (`B38`, the toast
+         * ticking over a grid that was mid-repaint). The chain is given the
+         * terminal's own background, so a repaint that misses the panel paints
+         * the colour behind it, not a flash.
+         */
+        private void paintChrome(int bg) {
+            java.awt.Color c = new java.awt.Color(bg);
+            if (frame == null) return;
+            frame.getRootPane().setBackground(c);
+            frame.getLayeredPane().setBackground(c);
+            frame.getContentPane().setBackground(c);
+            split.setBackground(c);
+            host.setBackground(c);
+        }
+
         private void notice(String title, String detail, ui.Toast.Sev sev) {
             notice(title, detail, sev, sev.millis);
         }
@@ -1903,6 +1923,7 @@ public final class Main {
             t.panel.setCopyOnSelect(c.copyOnSelect);
             t.panel.setLigatures(c.ligatures != 0);
             Theme liveTheme = c.theme();
+            paintChrome(liveTheme.bg);
             t.term.setTheme(liveTheme);
             t.panel.setTheme(liveTheme);
             t.panel.setPadding(c.windowPaddingWidth);

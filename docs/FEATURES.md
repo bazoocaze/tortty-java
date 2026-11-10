@@ -164,7 +164,8 @@ place a launch from a desktop icon can show anything.
 
 - One **glass pane over the whole window**, not per tab: the notice survives a
   tab, workspace or pane switch. An idle pane is invisible, so it does not eat
-  the grid's clicks.
+  the grid's clicks, and a live one marks only the strip the box can occupy, so
+  the grid underneath is not repainted sixty times a second.
 - **Severity** decides the colours and the time: `ok` dark green for 3 s, `warn`
   amber and `err` dark red for 10 s (python's ratios). Title plus an optional
   detail line that wraps to three lines, so an error message fits.

@@ -74,16 +74,38 @@ public final class ToastLayer extends JComponent {
         model.show(m);
         if (!isVisible()) setVisible(true);
         if (!tick.isRunning()) tick.start();
-        repaint();
+        repaintBand();
     }
 
     private void step() {
         if (toast.visible(System.currentTimeMillis()) == null) {
             tick.stop();
             box = null;
+            repaintBand();
             setVisible(false);
+            return;
         }
-        repaint();
+        repaintBand();
+    }
+
+    /**
+     * Marks only the strip a box can occupy — full width, since a title has no
+     * width limit, from the top of the tallest box it can build (three detail
+     * lines, the slide, the shadow) down to the bottom edge. Repainting the whole
+     * pane instead marks every pixel of the grid dirty sixty times a second: the
+     * grid paints row by row, so a region it was not asked for shows what is
+     * behind it, which is how this layer once made the window flash (`B38`).
+     */
+    private void repaintBand() {
+        int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0) { repaint(); return; }
+        Font f = fonts == null ? null : fonts.get();
+        if (f == null) f = getFont();
+        int lineH = getFontMetrics(f).getHeight();
+        int pad = Math.max(1, Math.round(lineH / 2f));
+        int tallest = pad + lineH * (1 + DETAIL_LINES) + LINE_GAP * DETAIL_LINES + pad;
+        int top = Math.max(0, h - MARGIN - tallest - GAP - 4);
+        repaint(0, top, w, h - top);
     }
 
     private void click(MouseEvent e) {
