@@ -50,8 +50,11 @@ Saving is what makes the edit live — the next section.
 ## Hot reload
 
 Editing the file is noticed within ~500 ms. A valid file is applied to the live
-window (font, padding, theme, scrollback, cursor, bell, copy-on-select). **Any**
-parse error keeps the configuration already in effect and prints the line:
-`tortty-java: config: line 7: 'font_size': not a number`.
+window (font, padding, theme, scrollback, cursor, bell, copy-on-select,
+ligatures) and answered with a green *Configuration applied* notice. **Any** parse
+error keeps the configuration already in effect and says which line — in a red
+notice (`B38`), and on stderr as
+`tortty-java: config: line 7: 'font_size': not a number`, which is also the only
+form when there is no window to put a box on.
 
 `shell` is only used when the pty is created; there are no tabs to inherit it.

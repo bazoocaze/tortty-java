@@ -71,7 +71,9 @@ Features implemented in the Java version of TorTTY.
 
 - Swing painting by same-style runs, with per-line damage and cursor repaint;
   a cursor-only move (no cell written) still repaints the cursor row.
-- Full repaint on expose, focus, resize, and show.
+- Full repaint on expose, focus, resize, and show — and on any clip that reaches a
+  row the damage record did not mark, so a region asked for by a layer above is
+  never left showing what is behind the grid (`B38`).
 - Block, beam, or underline cursor, with blink.
 - `Ctrl+Shift+F2` opens the configuration file in `$VISUAL`/`$EDITOR` (else
   `vim`) in a new tab, as the Rust `P33` does (`B37`); saving it applies the change
@@ -104,8 +106,8 @@ Features implemented in the Java version of TorTTY.
 - Paste with Ctrl+Shift+V (CLIPBOARD) or the middle button (PRIMARY), both
   respecting bracketed paste.
 - OSC 8 links: Ctrl underlines links and Ctrl+click opens `http/https/file/ftp/mailto`.
-- `BEL` and OSC 9/777 show a bottom-right toast (queue, 8 s timeout) and a
-  visual/audible bell selected by the config.
+- `BEL` is a visual or audible bell, chosen by the config; `OSC 9`/`777` raises a
+  window notice (8 s) — see [`Toast`](#toast-b38).
 - `ligatures` off/standard/all (`B27`): on, each run of same-style cells is shaped
   by Java2D (`TextLayout`, the font's own `liga`/kern), so a font with ligatures
   joins `->`, `!=`, `=>`. Runs are broken at the cursor and the selection, and off
@@ -186,8 +188,9 @@ place a launch from a desktop icon can show anything.
 ## Debug / profiler
 
 - Unix JSON socket per line, 0600 permission.
-- Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`, and — for
-  automation (`B23`) — `text`, `keys` and `log`.
+- Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`; for automation
+  (`B23`) `text`, `keys` and `log`, plus `drop` (`B33`) and `toast` (`B38`); for
+  workspaces `ws_new`, `ws_sel`, `ws_close` and `ws_rename`.
 - `text` returns the lines of the active tab: `where` = `view` (default),
   `screen` (the live grid, offset ignored) or `history`, with `start`/`count`
   (count clamped to 1..2000); lines are right-trimmed.
@@ -226,8 +229,9 @@ place a launch from a desktop icon can show anything.
 - Kitty-format file at `~/.config/tortty-java/tortty.conf` (or
   `$XDG_CONFIG_HOME/tortty-java/tortty.conf`), one option per line.
 - Keys: `shell`, `font_family`, `font_size`, `cursor_shape`, `cursor_blink`,
-  `scrollback`, `window_padding_width`, `bell`, `copy_on_select`, `foreground`,
-  `background`, `cursor_color`, `color0..15`.
+  `scrollback`, `window_padding_width`, `bell`, `copy_on_select`, `ligatures`,
+  `restore_state`, `debug_log`, `foreground`, `background`, `cursor_color`,
+  `color0..15`.
 - CLI options override the file; a reload with any error keeps the configuration
   already in effect and reports the offending line.
 
@@ -273,7 +277,8 @@ place a launch from a desktop icon can show anything.
 ## Tests
 
 - Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
-  keys, config, session, toast), asserting the grid after feeding bytes: printing and
+  snapshot, keys, config, cli, drop, mouse, fonts, toast, session), asserting the
+  grid after feeding bytes: printing and
   wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
   clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
   modes, kitty keyboard flags, replies to the child, and reflow.
@@ -293,4 +298,5 @@ place a launch from a desktop icon can show anything.
 
 ## Limitations
 
-See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`–`L5`, `L7`–`L9`, `L13`, `L15`).
+See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L4`, `L5`, `L7`, `L9`, `L13`,
+`L15`–`L21`).

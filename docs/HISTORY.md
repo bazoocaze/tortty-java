@@ -667,3 +667,27 @@ come from a layer above; and the layer marks only the strip a box can occupy
 (full width, tallest box plus slide and shadow) rather than the window. A 4 s
 capture at 50 fps with ten keys typed under a live notice has no bright frame;
 the grid keeps its text and the box leaves no ghost.
+
+## 2026-11-10 — the docs re-read against the code
+
+**Context.** The owner read `LIMITATIONS` and said some of it looked obsolete. It
+was not the ids that had aged, it was the wording and one defect of shape.
+
+**Checked, entry by entry.** `L3` (no IME; shaping only where `B27` puts it) and
+`L4` (painting follows Swing) stand, but `L4` said `--no-vsync` "is a benchmark
+instrument", which reads as if it did something: it is parsed and never used, so
+the entry now says that. `L15` still holds — AWT has no horizontal wheel and no
+buttons past 3. `L20` was rewritten around what remains true (AWT never reports
+Super as a modifier, `isMetaDown()` is false) because its old text was mostly the
+workaround, which reads like a closed item. `L13` was simply wrong: measured, a
+colour-bitmap face paints nothing at all, and the monochrome look comes from
+`DejaVu Sans` covering the codepoint — the cell is not blank. The table had also
+been split in two by a blank line between `L19` and `L20`, and `L17` sat out of
+order; both fixed.
+
+**In `FEATURES`.** Three lists had fallen behind: the config keys missed
+`ligatures`, `restore_state` and `debug_log`; the socket verbs missed `drop`,
+`toast` and the four `ws_*`; and the tests line named five areas of the ten that
+exist. The `BEL` bullet still promised a "bottom-right toast, 8 s" from before
+`B38`. In `CONFIG`, the reload section still said an error is only printed, not
+noticed on screen. `--selftest` is 481 checks after all of it.
