@@ -43,8 +43,13 @@ Features implemented in the Java version of TorTTY.
   as `CSI u`) and 16 (associated text) are honoured; a key the child did not ask
   for keeps the legacy xterm shape.
 - kitty graphics (images): `a=t`/`a=T`/`a=p`/`a=d`/`a=q`, `f=24` RGB, `f=32`
-  RGBA, `f=100` PNG, `m=1` chunks, `o=z` zlib, `t=d/f/t` (direct, file, temp
-  file), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The image follows the scroll
+  RGBA, `f=100` PNG, `m=1` chunks, `o=z` zlib, `t=d/f/t/s` (direct, file, temp
+  file, shared memory), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The three file
+  media are read on the spot and only from a regular file: `t=t` deletes the
+  file after reading, `t=s` takes a POSIX shared-memory **name** (`shm_open`) —
+  resolved under `/dev/shm` and unlinked after the read, as the protocol
+  requires — and a payload that already is a path is read as it is and never
+  deleted, which is what the Rust core does. The image follows the scroll
   into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
   is out.
 - DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
@@ -329,8 +334,8 @@ what the hot reload watches.
 ## Tests
 
 - Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
-  snapshot, keys, config, cli, drop, mouse, fonts, toast, session), asserting the
-  grid after feeding bytes: printing and
+  snapshot, keys, config, cli, drop, mouse, fonts, toast, session, graphics),
+  asserting the grid after feeding bytes: printing and
   wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
   clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
   modes, kitty keyboard flags, replies to the child, and reflow.

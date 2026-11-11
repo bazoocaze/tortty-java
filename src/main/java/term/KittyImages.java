@@ -33,8 +33,7 @@ import java.util.zip.Inflater;
  * {@code f=24} RGB, {@code f=32} RGBA, {@code f=100} PNG, {@code m=1} chunks,
  * {@code o=z} zlib, {@code t=d/f/t} (direct, file, temp file);
  * {@code i=}/{@code c=}/{@code r=}/{@code X=}/{@code Y=}/{@code C=}/{@code q=}.
- * Out on purpose: animation ({@code a=f}/{@code a=a}), z-index and shared
- * memory ({@code t=s}).
+ * Out on purpose: animation ({@code a=f}/{@code a=a}) and z-index.
  */
 public final class KittyImages {
 
@@ -188,22 +187,40 @@ public final class KittyImages {
                 && ("f".equals(medium) || "t".equals(medium) || "s".equals(medium))) {
             // the payload names a file: the Rust core hands it to the app; here
             // the process is the same one, so it is read on the spot
-            String path = new String(data, java.nio.charset.StandardCharsets.UTF_8);
-            if ("s".equals(medium)) {
-                if (!quiet(params)) out.responses.add("Gi=" + id + ";EINVAL:shared memory");
+            String named = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+            Path file;
+            boolean unlink;
+            try {
+                if ("s".equals(medium)) {
+                    // `t=s` carries a POSIX shared-memory *name* (`shm_open`),
+                    // which on Linux is an object under /dev/shm: it is unlinked
+                    // after the read, as the protocol requires. A payload that is
+                    // already a path is read as it is and never deleted — how the
+                    // Rust core reads `t=s` ("reads shared memory like a file").
+                    Path shm = shmFile(named);
+                    unlink = shm != null && Files.isRegularFile(shm);
+                    file = unlink ? shm : Path.of(named);
+                } else {
+                    file = Path.of(named);
+                    unlink = "t".equals(medium);
+                }
+            } catch (RuntimeException e) {
+                if (!quiet(params)) out.responses.add("Gi=" + id + ";ENOENT");
                 return out;
             }
-            byte[] file;
+            byte[] bytes;
             try {
-                file = Files.readAllBytes(Path.of(path));
-                if ("t".equals(medium)) {
-                    try { Files.deleteIfExists(Path.of(path)); } catch (IOException ignored) { }
-                }
+                // only regular files: a FIFO or a device would block, or worse
+                if (!Files.isRegularFile(file)) throw new IOException("not a regular file");
+                bytes = Files.readAllBytes(file);
             } catch (Exception e) {
                 if (!quiet(params)) out.responses.add("Gi=" + id + ";ENOENT");
                 return out;
             }
-            data = file;
+            if (unlink) {
+                try { Files.deleteIfExists(file); } catch (IOException ignored) { }
+            }
+            data = bytes;
         }
         if ("z".equals(params.get("o")) && data.length > 0) {
             byte[] inflated = inflate(data);
@@ -320,6 +337,20 @@ public final class KittyImages {
     private static boolean quiet(Map<String, String> kv) {
         String q = kv.get("q");
         return q != null && !"0".equals(q);
+    }
+
+    /**
+     * Where a {@code t=s} payload points. The payload is a POSIX shared-memory
+     * <em>name</em> ({@code shm_open}), not a path, and on Linux the object is a
+     * file under {@code /dev/shm} — a name with no leading slash is accepted too,
+     * as the protocol requires. A name that cannot be one (empty, {@code ..}, a
+     * NUL) answers {@code null} and the payload is then tried as a plain path.
+     */
+    private static Path shmFile(String name) {
+        if (name.startsWith("/dev/shm/")) return name.contains("..") ? null : Path.of(name);
+        String n = name.startsWith("/") ? name.substring(1) : name;
+        if (n.isEmpty() || n.contains("..") || n.indexOf('\0') >= 0) return null;
+        return Path.of("/dev/shm", n);
     }
 
     private static int parse(String s, int def) {
