@@ -48,13 +48,23 @@ Features implemented in the Java version of TorTTY.
   into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
   is out.
 - DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
-  tracks (`1`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
+  tracks (`1`, `6`, `7`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
   `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
   0 = not recognised — what vim, tmux and mc ask before they trust a mode. The
   ANSI forms (`4` IRM, `20` LNM) are answered too.
+- `?6` origin mode and `?7` autowrap (`B39`): with `?7l` the last column is the
+  end of the line — the next glyph overwrites it and no wrap is armed (a wide
+  glyph backs up into the last two cells); with `?6h` `CUP`/`HVP`/`VPA` count
+  rows from the scroll region's top and stop at its bottom, and `DECSTBM` homes
+  to the region top. Relative moves and `CHA` stay absolute (the Rust version
+  routes them through `cursor_to` and so offsets them twice — measured there:
+  `CUU` with `?6h` does not move; not copied). Both are carried by
+  `DECSC`/`DECRC` and the alt screen, and `DECSTR`/`RIS` reset them; `state`
+  reports them as `autowrap` and `origin`.
 - `DECSTR` (`CSI ! p`, `B29`): the soft reset vim and tmux send on entry —
-  colours, attributes, cursor visibility, DECCKM, insert mode, the keypad mode
-  and the scroll region go back to the defaults, the grid stays.
+  colours, attributes, cursor visibility, DECCKM, insert mode, origin mode,
+  autowrap, the keypad mode and the scroll region go back to the defaults, the
+  grid stays.
 - `DECKPAM`/`DECKPNM` (`ESC =` / `ESC >`, `B29`): the keypad application mode is
   tracked (and answered by DECRQM as 66); the keypad bytes do not change with it.
 - Replies to the child for DA/CPR, DECRQM, the kitty flags and the graphics
@@ -329,4 +339,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L4`, `L5`, `L7`, `L9`, `L13`,
-`L15`, `L16`, `L18`–`L21`).
+`L15`, `L16`, `L18`, `L20`, `L21`).

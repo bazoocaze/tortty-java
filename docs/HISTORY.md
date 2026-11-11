@@ -702,3 +702,25 @@ visible content the *terminal* wrote, not the applications running, so the row
 described the design rather than a limitation and left `LIMITATIONS.md` (ids are
 not reused); `FEATURES.md` now states the same boundary where `restore_state` is
 described.
+
+## 2026-11-10 — `?6` origin and `?7` autowrap (`B39`)
+
+The last row about modes (`L19`): an app could neither turn autowrap off nor
+address rows from the scroll region's top, and `DECRQM` answered 0 for both.
+Measured against the Rust version first (a throwaway test in their tree, removed
+after): autowrap off overwrites the last column, origin counts `CUP`/`VPA` from
+the region top, `DECSTBM` homes there, and `DECSTR`/`DECSC` carry both. That
+probe also found a Rust bug not copied: `cursor_to` applies the origin offset to
+*every* move, so `CUU` with `?6h` does not move and `CHA` shifts the row — here
+relative moves and `CHA` stay absolute.
+
+In `Term.java`: `?6`/`?7` in the mode switch, `modeState` answers 6/7, both are
+saved by `DECSC`/`DECRC`, the alt screen and `sv`/`main` pairs, reset by
+`DECSTR`/`RIS`; `CUP`/`HVP`/`VPA` gained the origin clamp and `DECSTBM` homes to
+the region top; `putChar` arms the pending wrap only when `autowrap` is on (a
+wide glyph backs up into the last two cells instead of wrapping). `state` now
+reports `autowrap` and `origin`. 25 new checks in `TermChecks.originAndWrap`
+(506 total), plus E2E in Xvfb driven by `--cmd` (no shell to interfere): 150
+chars stay on one row, `CUP 1;1` with region 5..10 lands on row 4, `CUP 99;1`
+stops at row 9, `DECSTBM` homes to row 11 with origin on, and origin off puts
+`CUP 20;1` on row 19.

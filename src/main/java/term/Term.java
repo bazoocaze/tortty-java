@@ -32,6 +32,16 @@ public final class Term {
     public int cursorShape;          // 0 block, 1 beam, 2 underline
     public boolean cursorBlink;
     public boolean decckm;
+    /**
+     * `?6` (DECOM) — with it on, `CUP`/`HVP`/`VPA` count rows from the scroll
+     * region's top and stop at its bottom; `DECSTBM` homes to the region top.
+     * Relative moves and `CHA` are never origin-relative (the Rust version
+     * routes them through `cursor_to` and so offsets them twice — verified
+     * there: `CUU` with `?6h` does not move; not copied, `B39`).
+     */
+    public boolean origin;
+    /** `?7` (DECAWM) — off, the last column is overwritten instead of wrapping. */
+    public boolean autowrap = true;
     public String title = "";
     public boolean titleExplicit;
     /** `CSI 22 t` pushes here, `CSI 23 t` pops; cap 16 as in the Rust version. */
@@ -88,6 +98,7 @@ public final class Term {
     private int[] mainUlColor;
     private boolean[] mainWrapped;
     private int mainX, mainY;
+    private boolean mainOrigin, mainAutowrap;
 
     // scrollback: history rows plus a view offset (0 = live bottom)
     private static final int HIST_CAP = 10000;
@@ -181,6 +192,7 @@ public final class Term {
     private byte svUl;
     private int svUlColor = DEFAULT;
     private boolean svWrap;
+    private boolean svOrigin, svAutowrap;
 
     // kitty keyboard protocol: flags in effect and the push/pop stack (CSI > u).
     public int kbdFlags;
@@ -231,6 +243,7 @@ public final class Term {
         penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; penUl = 0; penUlColor = DEFAULT; insert = false;
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
         decckm = false; lnm = false; alt = false; keypadApp = false;
+        origin = false; autowrap = true;
         title = ""; titleExplicit = false; cwd = "";
         cursorVisible = true; cursorShape = defaultCursorShape; cursorBlink = defaultCursorBlink;
         mouseMode = 0; mouseSgr = false; mouseUtf8 = false; mousePixels = false;
@@ -967,9 +980,15 @@ public final class Term {
             lineFeed();
         }
         if (w == 2 && cx == cols - 1) {
-            rowWrapped[cy] = true;
-            cx = 0;
-            lineFeed();
+            if (autowrap) {
+                rowWrapped[cy] = true;
+                cx = 0;
+                lineFeed();
+            } else {
+                // `?7l` needs the two cells: back up one so the wide glyph fits
+                // in the last two columns instead of wrapping (`B39`)
+                cx = Math.max(0, cols - 2);
+            }
         }
         int base = cy * cols;
         // the flag follows the bytes, not the row (`B26`): a row is decoration
@@ -1017,7 +1036,9 @@ public final class Term {
         }
         dirty[cy] = true;
         cx += w;
-        if (cx >= cols) { cx = cols - 1; wrapPending = true; }
+        // `?7l`: the last column is the end of the line, and the next glyph
+        // overwrites it — no pending wrap is armed
+        if (cx >= cols) { cx = cols - 1; wrapPending = autowrap; }
     }
 
     /** Appends a zero-width code point to the previous cell, composing when NFC can. */
@@ -1161,8 +1182,8 @@ public final class Term {
             case '*' -> { state = ESC_ONE; charsetTarget = 2; }
             case '+' -> { state = ESC_ONE; charsetTarget = 3; }
             case '#' -> { state = ESC_ONE; charsetTarget = 4; }
-            case '7' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; state = GROUND; }
-            case '8' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; state = GROUND; }
+            case '7' -> { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; svOrigin = origin; svAutowrap = autowrap; state = GROUND; }
+            case '8' -> { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; origin = svOrigin; autowrap = svAutowrap; state = GROUND; }
             case 'D' -> { if (cy == bot) scrollUp(1); else if (cy < rows - 1) cy++; state = GROUND; }
             case 'E' -> { cx = 0; if (cy == bot) scrollUp(1); else if (cy < rows - 1) cy++; state = GROUND; }
             case 'M' -> { if (cy == top) scrollDown(1); else if (cy > 0) cy--; state = GROUND; }
@@ -1502,7 +1523,12 @@ public final class Term {
             case 'H', 'f' -> {
                 int r = (p0 >= 0 ? p0 - 1 : 0);
                 int c = (p1 >= 0 ? p1 - 1 : 0);
-                if (r < 0) r = 0; if (r >= rows) r = rows - 1;
+                if (origin) {
+                    r += top;
+                    if (r < top) r = top; if (r > bot) r = bot;
+                } else {
+                    if (r < 0) r = 0; if (r >= rows) r = rows - 1;
+                }
                 if (c < 0) c = 0; if (c >= cols) c = cols - 1;
                 cx = c; cy = r; wrapPending = false;
             }
@@ -1513,7 +1539,11 @@ public final class Term {
             case 'E' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.min(bot, cy + n); cx = 0; wrapPending = false; }
             case 'F' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.max(top, cy - n); cx = 0; wrapPending = false; }
             case 'G' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, Math.min(cols - 1, n - 1)); wrapPending = false; }
-            case 'd' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.max(0, Math.min(rows - 1, n - 1)); wrapPending = false; }
+            case 'd' -> {
+                int r = (p0 >= 0 ? p0 - 1 : 0);
+                cy = origin ? Math.max(top, Math.min(bot, r + top)) : Math.max(0, Math.min(rows - 1, r));
+                wrapPending = false;
+            }
             case 'J' -> { ed(p0 >= 0 ? p0 : 0); }
             case 'K' -> { el(p0 >= 0 ? p0 : 0); }
             case 'L' -> { il(p0 >= 0 ? p0 : 1); }
@@ -1528,7 +1558,7 @@ public final class Term {
                 int b = (p1 >= 0 ? p1 - 1 : rows - 1);
                 if (t < 0) t = 0; if (b >= rows) b = rows - 1;
                 if (t < b) { top = t; bot = b; }
-                cx = 0; cy = 0; wrapPending = false;
+                cx = 0; cy = origin ? top : 0; wrapPending = false;
             }
             case 'm' -> { sgr(); }
             case 'q' -> {
@@ -1548,7 +1578,7 @@ public final class Term {
                 }
             }
             case 's' -> {
-                if (prefix == 0) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
+                if (prefix == 0) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; svOrigin = origin; svAutowrap = autowrap; }
             }
             // `u` has two owners: SCORC (no prefix) and the kitty keyboard
             // protocol — `?` queries, `>` pushes, `<` pops, `=` adjusts with
@@ -1578,6 +1608,7 @@ public final class Term {
                         cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY);
                         penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl;
                         penUlColor = svUlColor; wrapPending = svWrap;
+                        origin = svOrigin; autowrap = svAutowrap;
                     }
                 }
             }
@@ -1588,16 +1619,18 @@ public final class Term {
                         int v = params[pi] < 0 ? 0 : params[pi];
                         switch (v) {
                             case 1 -> decckm = on;
+                            case 6 -> origin = on;
+                            case 7 -> autowrap = on;
                             case 12 -> { cursorBlink = on; if (cy >= 0 && cy < rows) dirty[cy] = true; }
                             case 25 -> cursorVisible = on;
                             case 47, 1047 -> { if (on) enterAlt(); else exitAlt(); }
                             case 1049 -> {
-                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; enterAlt(); }
-                                else { exitAlt(); cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
+                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; svOrigin = origin; svAutowrap = autowrap; enterAlt(); }
+                                else { exitAlt(); cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; origin = svOrigin; autowrap = svAutowrap; }
                             }
                             case 1048 -> {
-                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; }
-                                else { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; }
+                                if (on) { svX = cx; svY = cy; svFg = penFg; svBg = penBg; svAttr = penAttr; svUl = penUl; svUlColor = penUlColor; svWrap = wrapPending; svOrigin = origin; svAutowrap = autowrap; }
+                                else { cx = Math.min(cols - 1, svX); cy = Math.min(rows - 1, svY); penFg = svFg; penBg = svBg; penAttr = svAttr; penUl = svUl; penUlColor = svUlColor; wrapPending = svWrap; origin = svOrigin; autowrap = svAutowrap; }
                             }
                             case 1000 -> mouseMode = on ? 1 : 0;
                             case 1002 -> mouseMode = on ? 2 : 0;
@@ -1706,6 +1739,8 @@ public final class Term {
         }
         return switch (p) {
             case 1 -> decckm ? 1 : 2;
+            case 6 -> origin ? 1 : 2;
+            case 7 -> autowrap ? 1 : 2;
             case 66 -> keypadApp ? 1 : 2;
             case 25 -> cursorVisible ? 1 : 2;
             case 47, 1047, 1049 -> alt ? 1 : 2;
@@ -1732,6 +1767,7 @@ public final class Term {
         penFg = DEFAULT; penBg = DEFAULT; penUlColor = DEFAULT;
         penAttr = 0; penUl = 0; insert = false;
         cursorVisible = true; decckm = false; keypadApp = false;
+        origin = false; autowrap = true;
         top = 0; bot = rows - 1; wrapPending = false;
         dirtyAll = true;
         java.util.Arrays.fill(dirty, true);
@@ -2039,6 +2075,7 @@ public final class Term {
         mainUl = ul; mainUlColor = ulColor; mainLink = link;
         mainWrapped = rowWrapped;
         mainX = cx; mainY = cy;
+        mainOrigin = origin; mainAutowrap = autowrap;
         int n = cols * rows;
         cp = new int[n]; cluster = new String[n];
         fg = new int[n]; bg = new int[n]; attr = new byte[n]; link = new int[n];
@@ -2060,6 +2097,7 @@ public final class Term {
         ul = mainUl; ulColor = mainUlColor; link = mainLink;
         rowWrapped = mainWrapped;
         cx = mainX; cy = mainY;
+        origin = mainOrigin; autowrap = mainAutowrap;
         mainCp = null; mainCluster = null;
         mainFg = null; mainBg = null; mainAttr = null;
         mainUl = null; mainUlColor = null; mainLink = null; mainWrapped = null;

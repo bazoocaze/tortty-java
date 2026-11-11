@@ -30,6 +30,7 @@ public final class TermChecks {
         kidKeyboard(c);
         replies(c);
         modeReports(c);
+        originAndWrap(c);
         logicalLines(c);
         resizing(c);
     }
@@ -395,6 +396,79 @@ public final class TermChecks {
         c.eq("the alt screen is reported set", Check.childOut(a, E + "[?1049$p"), E + "[?1049;1$y");
         Check.feed(a, E + "[!p");
         c.is("DECSTR does not leave the alt screen", a.alt);
+    }
+
+    /**
+     * `?7` (DECAWM) and `?6` (origin) — the two modes apps ask for by number
+     * (`L19`, `B39`). Behaviour measured against the Rust version first: with
+     * autowrap off the last column is overwritten, and with origin on CUP
+     * counts from the region's top.
+     */
+    private static void originAndWrap(Check c) {
+        // ?7: DECAWM. Off, the line ends at the last column.
+        Term w = new Term(10, 3);
+        c.eq("autowrap is on by default (DECRQM)", Check.childOut(w, E + "[?7$p"), E + "[?7;1$y");
+        Check.feed(w, E + "[?7l");
+        c.eq("DECRQM says ?7 is reset", Check.childOut(w, E + "[?7$p"), E + "[?7;2$y");
+        Check.feed(w, E + "[1;1H0123456789XY");
+        c.eq("no wrap: the last column is overwritten", w.screenText(0), "012345678Y");
+        c.eq("and no second row was opened", w.screenText(1), "");
+        c.is("no wrap mark is left on the row", !w.wrappedAt(0));
+        Check.feed(w, E + "[?7h" + E + "[1;1H0123456789Z");
+        c.eq("back on, the pending wrap opens the next row", w.screenText(1), "Z");
+        c.is("and the row is marked wrapped", w.wrappedAt(0));
+
+        // ?7 with a wide glyph: it needs both cells, so it backs up instead
+        // of wrapping (Rust: cx = cols - 2)
+        Term d = new Term(10, 2);
+        Check.feed(d, E + "[?7l" + E + "[1;10H\u6f22");
+        c.eq("wide glyph backs up into the last two columns",
+                d.screenText(0), "        \u6f22");
+        c.eq("and opens no second row", d.screenText(1), "");
+
+        // ?6: DECOM. CUP/VPA count from the region top and stop at its bottom.
+        Term o = new Term(20, 6);
+        c.eq("origin is off by default (DECRQM)", Check.childOut(o, E + "[?6$p"), E + "[?6;2$y");
+        Check.feed(o, E + "[2;4r");            // region rows 2..4 -> top=1 bot=3
+        Check.feed(o, E + "[?6h");
+        c.eq("DECRQM says ?6 is set", Check.childOut(o, E + "[?6$p"), E + "[?6;1$y");
+        Check.feed(o, E + "[1;1H");
+        c.eq("home is the region top with origin on", o.cy, 1);
+        Check.feed(o, E + "[3;1H");
+        c.eq("CUP 3 is the third row of the region", o.cy, 3);
+        Check.feed(o, E + "[9;1H");
+        c.eq("CUP below the region stops at its bottom", o.cy, 3);
+        Check.feed(o, E + "[1;1H" + E + "[3d");
+        c.eq("VPA counts from the region top too", o.cy, 3);
+        Check.feed(o, E + "[1A");
+        c.eq("relative moves stay inside the region", o.cy, 2);
+        Check.feed(o, E + "[?6l" + E + "[1;1H");
+        c.eq("origin off, home is the screen top", o.cy, 0);
+
+        // DECSTBM homes the cursor: to the region top when origin is on
+        Term r = new Term(10, 6);
+        Check.feed(r, E + "[?6h" + E + "[3;5r");
+        c.eq("DECSTBM homes to the region top with origin on", r.cy, 2);
+        Check.feed(r, E + "[?6l" + E + "[3;5r");
+        c.eq("DECSTBM homes to the screen top with origin off", r.cy, 0);
+
+        // DECSTR takes both back to the defaults (Rust soft_reset does)
+        Term s = new Term(10, 4);
+        Check.feed(s, E + "[?6h" + E + "[?7l" + E + "[!p");
+        c.eq("DECSTR leaves origin reset", Check.childOut(s, E + "[?6$p"), E + "[?6;2$y");
+        c.eq("DECSTR leaves autowrap set", Check.childOut(s, E + "[?7$p"), E + "[?7;1$y");
+
+        // DECSC/DECRC carry both (Rust SavedCursor does)
+        Term v = new Term(10, 4);
+        Check.feed(v, E + "[?6h" + E + "[?7l" + E + "7" + E + "[?6l" + E + "[?7h" + E + "8");
+        c.eq("DECRC restores origin", Check.childOut(v, E + "[?6$p"), E + "[?6;1$y");
+        c.eq("DECRC restores autowrap", Check.childOut(v, E + "[?7$p"), E + "[?7;2$y");
+
+        // RIS (ESC c) takes both back
+        Term z = new Term(10, 4);
+        Check.feed(z, E + "[?6h" + E + "[?7l" + E + "c");
+        c.eq("RIS leaves origin reset", Check.childOut(z, E + "[?6$p"), E + "[?6;2$y");
+        c.eq("RIS leaves autowrap set", Check.childOut(z, E + "[?7$p"), E + "[?7;1$y");
     }
 
     /** Triple-click spans: a soft-wrapped paragraph is one logical line. */

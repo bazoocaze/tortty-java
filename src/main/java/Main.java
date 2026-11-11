@@ -1474,6 +1474,8 @@ public final class Main {
                     m.put("mouse_sgr", term.mouseSgr);
                     m.put("mouse_utf8", term.mouseUtf8);
                     m.put("mouse_pixels", term.mousePixels);
+                    m.put("autowrap", term.autowrap);
+                    m.put("origin", term.origin);
                     Workspace w = front();
                     m.put("tabs", w == null ? 0 : w.tabs.size());
                     m.put("active", w == null ? -1 : w.active);
