@@ -109,6 +109,14 @@ Features implemented in the Java version of TorTTY.
 
 - Swing painting by same-style runs, with per-line damage and cursor repaint;
   a cursor-only move (no cell written) still repaints the cursor row.
+- The **draw gate**: the child's output asks for at most one painting every 16
+  ms (`render.FrameGate`, the Rust `frame.rs` gate), so a flood of reads
+  coalesces into ~60 frames instead of one drawing per read chunk, where the
+  drawing starts competing with the reading. What the *user* causes — expose,
+  focus, resize, a click, the wheel — and the close of a `?2026` transaction
+  paint at once, and a pending frame is never rescheduled (that is the point).
+  `--no-vsync` drops the gate and paints every request: the benchmark's mode,
+  and what the numbers in `BENCHMARKS` were taken with. See `L4` (gone).
 - Full repaint on expose, focus, resize, and show — and on any clip that reaches a
   row the damage record did not mark, so a region asked for by a layer above is
   never left showing what is behind the grid (`B38`).
@@ -378,5 +386,5 @@ what the hot reload watches.
 
 ## Limitations
 
-See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L4`, `L5`, `L7`, `L9`, `L13`,
+See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L9`, `L13`,
 `L16`, `L18`, `L20`, `L21`).

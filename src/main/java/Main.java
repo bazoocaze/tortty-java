@@ -1068,6 +1068,8 @@ public final class Main {
             term.cursorShape = cfg.cursorShape;
             term.cursorBlink = cfg.cursorBlink;
             TermPanel panel = new TermPanel(term, cfg.fontFamily, cfg.fontSize, dpi, theme);
+            // `--no-vsync` is the benchmark's mode: no 16 ms pacing (`L4`)
+            panel.setVsync(!o.noVsync);
             panel.setPadding(cfg.windowPaddingWidth);
             panel.setBellMode(cfg.bell);
             panel.setCopyOnSelect(cfg.copyOnSelect);
@@ -1471,6 +1473,7 @@ public final class Main {
                     m.put("notifs", term.notifs);
                     m.put("notif", term.notifText);
                     m.put("sync", term.sync);
+                    m.put("vsync", t == null || t.panel.vsync());
                     m.put("kbd_flags", term.kbdFlags);
                     m.put("images", term.images.imageCount());
                     m.put("placements", term.images.placements().size());

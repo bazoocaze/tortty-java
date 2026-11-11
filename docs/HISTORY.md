@@ -793,3 +793,21 @@ fell back to `t=d` and an animated GIF stayed a still frame.
 injected times so pacing, gapless frames and loops are tested without a screen.
 `L16` keeps only z-index, placement id, Unicode placeholder, source crop and
 frame composition.
+
+## 2026-11-11 — `L4`: the 16 ms draw gate
+
+**Context.** Painting followed Swing: one drawing per pty read chunk under a
+flood, and `--no-vsync` was parsed and never used.
+
+**Activities.**
+
+- `render.FrameGate` is the Rust `frame.rs` gate — `request`/`won`/`when`, a
+  pending frame never rescheduled, due once — and only the pty path
+  (`repaintDamage`) goes through it; what the user causes (expose, focus, resize,
+  a click) and the close of a `?2026` transaction still paint at once.
+- `--no-vsync` drops the gate, which is the benchmark's mode: the protocol's
+  numbers are the ones already in `BENCHMARKS`, taken without any pacing. `state`
+  reports the flag as `vsync`.
+
+**Result.** 1045 checks (`FrameGateChecks`, 12, the clock injected), the visual
+gate still 21/21. `L4` leaves the table; `CONFIG` says what the flag does.

@@ -7,7 +7,6 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 | id | limitation | consequence |
 |---|---|---|
 | L3 | No IME/composition. Shaping exists only where `B27` puts it: with `ligatures off` (the default) every cell is drawn alone, so a run of Arabic or Devanagari cells is never joined or reordered; with `standard`/`all` a run of plain cells goes through Java2D's `TextLayout`, which shapes it, but a one-cell run still does not (`L18`) | CJK typed from a composition window cannot be entered at all; a complex script looks right only when the run happens to be shaped, which the default does not do |
-| L4 | 16 ms/vsync limit not implemented: painting follows Swing, not the compositor's clock | `--no-vsync` is accepted and **has no effect** — it exists because the benchmark protocol passes it to both implementations, and the number it is compared against does not depend on it |
 | L5 | Unix-specific integration | AF_UNIX socket, `$SHELL`, `/tmp`, `Xft.dpi`, and X11 fonts are not portable as they are |
 | L7 | No splits (more than one terminal in the same view) | tabs (`B20`) and workspaces (`B21`) exist; side by side in one view does not |
 | L9 | No scrollback search | large history is not searchable |
@@ -27,4 +26,5 @@ are implemented, so `DECRQM` answers them and the behaviour is in `FEATURES`.
 `L15` left the same day with `B41`: it claimed AWT does not deliver the
 horizontal wheel or buttons 8/9, and a measurement said otherwise — it delivers
 them renumbered (`X11 - 2` past the wheel), so only the `fromAwt` table was
-wrong.
+wrong. `L4` left on 2026-11-11: the 16 ms draw gate is in (`render.FrameGate`,
+tested by `FrameGateChecks`) and `--no-vsync` is what turns it off.

@@ -27,6 +27,8 @@ public final class CliChecks {
         c.is("--selftest still parses", Cli.Opts.parse(new String[] { "--selftest" }).selftest);
         c.eq("--debug-socket auto is kept as the word",
                 Cli.Opts.parse(new String[] { "--debug-socket", "auto" }).debugSocket, "auto");
+        c.is("--no-vsync is off by default", !Cli.Opts.parse(new String[] {}).noVsync);
+        c.is("--no-vsync turns on", Cli.Opts.parse(new String[] { "--no-vsync" }).noVsync);
 
         // the flags combine, which is how automation drives the app
         Cli.Opts both = Cli.Opts.parse(new String[] {

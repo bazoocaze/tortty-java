@@ -5,6 +5,7 @@ import term.Color;
 import term.Theme;
 import term.WcWidth;
 import term.KittyImages;
+import render.FrameGate;
 import prof.Prof;
 import pty.ChildPty;
 
@@ -56,6 +57,10 @@ public final class TermPanel extends JPanel implements KeyListener {
     private boolean blinkOn = true;
     private boolean damagePaintPending;
     private boolean fullPaintPending = true;
+    /** The draw gate (`L4`): on unless `--no-vsync` asked for painting flat out. */
+    private boolean vsync = true;
+    private final FrameGate frameGate = new FrameGate();
+    private javax.swing.Timer frameTimer;
     private boolean[] paintRows = new boolean[0];
     private char[] runBuf = new char[0];
     private Font[] fallbackFonts = new Font[0];
@@ -309,6 +314,16 @@ public final class TermPanel extends JPanel implements KeyListener {
     public void setBellMode(int mode) { this.bellMode = mode; }
     public void setCopyOnSelect(boolean on) { this.copyOnSelect = on; }
 
+    /**
+     * `--no-vsync`: paint every request, with no 16 ms pacing — the benchmark's
+     * mode, and the flag the protocol passes to both implementations. The
+     * default is the paced one, which is what "painting follows the compositor's
+     * clock" means in Swing.
+     */
+    public void setVsync(boolean on) { this.vsync = on; }
+
+    public boolean vsync() { return vsync; }
+
     /** `ligatures off|standard|all` (`B27`); off is one glyph per cell. */
     public void setLigatures(boolean on) {
         if (ligatures == on) return;
@@ -365,7 +380,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         syncAnimTimer();
         if (term.dirtyAll || term.viewOff() > 0) {
             fullPaintPending = true;
-            repaint();
+            pace();
             return;
         }
         boolean any = term.cursorVisible != lastPaintedCursorVisible;
@@ -379,7 +394,48 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (!any && (term.cx != lastPaintedCursorX || term.cy != lastPaintedCursorY)) any = true;
         if (!any) return;
         damagePaintPending = true;
-        repaint();
+        pace();
+    }
+
+    /**
+     * The pty path asks for a drawing; the gate decides *when* — at most one per
+     * {@link FrameGate#FRAME_MS}, and whoever is already scheduled does not
+     * reschedule (`L4`, the Rust `frame.rs` gate). The flags above are already
+     * set, so a paint that comes later paints everything that arrived meanwhile.
+     */
+    private void pace() {
+        if (!vsync) {
+            repaint();
+            return;
+        }
+        long now = System.nanoTime() / 1_000_000L;
+        frameGate.request(now);
+        if (frameGate.won(now)) {
+            repaint();
+            return;
+        }
+        long delay = Math.max(1, frameGate.when() - now);
+        if (frameTimer == null) {
+            frameTimer = new javax.swing.Timer((int) delay, e -> frameDue());
+            frameTimer.setRepeats(false);
+        }
+        if (!frameTimer.isRunning()) {
+            frameTimer.setInitialDelay((int) delay);
+            frameTimer.start();
+        }
+    }
+
+    /** The frame's time came: draw, or wake again for what is left of it. */
+    private void frameDue() {
+        long now = System.nanoTime() / 1_000_000L;
+        if (frameGate.won(now)) {
+            repaint();
+            return;
+        }
+        long when = frameGate.when();
+        if (when < 0) return; // nothing is pending: the gate was released elsewhere
+        frameTimer.setInitialDelay((int) Math.max(1, when - now));
+        frameTimer.start(); // the timer fired early: re-arm for the rest
     }
 
     /** Force a full repaint (expose, focus, resize, debug resize). */

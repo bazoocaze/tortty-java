@@ -13,7 +13,8 @@ file. `--config PATH` selects another file. The other flags: `--debug-socket
 PATH` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`), `--debug-log PATH`,
 `--dump-to FILE` (`B23`), `--font-size`, `--font-family`, `--scrollback`, `--dpi`,
 `--cmd`, `--cols`, `--rows`, `--no-state`, `--quit-after SECS` (closes by itself
-after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync`,
+after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync`
+(paint every request, with no 16 ms draw gate — the benchmark's mode),
 `--selftest` (`B30`).
 
 ## Keys

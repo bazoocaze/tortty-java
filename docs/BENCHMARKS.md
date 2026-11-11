@@ -13,7 +13,9 @@ repo, unchanged). All numbers below have date, condition, and governor.
 - Font: DejaVu Sans Mono **17 pt** (default; same visual size as Rust) → cell 14x26 px (Java) / 13.65x26.39 (Rust)
 - Date: 2026-11-07
 - Protocol: 1200 frames, `--no-vsync`, median of 3 shots after discarding the
-  first (JIT warmup), one terminal at a time.
+  first (JIT warmup), one terminal at a time. The flag is what turns the 16 ms
+  draw gate off (`L4`, now implemented), so the behaviour under this protocol is
+  the one these numbers were taken with — the default run is paced at ~60 fps.
 
 Governor note: the reference repo requires `schedutil` (powersave halves the
 numbers). The local runs below were done under `schedutil`; the Rust terminal
