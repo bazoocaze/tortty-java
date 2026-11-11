@@ -63,13 +63,20 @@ public final class TermPanel extends JPanel implements KeyListener {
     /** Ligatures on (`B27`): a run of same-style cells is shaped as one text run. */
     private boolean ligatures;
 
-    // kitty images: decoded once per (id, version) and dropped when it changes.
-    private final java.util.HashMap<Integer, java.awt.image.BufferedImage> imageCache = new java.util.HashMap<>();
-    private final java.util.HashMap<Integer, Long> imageVersion = new java.util.HashMap<>();
+    // kitty images: the root frame and every frame composed onto it, once per
+    // (id, version), dropped when the image is sent again or the cap is passed
+    private final java.util.HashMap<Integer, Pic> pics = new java.util.HashMap<>();
+
+    /** One image's canvases: {@code canvas[0]} is the root, {@code canvas[i]} is frame {@code i+1}. */
+    private static final class Pic {
+        long version;
+        int built;
+        java.awt.image.BufferedImage[] canvas;
+    }
 
     private long lastBellSeq, lastNotifSeq;
     private long flashUntil;
-    private javax.swing.Timer blinkTimer, attentionTimer;
+    private javax.swing.Timer blinkTimer, attentionTimer, animTimer;
 
     public TermPanel(Term term, String familyName, float fontSizePt, float dpi, Theme theme) {
         this.term = term;
@@ -355,6 +362,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     /** Schedule a paint for damaged rows plus the cursor row(s). */
     public void repaintDamage() {
+        syncAnimTimer();
         if (term.dirtyAll || term.viewOff() > 0) {
             fullPaintPending = true;
             repaint();
@@ -376,6 +384,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     /** Force a full repaint (expose, focus, resize, debug resize). */
     public void requestFullRepaint() {
+        syncAnimTimer();
         fullPaintPending = true;
         repaint();
     }
@@ -832,7 +841,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             if (y + p.rows <= 0 || y >= rows) continue; // fully outside the view
             KittyImages.Image img = term.images.image(p.imageId);
             if (img == null) continue;
-            java.awt.image.BufferedImage bi = decoded(img);
+            java.awt.image.BufferedImage bi = frameOf(img);
             if (bi == null) continue;
             java.awt.Shape oldClip = g2.getClip();
             g2.clipRect(pad, pad, cols * cw, rows * chh);
@@ -843,29 +852,121 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (oldInterp != null) g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
     }
 
-    private java.awt.image.BufferedImage decoded(KittyImages.Image img) {
-        Long v = imageVersion.get(img.id);
-        if (v != null && v.longValue() == img.version) {
-            java.awt.image.BufferedImage c = imageCache.get(img.id);
-            if (c != null) return c;
+    /**
+     * The frame to draw for an image: the root and the frames composed onto it,
+     * kept per image and dropped when the image is sent again. A frame that
+     * arrives later is composed here, so a plain still image costs one decode.
+     */
+    private java.awt.image.BufferedImage frameOf(KittyImages.Image img) {
+        Pic p = pics.get(img.id);
+        if (p != null && p.version == img.version && p.canvas != null) {
+            // fall through to compose what is missing
+        } else {
+            if (pics.size() > 64) pics.clear();
+            p = new Pic();
+            p.version = img.version;
+            pics.put(img.id, p);
         }
-        java.awt.image.BufferedImage bi = decodeImage(img);
-        if (bi == null) return null;
-        if (imageCache.size() > 64) { imageCache.clear(); imageVersion.clear(); }
-        imageCache.put(img.id, bi);
-        imageVersion.put(img.id, img.version);
-        return bi;
+        int need = img.frames.size() + 1;
+        if (p.canvas == null || p.canvas.length < need) {
+            java.awt.image.BufferedImage[] grown = new java.awt.image.BufferedImage[need];
+            if (p.canvas != null) System.arraycopy(p.canvas, 0, grown, 0, p.canvas.length);
+            p.canvas = grown;
+        }
+        if (p.built == 0) {
+            p.canvas[0] = decodeImage(img); // the root frame is the image itself
+            if (p.canvas[0] == null) return null;
+            p.built = 1;
+        }
+        while (p.built < need) {
+            java.awt.image.BufferedImage c = compose(img, p, p.built + 1);
+            if (c == null) break;
+            p.canvas[p.built++] = c;
+        }
+        if (p.built == 0) return null;
+        int cur = Math.min(Math.max(1, img.current), p.built);
+        return p.canvas[cur - 1];
+    }
+
+    /**
+     * Frame {@code no} (1-based, 2 or more) on top of the frame it names:
+     * {@code c=} is that frame, {@code c=0} is a black transparent canvas, and
+     * {@code X=1} overwrites the pixels instead of blending them.
+     */
+    private java.awt.image.BufferedImage compose(KittyImages.Image img, Pic p, int no) {
+        KittyImages.Frame fr = img.frames.get(no - 2);
+        java.awt.image.BufferedImage src = decodeFrame(fr);
+        if (src == null) return null;
+        java.awt.image.BufferedImage base;
+        int onto = fr.composeOnto;
+        if (onto >= 1 && onto <= p.built && p.canvas[onto - 1] != null) {
+            base = copyOf(p.canvas[onto - 1]);
+        } else {
+            base = new java.awt.image.BufferedImage(img.width, img.height,
+                    java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        }
+        java.awt.Graphics2D g = base.createGraphics();
+        try {
+            g.setComposite(fr.replace ? AlphaComposite.Src : AlphaComposite.SrcOver);
+            g.drawImage(src, fr.x, fr.y, null);
+        } finally {
+            g.dispose();
+        }
+        return base;
+    }
+
+    private static java.awt.image.BufferedImage copyOf(java.awt.image.BufferedImage src) {
+        java.awt.image.BufferedImage b = new java.awt.image.BufferedImage(
+                src.getWidth(), src.getHeight(), java.awt.image.BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = b.createGraphics();
+        g.drawImage(src, 0, 0, null);
+        g.dispose();
+        return b;
+    }
+
+    /**
+     * The animation ticks at 60 Hz, and only while an image is actually running
+     * it — an image nobody placed, or a stopped one, costs nothing.
+     */
+    private void syncAnimTimer() {
+        boolean run = term.images.animating();
+        if (run) {
+            if (animTimer == null) {
+                animTimer = new javax.swing.Timer(16, e -> animTick());
+                animTimer.setRepeats(true);
+            }
+            if (!animTimer.isRunning()) animTimer.start();
+        } else if (animTimer != null && animTimer.isRunning()) {
+            animTimer.stop();
+        }
+    }
+
+    private void animTick() {
+        if (!term.images.animating()) {
+            animTimer.stop();
+            return;
+        }
+        // the clock is the panel's, the same one every tick: the protocol only
+        // says "when", never "at what time"
+        if (term.images.advance(System.nanoTime() / 1_000_000L)) repaint();
     }
 
     private static java.awt.image.BufferedImage decodeImage(KittyImages.Image img) {
+        return decode(img.data, img.format, img.width, img.height);
+    }
+
+    private static java.awt.image.BufferedImage decodeFrame(KittyImages.Frame fr) {
+        return decode(fr.data, fr.format, fr.width, fr.height);
+    }
+
+    private static java.awt.image.BufferedImage decode(byte[] data, int format, int w, int h) {
         try {
-            if (img.format == KittyImages.FMT_PNG) {
-                return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(img.data));
+            if (format == KittyImages.FMT_PNG) {
+                return javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(data));
             }
-            int w = img.width, h = img.height;
-            boolean rgba = img.format == KittyImages.FMT_RGBA;
+            boolean rgba = format == KittyImages.FMT_RGBA;
             int bpp = rgba ? 4 : 3;
-            if ((long) w * h * bpp > img.data.length) return null;
+            if ((long) w * h * bpp > data.length) return null;
             java.awt.image.BufferedImage bi =
                     new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
             int[] row = new int[w];
@@ -873,8 +974,8 @@ public final class TermPanel extends JPanel implements KeyListener {
                 int off = y * w * bpp;
                 for (int x = 0; x < w; x++) {
                     int i = off + x * bpp;
-                    int r = img.data[i] & 0xff, g = img.data[i + 1] & 0xff, b = img.data[i + 2] & 0xff;
-                    int alpha = rgba ? (img.data[i + 3] & 0xff) : 255;
+                    int r = data[i] & 0xff, g = data[i + 1] & 0xff, b = data[i + 2] & 0xff;
+                    int alpha = rgba ? (data[i + 3] & 0xff) : 255;
                     row[x] = (alpha << 24) | (r << 16) | (g << 8) | b;
                 }
                 bi.setRGB(0, y, w, 1, row, 0, w);

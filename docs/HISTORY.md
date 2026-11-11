@@ -769,3 +769,27 @@ earlier attempts read nothing because the *probe* was wrong (a `timeout cat`
 left the file empty; an echo back into the terminal re-parsed the reports as
 `CSI … M` and swallowed them), not the code. 973 checks; `L15` leaves the
 table.
+
+## 2026-11-11 — `L16`: `t=s`, and animation (`a=f`/`a=a`)
+
+**Context.** `L16` refused `t=s` and ignored `a=f`/`a=a`: a shared-memory client
+fell back to `t=d` and an animated GIF stayed a still frame.
+
+**Activities.**
+
+- `t=s` resolves the POSIX shared-memory **name** under `/dev/shm` and unlinks it
+  after the read, as the protocol requires; a payload that already is a path (the
+  Rust core's form) is read and kept. Only regular files are read now.
+- Frames attach to the image the client names by `i=` or `I=` (what `icat` uses
+  for an animation), compose onto the frame in `c=` (alpha, `X=1` overwrites) and
+  play on the `z` clock: 40 ms when a frame does not ask for one, 0 for the root,
+  negative = gapless. `a=a` runs it (`s=2` waits for frames still to come, `s=3`
+  loops, `v` says how often), times the root (`r=1,z=`) and moves the current
+  frame — answering nothing, as kitty does, because `icat` does not read it and
+  an `OK` would be typed into the shell. `e=` feature queries name the keys we
+  understand for an action; `ENOSPC` holds a frame back at `MAX_APC`.
+
+**Result.** 1031 checks — 58 in `GraphicsChecks`, the animation clock driven with
+injected times so pacing, gapless frames and loops are tested without a screen.
+`L16` keeps only z-index, placement id, Unicode placeholder, source crop and
+frame composition.

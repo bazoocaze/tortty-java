@@ -52,6 +52,29 @@ Features implemented in the Java version of TorTTY.
   deleted, which is what the Rust core does. The image follows the scroll
   into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
   is out.
+- kitty animation (`a=f`/`a=a`, the half of `L16` that is in): every frame after
+  the root hangs on the image the client names — by `i=` or by `I=`, which is
+  what `icat` uses when an image has more than one frame — and is composed onto
+  the frame in `c=` (alpha blend by default, `X=1` overwrites; no `c=` starts
+  from black transparent pixels). `z` is the clock of a frame: the ms it stays,
+  **40 ms** when it does not ask for one and 0 for the root, negative meaning
+  gapless and never shown. `a=a` runs it — `s=2` *loading* (it stops at the last
+  frame and waits for the frames still to come), `s=3` running (it loops, `v`
+  saying how often: `v=1` forever, `v=n` n−1 loops, `v=0` ignored) —, gives a
+  frame its gap (`r=`, where `icat` puts the root's delay), and makes a frame
+  current (`c=`). A control command that lands answers **nothing**: `icat` does
+  not read it, so an `OK` would be typed into the shell when it exits — kitty is
+  silent for this action too; only a missing image is answered (`ENOENT`). A
+  frame past `MAX_APC` (64 MB) answers `ENOSPC`. The panel ticks at 60 Hz only
+  while an image that is actually **placed** is running, and composes each frame
+  once (`TermPanel.frameOf`), so a still image costs one decode.
+- Feature queries (`a=q,e=<action>`): the reply carries `e` and every key of the
+  query we understand *for that action* that is not at its default — `e=T,C=1`
+  (the cursor policy is ours, `U=1` is not), `e=f,X=1` (`r=` editing a frame is
+  not), `e=a,s=3,v=2`. Without `e` in the reply the action is unsupported, which
+  is how `e=c` and `e=d` answer: composition of frames is out, and our delete
+  modes do not follow the spec's lower/upper case split, so no `d=` value is
+  advertised.
 - DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
   tracks (`1`, `6`, `7`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
   `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
