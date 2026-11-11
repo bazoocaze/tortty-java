@@ -1056,6 +1056,12 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (pty == null || term.mouseMode == 0 || !insideGrid(e)) return;
         int button = mouseButton(e.getButton());
         if (button < 0) return;
+        // AWT delivers the horizontal wheel (X11 6/7) as press+release pairs,
+        // but the wheel has no release in any protocol and never drags (`B41`)
+        if (input.Mouse.isWheel(button)) {
+            if (press) sendMouseEvent(e, button, true, false);
+            return;
+        }
         if (press) pressedButton = button; else pressedButton = -1;
         sendMouseEvent(e, button, press, false);
     }

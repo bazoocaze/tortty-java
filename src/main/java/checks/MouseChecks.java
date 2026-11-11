@@ -37,10 +37,15 @@ public final class MouseChecks {
         c.is("the wheel is press only", Mouse.isWheel(Mouse.WHEEL_UP) && Mouse.isWheel(Mouse.WHEEL_RIGHT));
         c.is("a plain button is not a wheel", !Mouse.isWheel(Mouse.LEFT));
 
-        // X11 buttons 8 and 9, the thumb buttons
-        c.eq("X11 button 8 is back", Mouse.fromAwt(4), Mouse.BACK);
-        c.eq("X11 button 9 is forward", Mouse.fromAwt(5), Mouse.FORWARD);
-        c.eq("a button we do not report", Mouse.fromAwt(6), -1);
+        // the delivery, as measured on X11/JDK 21 (`B41`): past the wheel AWT
+        // reports X11 - 2, so the horizontal wheel is 4/5 and the thumb 6/7
+        c.eq("X11 button 6, wheel left, is AWT 4", Mouse.fromAwt(4), Mouse.WHEEL_LEFT);
+        c.eq("X11 button 7, wheel right, is AWT 5", Mouse.fromAwt(5), Mouse.WHEEL_RIGHT);
+        c.eq("X11 button 8, back, is AWT 6", Mouse.fromAwt(6), Mouse.BACK);
+        c.eq("X11 button 9, forward, is AWT 7", Mouse.fromAwt(7), Mouse.FORWARD);
+        c.is("AWT 4/5 name the wheel", Mouse.isWheel(Mouse.fromAwt(4))
+                && Mouse.isWheel(Mouse.fromAwt(5)));
+        c.eq("a button we do not report", Mouse.fromAwt(8), -1);
         c.eq("SGR back", sgr(Mouse.BACK, 4, 2, true, false, 0), "\u001b[<128;5;3M");
         c.eq("SGR forward", sgr(Mouse.FORWARD, 4, 2, true, false, 0), "\u001b[<129;5;3M");
 

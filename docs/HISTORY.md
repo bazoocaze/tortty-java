@@ -747,3 +747,25 @@ turned `#660066` after `printf '\033]4;1;#FF00FF\007'` (the first attempt
 wrote the ESC into the shell's stdin and the readline echo broke it — the
 sequence has to come from the child's output), and `OSC 11` white gave a pale
 green box with black text. `L21` keeps only the click indirection.
+
+## 2026-11-10 — the delivery measured, and `L15` wrong (`B41`)
+
+`L15` said AWT does not deliver the horizontal wheel or buttons 8/9, so those
+encoder codes (`66`/`67`/`128`/`129`, `B35`) were test-only. A probe against
+the real toolkit says otherwise (JDK 21, X11, identity pointer mapping): X11
+4/5 arrive as the vertical `MouseWheelEvent`s, and every button past the wheel
+is renumbered `X11 − 2` — X 6/7 (horizontal wheel) as `getButton()` 4/5, X 8/9
+(back/forward) as 6/7. Nothing was missing; `Mouse.fromAwt` used the *winit*
+numbering from the first version and sent back/forward into the `-1` drop,
+while the horizontal wheel was read as back.
+
+Fixed: `fromAwt` follows the measured table, and `sendMouse` keeps the wheel's
+press-only rule — AWT hands the horizontal wheel as a press/release pair, and
+no protocol has a wheel release. E2E over the socket (`--cmd` child in
+`?1000/?1002/?1005/?1006`, `stty raw`, appending stdin to a file): the child
+received `<66`/`<67` press-only for X 6/7 and `<128`/`<129` press+release for
+X 8/9, with a `<0` control click and a `CHANNEL-OK` marker either side — two
+earlier attempts read nothing because the *probe* was wrong (a `timeout cat`
+left the file empty; an echo back into the terminal re-parsed the reports as
+`CSI … M` and swallowed them), not the code. 973 checks; `L15` leaves the
+table.

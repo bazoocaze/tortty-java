@@ -52,14 +52,24 @@ public final class Mouse {
         return button >= WHEEL_UP && button <= WHEEL_RIGHT;
     }
 
-    /** The protocol button of an AWT button number, or -1 when we do not report it. */
+    /**
+     * The protocol button of an AWT button number, or -1 when we do not report
+     * it. AWT on X11 delivers every X11 button past the wheel, renumbered:
+     * measured here (JDK 21, identity pointer mapping) X 4/5 arrive as the
+     * vertical wheel events, X 6/7 (the horizontal wheel) as `getButton()` 4/5
+     * and X 8/9 (back/forward) as 6/7 — so it is `X - 2` past the wheel. The
+     * winit numbering the first version of this map assumed does not apply
+     * (`B41`): back/forward used to land in the `-1` and be dropped.
+     */
     public static int fromAwt(int awtButton) {
         return switch (awtButton) {
             case java.awt.event.MouseEvent.BUTTON1 -> LEFT;
             case java.awt.event.MouseEvent.BUTTON2 -> MIDDLE;
             case java.awt.event.MouseEvent.BUTTON3 -> RIGHT;
-            case 4 -> BACK;      // X11 button 8
-            case 5 -> FORWARD;   // X11 button 9
+            case 4 -> WHEEL_LEFT;   // X11 button 6
+            case 5 -> WHEEL_RIGHT;  // X11 button 7
+            case 6 -> BACK;         // X11 button 8
+            case 7 -> FORWARD;      // X11 button 9
             default -> -1;
         };
     }

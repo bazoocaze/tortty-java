@@ -102,10 +102,16 @@ Features implemented in the Java version of TorTTY.
 - Mouse: X10, UTF-8 `?1005`, SGR `?1006`, pixel coordinates `?1016`, buttons
   1–3, drag, motion, and wheel. The encoder lives in `input/Mouse.java` with the
   full xterm button map — `66`/`67` (wheel left/right) and `128`/`129` (buttons
-  8/9) included (`B35`) — so the shapes are checked without a screen; whether the
-  gesture reaches AWT at all is `L15`. The wheel reads history when the child is not
-  tracking the mouse (or with Shift); a detent and a touchpad fraction are
-  distinguished, and the fraction accumulates until it completes a notch.
+  8/9) included (`B35`) — so the shapes are checked without a screen. The
+  delivery is measured, not assumed (`B41`): on X11/JDK 21 AWT reports every
+  X11 button past the wheel renumbered as `X11 − 2` — X 6/7 (the horizontal
+  wheel) arrive as `getButton()` 4/5, X 8/9 (back/forward) as 6/7 — so
+  `Mouse.fromAwt` follows that table and the wheel's press-only rule (a
+  horizontal notch arrives as a press/release pair; the release is dropped,
+  because no protocol has a wheel release). The wheel reads history when the
+  child is not tracking the mouse (or with Shift); a detent and a touchpad
+  fraction are distinguished, and the fraction accumulates until it completes
+  a notch.
 - Visible selection (drag, double-click on word, triple-click on the whole
   logical line) with inversion, including history. A triple click follows a
   soft-wrapped paragraph (`B31`): from column 0 of its first row to the last cell
@@ -345,4 +351,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L4`, `L5`, `L7`, `L9`, `L13`,
-`L15`, `L16`, `L18`, `L20`, `L21`).
+`L16`, `L18`, `L20`, `L21`).
