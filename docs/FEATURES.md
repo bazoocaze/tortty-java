@@ -75,10 +75,10 @@ Features implemented in the Java version of TorTTY.
   row the damage record did not mark, so a region asked for by a layer above is
   never left showing what is behind the grid (`B38`).
 - Block, beam, or underline cursor, with blink.
-- `Ctrl+Shift+F2` opens the configuration file in `$VISUAL`/`$EDITOR` (else
-  `vim`) in a new tab, as the Rust `P33` does (`B37`); saving it applies the change
-  through the hot reload, and the tab goes away when the editor exits.
-- Shortcuts: Ctrl+Shift+T/W/N/Q and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
+- `Ctrl+Shift+F2` opens the configuration file in an editor, in a new tab — see
+  [`Config in a tab`](#config-in-a-tab-b37).
+- Shortcuts: Ctrl+Shift+T/W/N/Q, Ctrl+Shift+F2 (the config file, in its own
+  section below) and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
   and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
   (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
   tracks the key from its own press and release (`L20`); a Super chord that is
@@ -184,6 +184,33 @@ place a launch from a desktop icon can show anything.
   background tab keeps its badge, as before.
 - The colours are their own token set (`ui/Toast.Sev`), not derived from the
   terminal palette, so the box stays dark and readable on a light theme (`L21`).
+
+## Config in a tab (`B37`)
+
+The Rust `P33` answer to "where is the file you are reading?": one chord and the
+editor is open on it, so a font or a palette is a keystroke away from being
+changed — and the change is live as soon as it is saved, because the same file is
+what the hot reload watches.
+
+- **`Ctrl+Shift+F2`**, not `F2`: the plain key is the workspace rename, so the
+  config gets the `Ctrl+Shift` block (Ctrl and Shift alone — no Alt, no Super),
+  taken before encoding, so an editor never sees the chord.
+- It resolves **the file this run reads**, so `--config PATH` and
+  `$XDG_CONFIG_HOME` are honoured, not the default path; the directory is
+  created first, since an editor only creates the file when you save it.
+- The editor is `$VISUAL`, else `$EDITOR`, else `vim` (`config.Editor`, the rule
+  as a pure function, blank values are not a choice), and the path is quoted the
+  way a dropped file is — a config under `~/My Configs` survives the shell.
+- It opens as a **new tab running that command instead of the shell** (`newTab`
+  with a `--cmd`), so the vim you get is a real full-screen app in a real tab,
+  next to the terminal you came from; closing the editor closes the tab, and a
+  dead shell already closes its own.
+- Saving is the whole point: the reload sees the write, applies it to the live
+  window and answers with a green *Configuration applied*; a broken edit keeps
+  the configuration in effect and raises a red *Configuration error* naming the
+  line — click that notice and the editor opens again (`B38`).
+- With no `$HOME` there is no path to open: it says so in a red notice instead of
+  failing silently.
 
 ## Debug / profiler
 
