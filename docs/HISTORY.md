@@ -691,3 +691,14 @@ order; both fixed.
 exist. The `BEL` bullet still promised a "bottom-right toast, 8 s" from before
 `B38`. In `CONFIG`, the reload section still said an error is only printed, not
 noticed on screen. `--selftest` is 481 checks after all of it.
+
+## 2026-11-10 — `L17` withdrawn
+
+The row described what `restore_state = content` does not carry: a full-screen
+app's own buffer (`less`, `vim`, `pi`) is not in the byte stream, so it is not in
+the snapshot. Measured again (a tab showing a 300-line `less` at exit saved the
+42 lines behind the pager and none of the pager's). The goal of `content` is the
+visible content the *terminal* wrote, not the applications running, so the row
+described the design rather than a limitation and left `LIMITATIONS.md` (ids are
+not reused); `FEATURES.md` now states the same boundary where `restore_state` is
+described.

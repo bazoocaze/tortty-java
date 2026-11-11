@@ -288,7 +288,10 @@ what the hot reload watches.
   before the picture is taken (Rust `B48`): the last words — a `pi` leaving the
   alt screen with its resume hint, a `cargo` printing its final line — are in
   the snapshot instead of being cut by the hangup. A wide snapshot reflows in a narrow
-  window by the same code a live resize uses. See `L17`.
+  window by the same code a live resize uses. What is in the picture is what the
+  terminal saw: a full-screen app's own buffer (`less`, `vim`, `pi`) never reaches
+  the byte stream, so it is not in the snapshot — the app is gone and only the
+  terminal's bytes are carried over.
 - Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
   so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,
@@ -326,4 +329,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L4`, `L5`, `L7`, `L9`, `L13`,
-`L15`–`L21`).
+`L15`, `L16`, `L18`–`L21`).
