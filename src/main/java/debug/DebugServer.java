@@ -33,6 +33,8 @@ public final class DebugServer {
         Map<String, Object> text(String where, int start, int count);
         /** A key through the same encoder as the real keyboard, answering what left. */
         Map<String, Object> keys(String spec);
+        /** Open the search bar with {@code query} (null = report without searching). */
+        Map<String, Object> find(String query);
         /** Debug log on/off/where, at runtime. */
         Map<String, Object> log(String value);
         void wsNew();
@@ -158,6 +160,10 @@ public final class DebugServer {
                 case "keys" -> {
                     if (!req.has("data")) return Map.of("ok", false, "err", "keys needs data");
                     return resp(handler.keys(req.get("data").getAsString()));
+                }
+                case "find" -> {
+                    String q = req.has("q") ? req.get("q").getAsString() : null;
+                    return resp(handler.find(q));
                 }
                 case "log" -> {
                     String value = req.has("value") ? req.get("value").getAsString() : "off";

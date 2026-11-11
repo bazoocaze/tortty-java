@@ -811,3 +811,30 @@ flood, and `--no-vsync` was parsed and never used.
 
 **Result.** 1045 checks (`FrameGateChecks`, 12, the clock injected), the visual
 gate still 21/21. `L4` leaves the table; `CONFIG` says what the flag does.
+
+## 2026-11-11 — `L9`: the scrollback search
+
+**Context.** `L9` said a large history is not searchable; there was no way to
+find anything the shell had printed minutes ago.
+
+**Activities.**
+
+- `Term.findAll` walks the whole buffer — history and the live screen, oldest
+  first —, a soft-wrapped paragraph as one line (the rule a triple click already
+  has, `B31`), with smart case. Every hit is an absolute line plus a cell range,
+  widened to cover a wide glyph and joined across rows when the match crosses a
+  wrap.
+- `Ctrl+Shift+F` opens a bar at the top right, its own field, so the query never
+  reaches the child: `Enter`/`Shift+Enter` walk the hits wrapping at both ends,
+  `Esc` closes, the count reads `n/total` or `not found`. The match on show is
+  amber with black ink, the other matches get the blue underline; the list is
+  rebuilt only when `layoutGen` or the rows the cap dropped move the absolute
+  lines, never once per read.
+- `find` on the debug socket answers `open`/`hits`/`at`, which is what the E2E
+  reads back.
+
+**Result.** 1071 checks (26 in `FindChecks`: a wrapped match, a wide glyph, the
+history, smart case) and 28 in the visual gate — the amber cells, the underline
+and the bar's border read from the pixels. Verified live in Xvfb `:99` through
+the socket, where `Ctrl+Shift+F` opened the bar and the query found the echoed
+line. `L9` leaves the table.

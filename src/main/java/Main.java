@@ -1651,6 +1651,16 @@ public final class Main {
                     return java.util.Map.of("keys", new int[] {bytes.length}, "hex", hex.toString(),
                             "handled", false);
                 }
+                @Override public java.util.Map<String, Object> find(String q) {
+                    Tab t = activeTab();
+                    if (t == null) return java.util.Map.of("ok", false, "err", "no tab");
+                    if (q != null) t.panel.findQuery(q);
+                    java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                    m.put("open", t.panel.findOpen());
+                    m.put("hits", t.panel.findHitCount());
+                    m.put("at", t.panel.findIndex());
+                    return m;
+                }
                 @Override public java.util.Map<String, Object> log(String value) {
                     debug.Log.set(value);
                     o.debugLog = (value == null || value.isEmpty() || value.equals("off")) ? null : value;

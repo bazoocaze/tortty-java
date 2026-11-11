@@ -32,6 +32,18 @@ Features implemented in the Java version of TorTTY.
 - Scrollback (10k default) with view offset: wheel, `Shift+Home/End` and
   `Shift+PageUp/PageDown`, an 8 px scrollbar with click/drag, and selection/copy
   through the history. Output keeps the line being read in place.
+- **Search** (`Ctrl+Shift+F`): a bar at the top right of the grid, its own
+  field, so typing goes there and never reaches the child. It looks at the
+  **whole buffer** — history and the live screen, oldest first — with a
+  soft-wrapped paragraph as one line, the rule a triple click already uses
+  (`B31`). Smart case: a query with an upper-case letter matches it exactly, one
+  without matches ignoring case. `Enter` walks on and `Shift+Enter` back,
+  wrapping at both ends; `Esc` closes and gives the keys back to the terminal.
+  The match on show is painted **amber** with black ink (readable on any theme),
+  every other match on screen gets the blue underline, and the count reads
+  `n/total` or `not found`. The list is rebuilt when the layout changes or the
+  scrollback cap drops a row — the only two things that move an absolute line —
+  and never once per read, so output cannot cost a search per frame.
 - Reflow on resize: soft-wrapped paragraphs (history included) are joined and
   rewrapped at the new width, preserving colours/attributes/underline/links and
   not splitting a wide pair.
@@ -123,7 +135,7 @@ Features implemented in the Java version of TorTTY.
 - Block, beam, or underline cursor, with blink.
 - `Ctrl+Shift+F2` opens the configuration file in an editor, in a new tab — see
   [`Config in a tab`](#config-in-a-tab-b37).
-- Shortcuts: Ctrl+Shift+T/W/N/Q, Ctrl+Shift+F2 (the config file, in its own
+- Shortcuts: Ctrl+Shift+T/W/N/Q/F (the search bar), Ctrl+Shift+F2 (the config file, in its own
   section below) and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
   and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
   (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
@@ -274,8 +286,11 @@ what the hot reload watches.
 
 - Unix JSON socket per line, 0600 permission.
 - Verbs: `state`, `resize`, `write`, `prof`, `screen`, `quit`; for automation
-  (`B23`) `text`, `keys` and `log`, plus `drop` (`B33`) and `toast` (`B38`); for
+  (`B23`) `text`, `keys`, `find` and `log`, plus `drop` (`B33`) and `toast` (`B38`); for
   workspaces `ws_new`, `ws_sel`, `ws_close` and `ws_rename`.
+- `find` opens the bar with `q` (and answers `open`, `hits` and `at`, the match
+  on show, -1 when there is none); without `q` it only reports, so the report
+  never opens the bar by itself — the E2E reads what a user would see.
 - `text` returns the lines of the active tab: `where` = `view` (default),
   `screen` (the live grid, offset ignored) or `history`, with `start`/`count`
   (count clamped to 1..2000); lines are right-trimmed.
@@ -365,19 +380,23 @@ what the hot reload watches.
 ## Tests
 
 - Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
-  snapshot, keys, config, cli, drop, mouse, fonts, toast, session, graphics),
-  asserting the grid after feeding bytes: printing and
+  snapshot, keys, config, cli, drop, mouse, fonts, toast, session, graphics,
+  frame, find), asserting the grid after feeding bytes: printing and
   wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
   clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
-  modes, kitty keyboard flags, replies to the child, and reflow.
+  modes, kitty keyboard flags, replies to the child, and reflow — plus the kitty
+  file media, the animation clock driven with injected times, the draw gate's
+  16 ms pacing, and the search's hits over a wrapped paragraph and a wide glyph.
 - Two entry points, one source of truth: `--selftest` runs them from the jar
   without a display (exit 0/1), and `mvn test` runs the same list through JUnit.
 - Visual gate (`B34`): `tools/render-check.sh` paints a known grid off screen
   (`render.Gate`, no X needed) and checks the pixels — SGR 41/42 colouring the
   right cell, a glyph inside its own cell and a blank cell staying blank, every
   row in its own pixel band, a still screen painting the same picture twice, the
-  cursor in its cell, a ligature run that does not spill, and bold that comes
-  from a real face. `--keep DIR` writes the PNGs.
+  cursor in its cell, a ligature run that does not spill, bold that comes
+  from a real face, and the search painted — the match amber in its own cells,
+  the other match underlined, the bar at the top right with its border.
+  `--keep DIR` writes the PNGs.
 - The toast is covered headlessly too (`checks/ToastChecks`): the model's life
   driven with an injected clock (durations, queue, the swap, the click, the
   220 ms slide), the python palette's contrast measured as WCAG ratios, and the
@@ -386,5 +405,5 @@ what the hot reload watches.
 
 ## Limitations
 
-See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L9`, `L13`,
+See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
 `L16`, `L18`, `L20`, `L21`).

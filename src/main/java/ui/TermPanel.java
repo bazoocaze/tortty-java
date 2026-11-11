@@ -45,6 +45,15 @@ public final class TermPanel extends JPanel implements KeyListener {
     private int selAX = -1, selBX = -1;
     private long selAbsAY = -1, selAbsBY = -1;
     private boolean selecting;
+    // scrollback search (`L9`): one bar over the top right of the grid
+    private JPanel findBar;
+    private javax.swing.JTextField findField;
+    private javax.swing.JLabel findCount;
+    private java.util.List<Term.Hit> findHits = java.util.List.of();
+    private int findAt = -1;
+    /** The generation the hits were taken on; a resize or dropped history moves the lines. */
+    private long findGen = -1, findEvicted = -1;
+    private boolean[] hitMarks = new boolean[0];
     private long lastLayoutGen = -1;
     private boolean draggingScrollbar;
     private int scrollbarGrab;
@@ -92,6 +101,8 @@ public final class TermPanel extends JPanel implements KeyListener {
         setTheme(theme);
         setOpaque(true);
         setBackground(new java.awt.Color(theme.bg));
+        // the find bar is a child at a fixed place, not a flow layout's next item
+        setLayout(null);
         setFocusable(true);
         // Sem isto o Swing consome Tab para navegação de foco e o terminal
         // nunca recebe 0x09 (completion do shell, troca de painel do mc).
@@ -291,6 +302,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         this.theme = t;
         colorCache.clear();
         setBackground(new java.awt.Color(t.bg));
+        styleFindBar();
         requestFullRepaint();
     }
 
@@ -307,6 +319,10 @@ public final class TermPanel extends JPanel implements KeyListener {
         this.familyName = family;
         this.fontSizePt = size;
         initFonts();
+        if (findField != null) {
+            findField.setFont(plain);
+            findCount.setFont(plain);
+        }
         revalidate();
         requestFullRepaint();
     }
@@ -378,6 +394,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     /** Schedule a paint for damaged rows plus the cursor row(s). */
     public void repaintDamage() {
         syncAnimTimer();
+        // a resize, a reflow or dropped history moved the lines the hits point at
+        if (!findHits.isEmpty() && findOutdated()) recomputeFind(false);
         if (term.dirtyAll || term.viewOff() > 0) {
             fullPaintPending = true;
             pace();
@@ -515,16 +533,41 @@ public final class TermPanel extends JPanel implements KeyListener {
             byte[] ul = term.lineUl(y);
             int[] ulColor = term.lineUlColor(y);
             int baseline = yPx + baselineOffset;
+            // the search: this row's hits, and the cells of the match on show (`L9`)
+            long hitAbs = term.absoluteLine(y);
+            boolean anyFind = !findHits.isEmpty() && !findOutdated();
+            Term.Hit selHit = anyFind ? selectedOn(hitAbs) : null;
+            int findSelFrom = -1, findSelTo = -1;
+            if (selHit != null) {
+                findSelFrom = selHit.abs() == hitAbs ? selHit.from() : 0;
+                findSelTo = selHit.endAbs() == hitAbs ? selHit.to() : cols;
+            }
+            if (anyFind) {
+                if (hitMarks.length < cols) hitMarks = new boolean[cols];
+                java.util.Arrays.fill(hitMarks, 0, cols, false);
+                for (int k = firstCovering(hitAbs); k < findHits.size(); k++) {
+                    Term.Hit hit = findHits.get(k);
+                    if (hit.abs() > hitAbs) break;
+                    if (!hit.covers(hitAbs) || hit == selHit) continue;
+                    int a0 = hit.abs() == hitAbs ? hit.from() : 0;
+                    int b0 = hit.endAbs() == hitAbs ? hit.to() : cols;
+                    for (int xx = a0; xx < b0 && xx < cols; xx++) hitMarks[xx] = true;
+                }
+            }
             int x = 0;
             while (x < cols) {
                 int i = off + x;
                 boolean sel = isSelected(x, y);
+                boolean hitSel = x >= findSelFrom && x < findSelTo;
                 int f = fg[i], b = bg[i], a = attr[i];
                 int uStyle = ul[i], uColor = ulColor[i];
                 int rf = theme.resolve(f, theme.fg);
                 int rb = theme.resolve(b, theme.bg);
                 if ((a & Term.INVERSE) != 0) { int t = rf; rf = rb; rb = t; }
                 if (sel) { int t = rf; rf = rb; rb = t; }
+                // the match on show wins over all of it: amber and black read on
+                // any theme, light or dark
+                if (hitSel) { rf = 0x000000; rb = 0xFFB300; }
                 Font font = fontFor(a);
                 int run = x + 1;
                 // the cursor is its own run with ligatures on: a `->` under the
@@ -533,8 +576,10 @@ public final class TermPanel extends JPanel implements KeyListener {
                 else while (run < cols) {
                     int j = off + run;
                     boolean jsel = isSelected(run, y);
+                    boolean jhit = run >= findSelFrom && run < findSelTo;
                     if (fg[j] != f || bg[j] != b || attr[j] != a
-                            || ul[j] != uStyle || ulColor[j] != uColor || jsel != sel) break;
+                            || ul[j] != uStyle || ulColor[j] != uColor || jsel != sel
+                            || jhit != hitSel) break;
                     if (ligatures && term.viewOff() == 0 && y == term.cy && run == term.cx) break;
                     run++;
                 }
@@ -558,6 +603,13 @@ public final class TermPanel extends JPanel implements KeyListener {
                     g2.setColor(color(0x6CB6FF));
                     for (int xx = x; xx < run; xx++) {
                         if (term.linkAtView(xx, y) != null) g2.fillRect(padding + xx * cellW, yPx + cellH - 2, cellW, 1);
+                    }
+                }
+                // the other matches of the query: the same blue, two pixels
+                if (anyFind && anyMarked(x, run)) {
+                    g2.setColor(color(0x6CB6FF));
+                    for (int xx = x; xx < run; xx++) {
+                        if (hitMarks[xx]) g2.fillRect(padding + xx * cellW, yPx + cellH - 2, cellW, 2);
                     }
                 }
                 x = run;
@@ -834,6 +886,10 @@ public final class TermPanel extends JPanel implements KeyListener {
         boolean ctrl = (modifiers & java.awt.event.InputEvent.CTRL_DOWN_MASK) != 0;
         boolean shift = (modifiers & java.awt.event.InputEvent.SHIFT_DOWN_MASK) != 0;
         if (ctrl && shift) {
+            if (keyCode == KeyEvent.VK_F) {
+                openFind();
+                return true;
+            }
             if (keyCode == KeyEvent.VK_C) {
                 copySelection();
                 return true;
@@ -868,6 +924,243 @@ public final class TermPanel extends JPanel implements KeyListener {
                 default -> { }
             }
         }
+        return false;
+    }
+
+    // ------------------------------------------------- find bar (`L9`)
+
+    /** The bar, built the first time it is asked for. */
+    private JPanel findBar() {
+        if (findBar != null) return findBar;
+        findBar = new JPanel(new java.awt.BorderLayout(6, 0));
+        findBar.setOpaque(true);
+        findField = new javax.swing.JTextField(16);
+        findField.setFont(plain);
+        findField.setBorder(null);
+        findCount = new javax.swing.JLabel("");
+        findCount.setFont(plain);
+        findBar.add(findField, java.awt.BorderLayout.CENTER);
+        findBar.add(findCount, java.awt.BorderLayout.EAST);
+        styleFindBar();
+        findBar.setVisible(false);
+        add(findBar);
+        bindFindKeys();
+        findField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { recomputeFind(true); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { recomputeFind(true); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { recomputeFind(true); }
+        });
+        return findBar;
+    }
+
+    /** The bar takes the terminal's own colours and font, so a theme or a font change follows. */
+    private void styleFindBar() {
+        if (findBar == null) return;
+        findBar.setBackground(color(theme.bg));
+        findBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new java.awt.Color(0x6CB6FF)),
+                BorderFactory.createEmptyBorder(3, 6, 3, 6)));
+        findField.setFont(plain);
+        findField.setOpaque(false);
+        findField.setForeground(color(theme.fg));
+        findField.setBackground(color(theme.bg));
+        findField.setCaretColor(color(theme.fg));
+        findCount.setFont(plain);
+        findCount.setForeground(color(theme.fg));
+    }
+
+    private void bindFindKeys() {
+        javax.swing.InputMap im = findField.getInputMap(JComponent.WHEN_FOCUSED);
+        javax.swing.ActionMap am = findField.getActionMap();
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "find.next");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, java.awt.event.InputEvent.SHIFT_DOWN_MASK),
+                "find.prev");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "find.close");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK),
+                "find.open");
+        am.put("find.next", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { stepFind(1); }
+        });
+        am.put("find.prev", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { stepFind(-1); }
+        });
+        am.put("find.close", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { closeFind(); }
+        });
+        am.put("find.open", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                findField.selectAll();
+            }
+        });
+    }
+
+    /** `Ctrl+Shift+F`: the bar opens over the top right of the grid, its text selected. */
+    private void openFind() {
+        findBar();
+        if (!findBar.isVisible()) {
+            findBar.setVisible(true);
+            revalidate();
+        }
+        findField.selectAll();
+        findField.requestFocusInWindow();
+        recomputeFind(true);
+        requestFullRepaint();
+    }
+
+    /**
+     * Opens the bar with {@code q} typed in — what the socket's {@code find} verb
+     * and the visual gate drive. {@code null} searches nothing and only reports
+     * (the caller reads the getters), so the report never opens the bar by itself.
+     */
+    public void findQuery(String q) {
+        if (q == null) return;
+        findBar();
+        if (!findBar.isVisible()) {
+            findBar.setVisible(true);
+            revalidate();
+        }
+        findField.setText(q);
+        findField.selectAll();
+        doLayout(); // headless: no validate pass is coming to place the bar
+        recomputeFind(true);
+        requestFullRepaint();
+    }
+
+    public boolean findOpen() { return findBar != null && findBar.isVisible(); }
+    public int findHitCount() { return findHits.size(); }
+    /** The match on show, 0-based; -1 when there is none. */
+    public int findIndex() { return findAt; }
+
+    public void closeFind() {
+        if (findBar == null || !findBar.isVisible()) return;
+        findBar.setVisible(false);
+        findHits = java.util.List.of();
+        findAt = -1;
+        revalidate();
+        requestFocusInWindow();
+        requestFullRepaint();
+    }
+
+    /** The bar sits at the top right, inside the padding, wherever the window is. */
+    @Override
+    public void doLayout() {
+        if (findBar != null && findBar.isVisible()) {
+            java.awt.Dimension d = findBar.getPreferredSize();
+            findBar.setBounds(Math.max(padding, getWidth() - padding - d.width),
+                    padding, d.width, d.height);
+        }
+    }
+
+    /**
+     * Rebuild the hit list, keeping the match the user is on when it still
+     * exists. The list is taken against the layout generation and the rows the
+     * scrollback cap dropped: those are the two things that move an absolute line.
+     */
+    private void recomputeFind(boolean scroll) {
+        if (findField == null) return;
+        Term.Hit prev = (findAt >= 0 && findAt < findHits.size()) ? findHits.get(findAt) : null;
+        String q = findField.getText();
+        findHits = (q == null || q.isEmpty()) ? java.util.List.of() : term.findAll(q);
+        findGen = term.layoutGen();
+        findEvicted = term.evictedRows();
+        findAt = -1;
+        if (prev != null) {
+            for (int i = 0; i < findHits.size(); i++) {
+                Term.Hit h = findHits.get(i);
+                if (h.abs() == prev.abs() && h.from() == prev.from()) {
+                    findAt = i;
+                    break;
+                }
+            }
+        }
+        if (findAt < 0 && !findHits.isEmpty()) {
+            // the nearest match at or above the top of the view, else the first below
+            long top = term.absoluteLine(0);
+            int idx = 0;
+            for (int i = 0; i < findHits.size(); i++) if (findHits.get(i).abs() <= top) idx = i;
+            findAt = idx;
+        }
+        if (scroll) showHit();
+        updateFindLabel();
+        repaint();
+    }
+
+    /** Enter and Shift+Enter: the next and the previous match, wrapping at the ends. */
+    private void stepFind(int delta) {
+        if (findHits.isEmpty() || findOutdated()) recomputeFind(false);
+        if (findHits.isEmpty()) {
+            updateFindLabel();
+            repaint();
+            return;
+        }
+        if (findAt < 0) findAt = delta > 0 ? 0 : findHits.size() - 1;
+        else findAt = Math.floorMod(findAt + delta, findHits.size());
+        showHit();
+        updateFindLabel();
+        repaint();
+    }
+
+    /** The match on screen a third down the view, unless it already is there. */
+    private void showHit() {
+        if (findAt < 0 || findAt >= findHits.size()) return;
+        long abs = findHits.get(findAt).abs();
+        long top = term.absoluteLine(0);
+        long bottom = term.absoluteLine(term.rows - 1);
+        if (abs >= top && abs <= bottom) return;
+        int y = Math.max(0, Math.min(term.rows / 3, term.rows - 1));
+        long total = term.absoluteLine(0) + term.viewOff();
+        int want = (int) (total + y - abs);
+        term.scrollView(want - term.viewOff());
+        requestFullRepaint();
+    }
+
+    private void updateFindLabel() {
+        if (findCount == null) return;
+        if (findField.getText().isEmpty()) {
+            findCount.setText("");
+            return;
+        }
+        if (findHits.isEmpty()) {
+            findCount.setText("not found");
+            findCount.setForeground(new java.awt.Color(0xFF5555));
+        } else {
+            findCount.setText((findAt + 1) + "/" + findHits.size());
+            findCount.setForeground(color(theme.fg));
+        }
+    }
+
+    /** A resize, a reflow or dropped history moved the lines the hits point at. */
+    private boolean findOutdated() {
+        return findGen != term.layoutGen() || findEvicted != term.evictedRows();
+    }
+
+    /** The match the user is on, when this row is inside it. */
+    private Term.Hit selectedOn(long abs) {
+        if (findAt < 0 || findAt >= findHits.size()) return null;
+        Term.Hit h = findHits.get(findAt);
+        return h.covers(abs) ? h : null;
+    }
+
+    /** The first hit that may reach this row: the hits are ordered and never overlap. */
+    private int firstCovering(long abs) {
+        int lo = 0, hi = findHits.size() - 1, ans = findHits.size();
+        while (lo <= hi) {
+            int m = (lo + hi) >>> 1;
+            if (findHits.get(m).endAbs() >= abs) {
+                ans = m;
+                hi = m - 1;
+            } else {
+                lo = m + 1;
+            }
+        }
+        return ans;
+    }
+
+    /** Whether any cell of the run carries a match other than the one on show. */
+    private boolean anyMarked(int from, int to) {
+        if (hitMarks.length < to) return false;
+        for (int x = from; x < to; x++) if (hitMarks[x]) return true;
         return false;
     }
 

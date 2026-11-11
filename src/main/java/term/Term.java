@@ -110,6 +110,9 @@ public final class Term {
     private long totalLines;
     /** Bumped when the grid layout changes and old anchors stop being valid. */
     private long layoutGen;
+    /** Rows dropped by the scrollback cap: every surviving absolute line shifts with them. */
+    private long evicted;
+    public long evictedRows() { return evicted; }
     public int scrollback() { return hist.size(); }
     public int historySize() { return hist.size(); }
     public void setScrollbackLimit(int n) {
@@ -726,6 +729,137 @@ public final class Term {
         return trimEnd(out);
     }
 
+    // ------------------------------------------------- search (`L9`)
+
+    /**
+     * One hit of {@link #findAll}: the cells {@code [from, to)} of the row
+     * {@code abs}, reaching {@code endAbs} when the match crossed a wrap.
+     */
+    public record Hit(long abs, int from, long endAbs, int to) {
+        /** Whether row {@code a} is inside the hit. */
+        public boolean covers(long a) { return a >= abs && a <= endAbs; }
+    }
+
+    /**
+     * Every hit of {@code q} in the buffer — history and the live screen, oldest
+     * first. A soft-wrapped paragraph is one line, as it is for a triple click
+     * (`B31`), so a match is found over the wrap too. Smart case: a query with an
+     * upper-case letter matches it exactly, one without is matched ignoring case.
+     */
+    public java.util.List<Hit> findAll(String q) {
+        java.util.List<Hit> out = new java.util.ArrayList<>();
+        if (q == null || q.isEmpty()) return out;
+        boolean ignore = !hasUpper(q);
+        long first = totalLines - hist.size();
+        long last = totalLines + rows - 1;
+        Para p = new Para();
+        long a = first;
+        while (a <= last) {
+            LineSpan ls = lineSpan(a);
+            p.reset();
+            for (long r = ls.first(); r <= ls.last(); r++) p.add(r, absText(r));
+            findIn(p, q, ignore, out);
+            a = ls.last() + 1;
+        }
+        return out;
+    }
+
+    /** Every hit inside one paragraph, in order and without overlapping. */
+    private void findIn(Para p, String q, boolean ignore, java.util.List<Hit> out) {
+        String text = p.text.toString();
+        int from = 0;
+        while (from + q.length() <= text.length()) {
+            int s = indexOf(text, q, from, ignore);
+            if (s < 0) return;
+            int e = s + q.length();
+            long[] at = new long[1];
+            int fromCell = cellAt(p, s, at);
+            long abs = at[0];
+            int lastCell = cellAt(p, e - 1, at);
+            long endAbs = at[0];
+            int to = lastCell + 1;
+            // a match that ends on a wide glyph must cover its other half too
+            int[] cps = rowCpAt(endAbs);
+            int base = rowOffsetAt(endAbs);
+            if (cps != null && to < cols && base >= 0 && base + to < cps.length
+                    && cps[base + to] == WIDE_CONT) {
+                to++;
+            }
+            out.add(new Hit(abs, fromCell, endAbs, to));
+            from = e;
+        }
+    }
+
+    /** The row and cell the character at {@code i} of the paragraph belongs to. */
+    private int cellAt(Para p, int i, long[] at) {
+        int r = p.rowOf(i);
+        at[0] = p.abs[r];
+        int off = i - p.rowStart[r];
+        int[] cps = rowCpAt(p.abs[r]);
+        int base = rowOffsetAt(p.abs[r]);
+        if (cps == null || base < 0) return 0;
+        String[] cls = rowClusterAt(p.abs[r]);
+        int n = 0;
+        for (int x = 0; x < cols && base + x < cps.length; x++) {
+            n += cellString(cps, cls, base + x).length();
+            if (n > off) return x;
+        }
+        return Math.max(0, cols - 1);
+    }
+
+    /** A query without an upper-case letter is matched ignoring case. */
+    private static boolean hasUpper(String s) {
+        for (int i = 0; i < s.length(); i++) if (Character.isUpperCase(s.charAt(i))) return true;
+        return false;
+    }
+
+    /** Index of {@code needle} in {@code hay}, folding case per character when asked to. */
+    private static int indexOf(String hay, String needle, int from, boolean ignore) {
+        if (!ignore) return hay.indexOf(needle, from);
+        int n = needle.length();
+        outer:
+        for (int i = from; i + n <= hay.length(); i++) {
+            for (int j = 0; j < n; j++) {
+                if (Character.toLowerCase(hay.charAt(i + j)) != Character.toLowerCase(needle.charAt(j))) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
+
+    /** One logical line: its rows, their text, and where each row's text starts. */
+    private static final class Para {
+        long[] abs = new long[4];
+        int[] rowStart = new int[4];
+        int rows;
+        final StringBuilder text = new StringBuilder();
+
+        void reset() { rows = 0; text.setLength(0); }
+
+        void add(long a, String s) {
+            if (rows == abs.length) {
+                abs = java.util.Arrays.copyOf(abs, rows * 2);
+                rowStart = java.util.Arrays.copyOf(rowStart, rows * 2);
+            }
+            rowStart[rows] = text.length();
+            abs[rows] = a;
+            rows++;
+            text.append(s);
+        }
+
+        /** The last row starting at or before {@code i}: the one holding it. */
+        int rowOf(int i) {
+            int r = 0;
+            for (int k = 0; k < rows; k++) {
+                if (rowStart[k] <= i) r = k;
+                else break;
+            }
+            return r;
+        }
+    }
+
     public void clearDamage() { dirtyAll = false; if (dirty != null) java.util.Arrays.fill(dirty, false); }
 
     /**
@@ -1101,6 +1235,7 @@ public final class Term {
                 System.arraycopy(link, off, l, 0, cols);
                 if (hist.size() >= histCap && !hist.isEmpty()) {
                     hist.pollFirst();
+                    evicted++;
                     // what was pinned to the row that just left dies with it
                     images.dropAbove(-hist.size());
                 }

@@ -71,6 +71,7 @@ public final class Gate {
         cursorIsDrawn();
         ligatureStaysInItsCells();
         boldIsARealFace();
+        theSearchIsPainted();
 
         System.out.println(failures == 0
                 ? "render-check: " + checks + " checks, PASSED"
@@ -215,6 +216,49 @@ public final class Gate {
         p.setSize(t.cols * p.cellW(), t.rows * p.cellH());
         feed(t, E + "[0m" + E + "[2J" + E + "[H" + content);
         return paint(p, t);
+    }
+
+    /**
+     * The search painted (`L9`): the match on show is amber inside its own
+     * cells, another match of the same query gets the blue underline at the
+     * bottom of the cell, and the bar sits at the top right with its border.
+     */
+    private static void theSearchIsPainted() {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        t.cursorVisible = false;
+        TermPanel p = panel(t);
+        feed(t, E + "[0m" + E + "[2J" + E + "[H" + "nothing here" + E + "[2;1H" + "beta beta");
+        p.findQuery("beta");
+        eq("two hits, the first one on show", new int[] {p.findHitCount(), p.findIndex()},
+                new int[] {2, 0});
+        int[] px = paint(p, t);
+        BufferedImage img = image(px, p.getWidth(), p.getHeight());
+        int cw = p.cellW(), ch = p.cellH();
+        is("the match on show paints amber in its cells",
+                count(img, 0, ch, cw, ch, 0xFFB300) > 0);
+        eq("the cell beside it is untouched", count(img, 4 * cw, ch, cw, ch, 0xFFB300), 0);
+        is("the other match gets the blue underline",
+                count(img, 5 * cw, 2 * ch - 2, 4 * cw, 2, 0x6CB6FF) > 0);
+        eq("and the empty cell between them is not marked",
+                count(img, 4 * cw, 2 * ch - 2, cw, 2, 0x6CB6FF), 0);
+        eq("the bar is at the top right, with its border",
+                img.getRGB(img.getWidth() - 1, 0) & 0xFFFFFF, 0x6CB6FF);
+        save("search", img);
+        p.closeFind();
+        eq("closing takes the hits with it", new int[] {p.findHitCount(), p.findIndex()},
+                new int[] {0, -1});
+    }
+
+    /** Pixels of the rectangle that are exactly {@code rgb}. */
+    private static int count(BufferedImage img, int x, int y, int w, int h, int rgb) {
+        int n = 0;
+        for (int yy = y; yy < y + h && yy < img.getHeight(); yy++) {
+            for (int xx = x; xx < x + w && xx < img.getWidth(); xx++) {
+                if ((img.getRGB(xx, yy) & 0xFFFFFF) == rgb) n++;
+            }
+        }
+        return n;
     }
 
     // ---------------------------------------------------------------- plumbing

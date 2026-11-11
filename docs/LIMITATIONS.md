@@ -9,7 +9,6 @@ go to `HISTORY.md` (probably through a `BACKLOG` activity).
 | L3 | No IME/composition. Shaping exists only where `B27` puts it: with `ligatures off` (the default) every cell is drawn alone, so a run of Arabic or Devanagari cells is never joined or reordered; with `standard`/`all` a run of plain cells goes through Java2D's `TextLayout`, which shapes it, but a one-cell run still does not (`L18`) | CJK typed from a composition window cannot be entered at all; a complex script looks right only when the run happens to be shaped, which the default does not do |
 | L5 | Unix-specific integration | AF_UNIX socket, `$SHELL`, `/tmp`, `Xft.dpi`, and X11 fonts are not portable as they are |
 | L7 | No splits (more than one terminal in the same view) | tabs (`B20`) and workspaces (`B21`) exist; side by side in one view does not |
-| L9 | No scrollback search | large history is not searchable |
 | L13 | No colour emoji: Java2D cannot rasterise a face whose glyphs are colour bitmaps — measured here (JDK 21, `Noto Color Emoji` by name, U+1F600, sizes 16–137): `canDisplay` answers yes and the glyph paints **no ink at all**; `getAllFonts()` does not even list it. The fallback therefore lands on a text face: `DejaVu Sans` covers the codepoint and draws it as a monochrome outline in the foreground colour | emoji come out as monochrome outlines, never in colour; a codepoint no installed text face covers is a blank cell |
 | L16 | kitty images: no z-index, placement id, Unicode placeholder, source crop, frame composition (`a=c`) or a frame edit (`r=`/`Y=`) | images are stacked in arrival order only, and a client that composes or edits frames gets `EINVAL` instead of being drawn |
 | L18 | Java2D has no `dlig`/`calt` switch and shapes no single-cell run: `ligatures standard` and `all` behave the same (`B27`), and a run of one cell is never joined | the two values differ only in intent; a font without the ligature (DejaVu Sans Mono has none) shows no difference at all |
@@ -27,4 +26,6 @@ are implemented, so `DECRQM` answers them and the behaviour is in `FEATURES`.
 horizontal wheel or buttons 8/9, and a measurement said otherwise — it delivers
 them renumbered (`X11 - 2` past the wheel), so only the `fromAwt` table was
 wrong. `L4` left on 2026-11-11: the 16 ms draw gate is in (`render.FrameGate`,
-tested by `FrameGateChecks`) and `--no-vsync` is what turns it off.
+tested by `FrameGateChecks`) and `--no-vsync` is what turns it off. `L9` left the
+same day: `Ctrl+Shift+F` opens a bar over the whole buffer (`Term.findAll`,
+`FindChecks`, and the pixels in the visual gate).
