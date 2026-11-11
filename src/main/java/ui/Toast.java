@@ -9,10 +9,13 @@ package ui;
  * come up — now land on the screen, which is the only place a launch from an
  * icon can show anything.
  *
- * <p>Three shapes, one per severity, with the python palette as its own token
- * set (`L21`): the toast is not derived from the terminal background, so it
- * stays dark and readable on a light theme. The durations are python's too: 3 s
- * when it went well and 10 s when it did not, because an error is worth reading.
+ * <p>Three shapes, one per severity. The colours are the terminal's own
+ * ({@code B40}): the hue is the palette's red/green/yellow, the fill is the
+ * theme background tinted with it and the inks are chosen for the fill — so
+ * `OSC 4` and a light theme both reach the box, and the python tokens are only
+ * the fallback when there is no palette to ask ({@code L21} was the half that
+ * said otherwise). The durations are python's: 3 s when it went well and 10 s
+ * when it did not, because an error is worth reading.
  *
  * <p>Pure model: no Swing, no clock of its own — every method that needs the
  * time receives it, so the checks can drive whole lives of a toast.
@@ -28,27 +31,107 @@ public final class Toast {
     /** Older notices are dropped: five waiting is already more than anyone reads. */
     private static final int QUEUE_MAX = 8;
 
-    /** Title ink and detail ink; the bar and the border use {@link Sev#accent}. */
+    /** Title ink and detail ink on a dark box; a light box uses {@link #LIGHT_TITLE}. */
     public static final int TITLE_INK = 0xFFFFFF;
     public static final int DETAIL_INK = 0xDDDDDD;
+    /** The same pair on a light box — a light theme resolves a light fill (`B40`). */
+    public static final int LIGHT_TITLE = 0x000000;
+    public static final int LIGHT_DETAIL = 0x222222;
 
-    /** Severity decides the two colours and how long the box stays. */
+    /** Severity decides how long the box stays and which palette colour names it. */
     public enum Sev {
-        OK(0x1F4D2E, 0x4C9E67, 3000, "ok"),
-        WARN(0x5C4A12, 0xB3912E, 10000, "warn"),
-        ERR(0x5C1F1F, 0xC05252, 10000, "error");
+        OK(0x1F4D2E, 0x4C9E67, 3000, "ok", 2),
+        WARN(0x5C4A12, 0xB3912E, 10000, "warn", 3),
+        ERR(0x5C1F1F, 0xC05252, 10000, "error", 1);
 
+        /** The python fill: the fallback when there is no palette to ask. */
         public final int bg;
+        /** The python bar/border: the fallback when there is no palette to ask. */
         public final int accent;
         public final long millis;
         public final String label;
+        /** Which of the terminal's sixteen colours names this severity (`B40`). */
+        public final int palIdx;
 
-        Sev(int bg, int accent, long millis, String label) {
+        Sev(int bg, int accent, long millis, String label, int palIdx) {
             this.bg = bg;
             this.accent = accent;
             this.millis = millis;
             this.label = label;
+            this.palIdx = palIdx;
         }
+    }
+
+    /** One box's four colours, resolved for the palette and background in effect. */
+    public record Box(int fill, int bar, int title, int detail) {}
+
+    /**
+     * The colours of one box in the terminal's own colours ({@code B40}): the
+     * hue is the palette's red/green/yellow (so `OSC 4` themes the toast), the
+     * fill is the theme background tinted with it (so a light theme gets a light
+     * box), and the inks are picked for that fill — title 7:1, detail 4.5:1,
+     * bar 2.5:1 as WCAG ratios, held for any palette by pulling the fill toward
+     * the background and walking the bar away from it until each passes. No
+     * palette (a check painting without a terminal) answers python's own pair.
+     */
+    public static Box box(Sev sev, int themeBg, int[] palette) {
+        if (palette == null || palette.length < 16) {
+            return new Box(sev.bg, sev.accent, TITLE_INK, DETAIL_INK);
+        }
+        int accent = palette[sev.palIdx] & 0xFFFFFF;
+        boolean light = lum(themeBg) > 0.176;
+        int title = light ? LIGHT_TITLE : TITLE_INK;
+        int detail = light ? LIGHT_DETAIL : DETAIL_INK;
+        double t = light ? 0.30 : 0.40;
+        int fill = blend(themeBg, accent, t);
+        while (t > 0 && ratio(title, fill) < 7.0) {
+            t -= 0.05;
+            fill = blend(themeBg, accent, t);
+        }
+        // even the background itself cannot carry the title (a mid-grey theme):
+        // push the fill the rest of the way, which always lands on 21:1
+        while (ratio(title, fill) < 7.0) {
+            fill = blend(fill, light ? 0xFFFFFF : 0x000000, 0.15);
+        }
+        int bar = accent;
+        if (ratio(bar, fill) < 2.5) {
+            int toward = light ? 0x000000 : 0xFFFFFF;
+            for (double k = 0.2; k <= 1.0; k += 0.2) {
+                bar = blend(accent, toward, k);
+                if (ratio(bar, fill) >= 2.5) break;
+            }
+        }
+        return new Box(fill, bar, title, detail);
+    }
+
+    /** Channel-wise mix: {@code a} toward {@code b} by {@code t}. */
+    private static int blend(int a, int b, double t) {
+        int r = mix((a >> 16) & 255, (b >> 16) & 255, t);
+        int g = mix((a >> 8) & 255, (b >> 8) & 255, t);
+        int bl = mix(a & 255, b & 255, t);
+        return (r << 16) | (g << 8) | bl;
+    }
+
+    private static int mix(int a, int b, double t) {
+        return Math.max(0, Math.min(255, (int) Math.round(a + (b - a) * t)));
+    }
+
+    /** WCAG relative luminance of a 0xRRGGBB colour. */
+    public static double lum(int rgb) {
+        return 0.2126 * ch((rgb >> 16) & 0xFF)
+                + 0.7152 * ch((rgb >> 8) & 0xFF)
+                + 0.0722 * ch(rgb & 0xFF);
+    }
+
+    /** WCAG contrast ratio between two 0xRRGGBB colours. */
+    public static double ratio(int a, int b) {
+        double la = lum(a), lb = lum(b);
+        return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    }
+
+    private static double ch(int v) {
+        double s = v / 255.0;
+        return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
     }
 
     /** One notice: a title, an optional second line, and how long it stays. */

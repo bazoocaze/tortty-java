@@ -46,13 +46,16 @@ public final class ToastLayer extends JComponent {
 
     private final Toast toast = new Toast();
     private final Supplier<Font> fonts;
+    /** The theme in effect on the front tab: the box takes its colours from it (`B40`). */
+    private final Supplier<term.Theme> themes;
     private final Timer tick;
     private Runnable onErrorClick = () -> { };
     /** Where the last paint put the box; a click elsewhere is not ours. */
     private Rectangle box;
 
-    public ToastLayer(Supplier<Font> fonts) {
+    public ToastLayer(Supplier<Font> fonts, Supplier<term.Theme> themes) {
         this.fonts = fonts;
+        this.themes = themes;
         setOpaque(false);
         setVisible(false);
         addMouseListener(new MouseAdapter() {
@@ -153,7 +156,8 @@ public final class ToastLayer extends JComponent {
                 RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         Font f = fonts == null ? null : fonts.get();
         if (f == null) f = getFont();
-        box = paint(g2, s, getWidth(), getHeight(), f);
+        term.Theme th = themes == null ? null : themes.get();
+        box = paint(g2, s, getWidth(), getHeight(), f, th);
     }
 
     /**
@@ -162,6 +166,16 @@ public final class ToastLayer extends JComponent {
      * an image and read the pixels back.
      */
     public static Rectangle paint(Graphics2D g2, Toast.Shown s, int w, int h, Font font) {
+        return paint(g2, s, w, h, font, null);
+    }
+
+    /**
+     * The theme-aware painter: with a theme the box is resolved from the
+     * terminal's palette and background (`B40`), without it — a check painting
+     * with no terminal to ask — it falls back to the python pair.
+     */
+    public static Rectangle paint(Graphics2D g2, Toast.Shown s, int w, int h,
+                                  Font font, term.Theme theme) {
         if (s == null || w <= 0 || h <= 0) return null;
         if (font != null) g2.setFont(font);
         FontMetrics fm = g2.getFontMetrics();
@@ -180,6 +194,8 @@ public final class ToastLayer extends JComponent {
                 + (lines.isEmpty() ? 0 : LINE_GAP + lines.size() * fm.getHeight()) + pad;
         int x = Math.max(4, (w - boxW) / 2);
         int y = h - MARGIN - boxH;
+        Toast.Box col = Toast.box(s.sev(), theme == null ? 0 : theme.bg,
+                theme == null ? null : theme.palette);
 
         // slide up on arrival and down on the way out, fading with it
         float eased = 1f - (1f - s.progress()) * (1f - s.progress());
@@ -194,17 +210,17 @@ public final class ToastLayer extends JComponent {
             g2.fillRoundRect(x - i, y + 3 - i, boxW + 2 * i, boxH + 2 * i,
                     RADIUS + 2 * i, RADIUS + 2 * i);
         }
-        g2.setColor(new Color(s.sev().bg));
+        g2.setColor(new Color(col.fill()));
         g2.fillRoundRect(x, y, boxW, boxH, RADIUS, RADIUS);
-        g2.setColor(new Color(s.sev().accent));
+        g2.setColor(new Color(col.bar()));
         g2.drawRoundRect(x, y, boxW, boxH, RADIUS, RADIUS);
         g2.fillRoundRect(x + pad, y + pad, BAR, boxH - 2 * pad, 4, 4);
 
         int tx = x + pad + BAR + GAP;
         int titleBase = y + pad + fm.getAscent();
-        g2.setColor(new Color(Toast.TITLE_INK));
+        g2.setColor(new Color(col.title()));
         g2.drawString(title, tx, titleBase);
-        g2.setColor(new Color(Toast.DETAIL_INK));
+        g2.setColor(new Color(col.detail()));
         for (int i = 0; i < lines.size(); i++) {
             g2.drawString(lines.get(i), tx,
                     titleBase + fm.getHeight() + LINE_GAP + i * fm.getHeight());

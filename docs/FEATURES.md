@@ -192,8 +192,14 @@ place a launch from a desktop icon can show anything.
   away. A click *beside* the box is forwarded to the grid.
 - `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
   background tab keeps its badge, as before.
-- The colours are their own token set (`ui/Toast.Sev`), not derived from the
-  terminal palette, so the box stays dark and readable on a light theme (`L21`).
+- The colours are the terminal's own (`B40`): the hue is the palette's
+  red/green/yellow (so `OSC 4` themes the box live), the fill is the front
+  tab's background tinted with it (a light theme gets a light box and dark
+  ink), and the three WCAG ratios — title 7:1, detail 4.5:1, bar 2.5:1 — are
+  held for any palette by pulling the fill toward the background and walking
+  the bar away from it (`Toast.box`). With no palette to ask (a check painting
+  headless) the python pair is the fallback. See `L21` for the half that
+  remains: the click under the glass pane.
 
 ## Config in a tab (`B37`)
 

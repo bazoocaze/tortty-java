@@ -24,6 +24,7 @@ public final class ToastChecks {
     public static void run(Check c) {
         model(c);
         contrast(c);
+        resolved(c);
         pixels(c);
     }
 
@@ -118,6 +119,75 @@ public final class ToastChecks {
 
     private static String f(double v) { return String.format(Locale.ROOT, "%.1f", v); }
 
+    // ------------------------------------------- the colours in effect (`B40`)
+
+    /**
+     * The box is the terminal's own: hue from the palette (so `OSC 4` themes
+     * it), fill from the background (so a light theme gets a light box), and
+     * the python pair only when there is no palette to ask. The last block
+     * sweeps hostile palettes against hostile backgrounds — whatever the two
+     * say, the three ratios must hold.
+     */
+    private static void resolved(Check c) {
+        int[] dark = term.Color.PALETTE16.clone();
+
+        // no palette: python's own pair, byte for byte
+        Toast.Box plain = Toast.box(Toast.Sev.ERR, 0x000000, null);
+        c.eq("no palette, the python fill", plain.fill(), Toast.Sev.ERR.bg);
+        c.eq("no palette, the python bar", plain.bar(), Toast.Sev.ERR.accent);
+        c.eq("no palette, the python title", plain.title(), Toast.TITLE_INK);
+
+        // a dark theme: the hue is the palette's, the fill stays dark
+        Toast.Box err = Toast.box(Toast.Sev.ERR, 0x000000, dark);
+        c.is("error takes the red of the palette (" + f(err.bar() / (double) 0xFFFFFF) + ")",
+                ((err.bar() >> 16) & 0xFF) > ((err.bar() >> 8) & 0xFF));
+        c.is("the dark fill is dark", Toast.lum(err.fill()) < 0.176);
+        c.is("white title on it (" + f(ratio(err.title(), err.fill())) + ")",
+                err.title() == Toast.TITLE_INK && ratio(err.title(), err.fill()) >= 7.0);
+
+        // `OSC 4` recolours the red and the box follows it
+        int[] magenta = dark.clone();
+        magenta[1] = 0xFF00FF;
+        Toast.Box after = Toast.box(Toast.Sev.ERR, 0x000000, magenta);
+        c.is("OSC 4 reached the box (bar " + Integer.toHexString(after.bar()) + ")",
+                after.bar() != err.bar()
+                        && ((after.bar() >> 16) & 0xFF) > ((after.bar() >> 8) & 0xFF)
+                        && (after.bar() & 0xFF) > ((after.bar() >> 8) & 0xFF));
+
+        // a light theme: the fill follows the background and the ink flips
+        int[] light = term.Color.PALETTE16.clone();
+        light[2] = 0x00AF00;
+        Toast.Box ok = Toast.box(Toast.Sev.OK, 0xFFFFFF, light);
+        c.is("light theme, light fill", Toast.lum(ok.fill()) > 0.176);
+        c.is("and dark ink on it", ok.title() == Toast.LIGHT_TITLE
+                && ratio(ok.title(), ok.fill()) >= 7.0);
+        c.is("the green still reads (" + f(ratio(ok.detail(), ok.fill())) + ")",
+                ratio(ok.detail(), ok.fill()) >= 4.5);
+
+        // whatever palette, whatever background: the three ratios hold
+        int[] backgrounds = {0x000000, 0xFFFFFF, 0x808080, 0x1E1E2E, 0xFFF8E7};
+        int[] hostile = {0x000000, 0xFFFFFF, 0x808080, 0xCD0000, 0x00FF00,
+                0xFFFF00, 0x0000EE, 0x7F7F7F, 0x010101, 0xFEFEFE};
+        for (int bg : backgrounds) {
+            for (int idx : new int[]{1, 2, 3}) {
+                for (int colour : hostile) {
+                    int[] pal = term.Color.PALETTE16.clone();
+                    pal[idx] = colour;
+                    Toast.Sev sev = idx == 1 ? Toast.Sev.ERR : idx == 2 ? Toast.Sev.OK : Toast.Sev.WARN;
+                    Toast.Box b = Toast.box(sev, bg, pal);
+                    String tag = sev.label + " on " + Integer.toHexString(bg)
+                            + " with " + Integer.toHexString(colour);
+                    c.is(tag + ": title 7:1 (" + f(ratio(b.title(), b.fill())) + ")",
+                            ratio(b.title(), b.fill()) >= 7.0);
+                    c.is(tag + ": detail 4.5:1 (" + f(ratio(b.detail(), b.fill())) + ")",
+                            ratio(b.detail(), b.fill()) >= 4.5);
+                    c.is(tag + ": bar 2.5:1 (" + f(ratio(b.bar(), b.fill())) + ")",
+                            ratio(b.bar(), b.fill()) >= 2.5);
+                }
+            }
+        }
+    }
+
     /** WCAG relative luminance contrast between two 0xRRGGBB colours. */
     static double ratio(int a, int b) {
         double la = lum(a), lb = lum(b);
@@ -190,17 +260,37 @@ public final class ToastChecks {
                 new Toast.Shown("config", "", Toast.Sev.OK, 1f));
         Rectangle rSmall = small.box(), rBig = big.box();
         c.is("the font decides the size", rSmall != null && rBig != null && rBig.height > rSmall.height);
+
+        // with a theme the painter puts the resolved colours, not the python pair
+        term.Theme themed = new term.Theme(0xD6D6D6, 0x101010, 0xD6D6D6,
+                term.Color.PALETTE16);
+        themed.palette[1] = 0xFF00FF;                       // OSC 4, red -> magenta
+        Toast.Box want = Toast.box(Toast.Sev.ERR, themed.bg, themed.palette);
+        Shot th = shot(W, H, font, new Toast.Shown("Configuration error", "no path", Toast.Sev.ERR, 1f), themed);
+        Rectangle rTh = th.box();
+        c.is("the themed box is painted", rTh != null);
+        if (rTh != null) {
+            c.eq("its fill is the resolved one",
+                    argb(th.img(), rTh.x + rTh.width - 6, rTh.y + rTh.height / 2), want.fill());
+            c.eq("its border is the resolved bar",
+                    argb(th.img(), rTh.x + rTh.width / 2, rTh.y), want.bar());
+            c.is("and it is not the python pair", want.fill() != Toast.Sev.ERR.bg);
+        }
     }
 
     /** One frame: the image, and where the painter said the box went. */
     private record Shot(BufferedImage img, Rectangle box) {}
 
     private static Shot shot(int w, int h, Font font, Toast.Shown s) {
+        return shot(w, h, font, s, null);
+    }
+
+    private static Shot shot(int w, int h, Font font, Toast.Shown s, term.Theme theme) {
         BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
         Graphics2D g2 = img.createGraphics();
         g2.setColor(Color.BLACK);
         g2.fillRect(0, 0, w, h);
-        Rectangle r = ui.ToastLayer.paint(g2, s, w, h, font);
+        Rectangle r = ui.ToastLayer.paint(g2, s, w, h, font, theme);
         g2.dispose();
         return new Shot(img, r);
     }

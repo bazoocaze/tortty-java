@@ -227,6 +227,10 @@ public final class Main {
             toastLayer = new ui.ToastLayer(() -> {
                 Tab t = activeTab();
                 return t == null ? null : t.panel.font();
+            }, () -> {
+                // the box follows the front tab's palette, so `OSC 4` themes it (`B40`)
+                Tab t = activeTab();
+                return t == null ? null : t.panel.theme();
             });
             toastLayer.setOnErrorClick(this::openConfig);
             frame.setGlassPane(toastLayer);

@@ -724,3 +724,26 @@ reports `autowrap` and `origin`. 25 new checks in `TermChecks.originAndWrap`
 chars stay on one row, `CUP 1;1` with region 5..10 lands on row 4, `CUP 99;1`
 stops at row 9, `DECSTBM` homes to row 11 with origin on, and origin off puts
 `CUP 20;1` on row 19.
+
+## 2026-11-10 — the toast takes the terminal's colours (`B40`)
+
+The palette half of `L21`: the box carried python's own hex and ignored the
+terminal, so `OSC 4` did nothing for it and a light theme kept a dark box.
+Now `Toast.box(sev, themeBg, palette)` resolves the four colours at paint: the
+hue is the palette's `1`/`2`/`3` (error/ok/warn), the fill is the front tab's
+background tinted toward it (40 % on a dark theme, 30 % on a light one, decided
+by WCAG luminance), the ink flips white/black with the fill, and the three
+ratios python measures — title 7:1, detail 4.5:1, bar 2.5:1 — are held for
+*any* palette: the fill walks toward the background and the bar away from its
+hue until each passes. The python pair stays as the fallback when there is no
+palette (a headless check). `ToastLayer` reads the front tab's theme through a
+supplier, so a live `OSC 4`/`OSC 11` reaches the next frame.
+
+Verified: 970 checks (`ToastChecks.resolved` sweeps ten hostile palette
+colours against five backgrounds — 150 WCAG triples — plus a themed pixel
+paint against the resolved colours), and E2E in Xvfb where the app's own
+security warning came out `#525200` = 0.4 x the default yellow, an error
+turned `#660066` after `printf '\033]4;1;#FF00FF\007'` (the first attempt
+wrote the ESC into the shell's stdin and the readline echo broke it — the
+sequence has to come from the child's output), and `OSC 11` white gave a pale
+green box with black text. `L21` keeps only the click indirection.

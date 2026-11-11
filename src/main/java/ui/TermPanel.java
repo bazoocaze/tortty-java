@@ -282,6 +282,9 @@ public final class TermPanel extends JPanel implements KeyListener {
         requestFullRepaint();
     }
 
+    /** The theme in effect here (live under `OSC 4`); the toast colours read it (`B40`). */
+    public Theme theme() { return theme; }
+
     public void setPadding(int px) {
         padding = Math.max(0, Math.min(200, px));
         revalidate();
