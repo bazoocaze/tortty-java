@@ -984,3 +984,27 @@ when `z=0`.
 **Result.** `selftest` passes 1164 checks (graphics 129), `render-check` 28/28;
 `L16` keeps placement id, Unicode placeholder, source crop, composition and
 frame edits.
+
+## 2026-11-12 — the tab strip wears the theme too (`B61` closed)
+
+**Context.** After the column, the `JTabbedPane` was the last light chrome:
+Metal cards and a 3 px content border beside a black grid. The backlog offered
+a `MetalTheme` or the `TabbedPane.*` keys; a global theme would also recolour
+the popup and the dialogs, which stay the desktop's by decision.
+
+**Activities.**
+
+- `ui/Chrome.java`: the recipe in one place — seven `TabbedPane.*` keys from
+  the palette, our size, opaque with our background. One white edge answered
+  no key (it comes from the theme), so a `MetalTabbedPaneUI` that leaves the
+  four content-border edges quiet; new strips dress at birth, living ones
+  re-install on reload (`Main.syncTabChrome`).
+- `render/Gate.java`: `theTabStripWearsTheTheme` paints the app's own recipe
+  headless — selected card the lift, unselected the background, light labels,
+  no border under the strip.
+- Live in Xvfb: the line under the tabs went from 231 to 6 in brightness, and
+  a light-theme reload repaints strip, column and grid without breaking layout.
+
+**Result.** `selftest` passes 1164 checks, `render-check` 34/34; the backlog is
+empty, and the popup, the rename dialog and the divider are still the
+desktop's on purpose.

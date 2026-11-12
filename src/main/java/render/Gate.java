@@ -2,6 +2,7 @@ package render;
 
 import term.Term;
 import term.Theme;
+import ui.Chrome;
 import ui.TermPanel;
 
 import java.awt.Graphics2D;
@@ -72,6 +73,7 @@ public final class Gate {
         ligatureStaysInItsCells();
         boldIsARealFace();
         theSearchIsPainted();
+        theTabStripWearsTheTheme();
 
         System.out.println(failures == 0
                 ? "render-check: " + checks + " checks, PASSED"
@@ -248,6 +250,51 @@ public final class Gate {
         p.closeFind();
         eq("closing takes the hits with it", new int[] {p.findHitCount(), p.findIndex()},
                 new int[] {0, -1});
+    }
+
+    /**
+     * The tab strip wears the terminal palette (`B61`): the selected card is
+     * the 10% lift, the rest is the background, the labels are light, and no
+     * content border frames the page. Painted through the app's own recipe,
+     * so a key that stops being honoured fails here.
+     */
+    private static void theTabStripWearsTheTheme() {
+        Chrome.tabChrome(0x000000, 0xD6D6D6);
+        javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
+        Chrome.chromePane(p, 0x000000);
+        p.addTab("alpha", new javax.swing.JLabel());
+        p.addTab("beta", new javax.swing.JLabel());
+        p.setSize(640, 90);
+        p.doLayout();
+        BufferedImage img = new BufferedImage(640, 90, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        p.paint(g);
+        g.dispose();
+        save("tabs", img);
+        java.awt.Rectangle sel = p.getBoundsAt(0);
+        eq("the selected card is the lift",
+                img.getRGB(sel.x + 4, sel.y + 4) & 0xFFFFFF, 0x151515);
+        java.awt.Rectangle other = p.getBoundsAt(1);
+        eq("the other card is the background",
+                img.getRGB(other.x + 4, other.y + 4) & 0xFFFFFF, 0x000000);
+        is("the labels are light ink", lit(img, sel) > 30 && lit(img, other) > 30);
+        eq("past the last tab is the background",
+                img.getRGB(img.getWidth() - 1, 10) & 0xFFFFFF, 0x000000);
+        eq("no content border under the strip",
+                img.getRGB(320, sel.y + sel.height + 1) & 0xFFFFFF, 0x000000);
+        eq("the page is the background",
+                img.getRGB(320, 80) & 0xFFFFFF, 0x000000);
+    }
+
+    /** Pixels with every channel past the middle: the light ink on dark chrome. */
+    private static int lit(BufferedImage img, java.awt.Rectangle r) {
+        int n = 0;
+        for (int y = r.y; y < r.y + r.height && y < img.getHeight(); y++)
+            for (int x = r.x; x < r.x + r.width && x < img.getWidth(); x++) {
+                int rgb = img.getRGB(x, y);
+                if (((rgb >> 16) & 255) > 128 && ((rgb >> 8) & 255) > 128 && (rgb & 255) > 128) n++;
+            }
+        return n;
     }
 
     /** Pixels of the rectangle that are exactly {@code rgb}. */

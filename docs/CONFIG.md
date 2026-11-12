@@ -34,7 +34,7 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 | `debug_log` | empty | append-only debug log path (`B23`); empty = off. The `log` verb of the socket changes it at runtime |
 | `restore_state` | `layout` | what comes back on the next run (`B26`): `none` (one tab, a clean screen — nothing read or written), `layout` (the workspaces and tabs of the last run, in their order, the front where it was) or `content` (the layout **and** what the tabs had on screen and in the history — a photograph, not the process: the shell starts again in the same directory). **Content is opt-in**: with the default `layout` no `session-*.ans` is written (leftovers are deleted), so a run that only restores tabs is a run without this key — `state` on the socket reports the live value |
 | `foreground` | `#d6d6d6` | text colour; the workspace column's labels follow it too |
-| `background` | `#000000` | background colour; the workspace column follows it (the tab strip still uses the desktop's, `B61`) |
+| `background` | `#000000` | background colour; the workspace column and the tab strip follow it |
 | `cursor_color` | `#d6d6d6` | cursor colour |
 | `color0` … `color15` | xterm palette | ANSI palette; the 6×6 cube and greys are computed |
 

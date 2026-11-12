@@ -9,6 +9,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import ui.Chrome;
 import ui.Toast;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -221,6 +222,7 @@ public final class Main {
             });
             frame.setContentPane(split);
             paintChrome(cfg.theme().bg);
+            syncTabChrome(); // keys first: every strip dresses itself at birth
             // the notice belongs to the window, not to the tab in front: a
             // glass pane survives tab, workspace and pane switches, and an idle
             // one is invisible so it does not eat the grid's clicks
@@ -282,6 +284,7 @@ public final class Main {
                 o.applyTo(updated);
                 cfg = updated;
                 forEachTab(t -> applyLive(updated, t));
+                syncTabChrome(); // the keys, then every strip re-installs
                 syncSide();
                 System.err.println("tortty-java: config reloaded (family=" + updated.fontFamily
                         + " size=" + updated.fontSize + " scrollback=" + updated.scrollback + ")");
@@ -469,7 +472,7 @@ public final class Main {
             Workspace w = new Workspace();
             w.card = "ws" + (++nextCard);
             w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            w.pane.setFont(chromeFont("TabbedPane.font"));
+            Chrome.chromePane(w.pane, theme.bg);
             w.pane.setFocusable(false);
             w.pane.addChangeListener(e -> tabSelected(w));
             bindTabBar(w);
@@ -721,20 +724,12 @@ public final class Main {
             showWorkspace();
         }
 
-        /**
-         * The chrome's text runs half again the LaF's size: 11-12 px is small on
-         * a dense screen, and the workspace column and the tab strip are the
-         * only chrome with text. Only the size changes — the family and the
-         * style stay whatever the LaF chose.
-         */
-        private static final float CHROME_SCALE = 1.5f;
-
-        private static Font chromeFont(String key) {
-            Font f = UIManager.getFont(key);
-            if (f == null) f = UIManager.getFont("Label.font");
-            if (f == null) f = new Font("Dialog", Font.PLAIN, 12);
-            return f.deriveFont(f.getSize2D() * CHROME_SCALE);
+        /** Keys and every living strip; new strips dress themselves at birth. */
+        private void syncTabChrome() {
+            Chrome.tabChrome(theme.bg, theme.fg);
+            for (Workspace w : workspaces) Chrome.chromePane(w.pane, theme.bg);
         }
+
 
         /**
          * The workspace column (`B21`): one row per workspace, the front one
@@ -746,7 +741,7 @@ public final class Main {
             static final int MAX_W = 420;
             /** Left edge of the numbers, and of what does not start with one. */
             private static final int TEXT_X = 9;
-            private final Font base = chromeFont("Label.font");
+            private final Font base = Chrome.chromeFont("Label.font");
             private final Font bold = base.deriveFont(Font.BOLD);
             private final Font tiny = base.deriveFont(Math.max(9f, base.getSize2D() - 2f));
             // the geometry follows the fonts: the size is a scale factor, so a
@@ -898,8 +893,8 @@ public final class Main {
                 // did not follow `background`/`foreground`
                 Color bg = new Color(theme.bg);
                 Color fg = new Color(theme.fg);
-                Color muted = mix(fg, bg, 0.45f);
-                Color chip = mix(bg, fg, 0.10f);
+                Color muted = Chrome.mix(fg, bg, 0.45f);
+                Color chip = Chrome.mix(bg, fg, 0.10f);
                 g.setColor(bg);
                 g.fillRect(0, 0, getWidth(), getHeight());
 
@@ -973,12 +968,6 @@ public final class Main {
                         getHeight() - fmTiny.getDescent() - 2);
             }
 
-            private Color mix(Color a, Color b, float t) {
-                return new Color(
-                        Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
-                        Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
-                        Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
-            }
         }
 
         /** Shows the column from the second workspace on; a lone one is hidden. */
