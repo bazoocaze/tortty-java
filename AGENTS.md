@@ -7,7 +7,7 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - `docs/FEATURES.md` — what already exists.
 - `docs/CONFIG.md` — configuration keys and hot reload.
 - `docs/BACKLOG.md` — what to do (current/future).
-- `docs/LIMITATIONS.md` — accepted limitations, id `L<n>`.
+- `docs/LIMITATIONS.md` — accepted or still unresolved limitations, id `L<n>`.
 - `docs/HISTORY.md` — what has already been done.
 - `docs/BENCHMARKS.md` — measurements and benchmark protocol.
 
