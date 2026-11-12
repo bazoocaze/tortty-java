@@ -34,10 +34,10 @@ public final class Term {
     public boolean decckm;
     /**
      * `?6` (DECOM) — with it on, `CUP`/`HVP`/`VPA` count rows from the scroll
-     * region's top and stop at its bottom; `DECSTBM` homes to the region top.
-     * Relative moves and `CHA` are never origin-relative (the Rust version
-     * routes them through `cursor_to` and so offsets them twice — verified
-     * there: `CUU` with `?6h` does not move; not copied, `B39`).
+     * region's top and stop at its bottom; `DECSTBM` homes to the region top,
+     * and so does the mode itself when it flips. Relative moves and `CHA` are
+     * never origin-relative; they clamp to the margins only from inside the
+     * region, as xterm's `CursorUp`/`CursorDown` do (`B60`).
      */
     public boolean origin;
     /** `?7` (DECAWM) — off, the last column is overwritten instead of wrapping. */
