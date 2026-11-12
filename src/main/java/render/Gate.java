@@ -5,6 +5,7 @@ import term.Theme;
 import ui.Chrome;
 import ui.TermPanel;
 
+import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 
@@ -74,6 +75,7 @@ public final class Gate {
         boldIsARealFace();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
+        clicksBesideTheToastAreTheGrids();
 
         System.out.println(failures == 0
                 ? "render-check: " + checks + " checks, PASSED"
@@ -295,6 +297,41 @@ public final class Gate {
                 if (((rgb >> 16) & 255) > 128 && ((rgb >> 8) & 255) > 128 && (rgb & 255) > 128) n++;
             }
         return n;
+    }
+
+    /**
+     * The toast layer only owns its box (`L21`): everywhere else it reports
+     * itself as not there, so the toolkit delivers the event underneath with
+     * no forwarding of our own. The box is found by asking, then the corners
+     * are asked too.
+     */
+    private static void clicksBesideTheToastAreTheGrids() {
+        ui.ToastLayer layer = new ui.ToastLayer(
+                () -> new Font(FAMILY, Font.PLAIN, (int) SIZE_PT), Gate::theme);
+        layer.show(new ui.Toast.Msg("configuration error", "font_size: out of range",
+                ui.Toast.Sev.ERR));
+        layer.setSize(640, 400);
+        BufferedImage img = new BufferedImage(640, 400, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(new java.awt.Color(BG));
+        g.fillRect(0, 0, 640, 400);
+        layer.paint(g);
+        g.dispose();
+        save("toast", img);
+        int x0 = 640, x1 = -1, y0 = 400, y1 = -1;
+        for (int y = 0; y < 400; y += 2)
+            for (int x = 0; x < 640; x += 2)
+                if (layer.contains(x, y)) {
+                    if (x < x0) x0 = x; if (x > x1) x1 = x;
+                    if (y < y0) y0 = y; if (y > y1) y1 = y;
+                }
+        is("the layer owns a box, not the window", x1 > x0 && y1 > y0);
+        is("and the box is a fraction of it",
+                (x1 - x0) * (y1 - y0) < 640 * 400 / 4);
+        is("its middle is ours", layer.contains((x0 + x1) / 2, (y0 + y1) / 2));
+        is("the corners are the grid's", !layer.contains(5, 5)
+                && !layer.contains(634, 5) && !layer.contains(5, 394)
+                && !layer.contains(634, 394));
     }
 
     /** Pixels of the rectangle that are exactly {@code rgb}. */

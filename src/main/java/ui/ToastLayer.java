@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import javax.swing.JComponent;
-import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
@@ -111,41 +110,27 @@ public final class ToastLayer extends JComponent {
         repaint(0, top, w, h - top);
     }
 
+    /**
+     * The glass pane only owns the box: everywhere else it reports itself as
+     * not there, so the toolkit hands the event to whatever sits under it —
+     * the grid, the strip, the column — with no forwarding of our own (`L21`).
+     * A click that lands here is inside the box by construction.
+     */
+    @Override public boolean contains(int x, int y) {
+        java.awt.Rectangle b = box;
+        return b != null && b.contains(x, y);
+    }
+
     private void click(MouseEvent e) {
         long now = System.currentTimeMillis();
         Toast.Shown s = toast.visible(now);
         if (s == null) return;
-        if (box == null || !box.contains(e.getPoint())) {
-            debug.Log.ln("toast click: beside the box, passed to the grid");
-            passDown(e);                     // a click beside the box is the grid's
-            return;
-        }
+        if (box == null || !box.contains(e.getPoint())) return; // not ours by construction
         boolean error = s.sev() == Toast.Sev.ERR;
         debug.Log.ln("toast click: " + s.sev().label + (error ? " -> open the config" : ""));
         toast.dismiss(now);
         if (error) onErrorClick.run();
         repaint();
-    }
-
-    /**
-     * Hands the click to whatever sits under the glass pane. The glass pane is a
-     * sibling of the content at the same coordinates, so the obvious
-     * {@code getDeepestComponentAt(getParent(), ...)} finds this very component
-     * and re-dispatches the event to itself — which is a stack overflow, and a
-     * dead event loop with it. The search skips this pane.
-     */
-    private void passDown(MouseEvent e) {
-        java.awt.Container parent = getParent();
-        if (parent == null) return;
-        java.awt.Component under = null;
-        for (java.awt.Component c : parent.getComponents()) {
-            if (c == this || !c.isShowing()) continue;
-            java.awt.Component d = SwingUtilities.getDeepestComponentAt(c, e.getX(), e.getY());
-            if (d != null) under = d;
-        }
-        if (under != null) {
-            under.dispatchEvent(SwingUtilities.convertMouseEvent(this, e, under));
-        }
     }
 
     @Override protected void paintComponent(Graphics g) {

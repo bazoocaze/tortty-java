@@ -1008,3 +1008,23 @@ the popup and the dialogs, which stay the desktop's by decision.
 **Result.** `selftest` passes 1164 checks, `render-check` 34/34; the backlog is
 empty, and the popup, the rename dialog and the divider are still the
 desktop's on purpose.
+
+## 2026-11-12 — the toast layer only owns its box (`L21` closed)
+
+**Context.** The glass pane covered the whole window while a notice was up,
+so a click beside the box was looked up under the pane and re-dispatched by
+hand — one indirection instead of the toolkit's own delivery.
+
+**Activities.**
+
+- `ToastLayer.contains`: false everywhere but the box, so Swing hands the
+  event to the grid, the strip or the column itself; `passDown` and its
+  stack-overflow comment are gone, and `click` keeps its box guard.
+- `render/Gate.java`: `clicksBesideTheToastAreTheGrids` paints a notice
+  headless — the layer owns a fraction of the window, its middle answers,
+  the four corners do not.
+- Live in Xvfb: with an error toast up, a click on the second tab switches
+  to it and leaves the toast standing; a click on the box dismisses it.
+
+**Result.** `selftest` passes 1164 checks, `render-check` 38/38; `L21` leaves
+`LIMITATIONS.md`.

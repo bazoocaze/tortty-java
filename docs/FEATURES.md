@@ -283,7 +283,8 @@ place a launch from a desktop icon can show anything.
 - **A queue**, as in python: a second notice waits instead of replacing the one
   on screen, eight deep. A click dismisses the box and what was waiting; on an
   error the click also opens the configuration (`B37`) — the fix is one click
-  away. A click *beside* the box is forwarded to the grid.
+  away. A click *beside* the box is the grid's (or the strip's, or the column's):
+  the pane only owns its own pixels, so the toolkit delivers the rest itself.
 - `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
   background tab keeps its badge, as before.
 - The colours are the terminal's own (`B40`): the hue is the palette's
@@ -292,8 +293,7 @@ place a launch from a desktop icon can show anything.
   ink), and the three WCAG ratios — title 7:1, detail 4.5:1, bar 2.5:1 — are
   held for any palette by pulling the fill toward the background and walking
   the bar away from it (`Toast.box`). With no palette to ask (a check painting
-  headless) the python pair is the fallback. See `L21` for the half that
-  remains: the click under the glass pane.
+  headless) the python pair is the fallback.
 
 ## Config in a tab (`B37`)
 
@@ -457,4 +457,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
-`L16`, `L18`, `L21`, `L22`).
+`L16`, `L18`, `L22`).
