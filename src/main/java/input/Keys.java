@@ -416,6 +416,21 @@ public final class Keys {
     }
 
     /**
+     * A chord the app does not map: does it belong to the child anyway? Only
+     * when the child asked for the modifiers (`CSI > Nu`) and the encoder can
+     * carry Super into the sequence — the order the Rust core uses, where
+     * `kitty_encode` runs <em>before</em> "Super is the window manager's
+     * business" (`keys.rs`, `flag_8_sends_all_including_super`). Without a kitty
+     * flag the chord is swallowed, and the child never sees a bare key stripped
+     * of the modifier that produced it.
+     */
+    public static boolean superGoesToChild(int keyCode, char keyChar, int modifiers, int kbdFlags) {
+        if (kbdFlags == 0) return false;
+        return kittyEncode(keyCode, keyChar, modifiers | InputEvent.META_DOWN_MASK,
+                kbdFlags, EV_PRESS) != null;
+    }
+
+    /**
      * The character the key stands for, as winit's logical key gives it: with
      * Ctrl the AWT event carries the control byte, so the base key comes from
      * the key code.

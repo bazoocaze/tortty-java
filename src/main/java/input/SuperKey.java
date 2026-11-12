@@ -3,7 +3,7 @@ package input;
 import java.awt.event.KeyEvent;
 
 /**
- * The Super key, tracked by hand (`L20`).
+ * The Super key, tracked by hand.
  *
  * AWT on X11 never reports Super *as a modifier*: `XToolkit.setupModifierMap`
  * builds `metaMask` from a keycode whose primary keysym is `Meta_L`, and evdev

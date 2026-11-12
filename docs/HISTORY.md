@@ -896,3 +896,27 @@ before trusting the medium, so every run leaked a temp file and a shm object.
 **Result.** 1128 checks (106 graphics), and the `icat` E2E in Xvfb is still
 green with no leftover `/tmp` or `/dev/shm` objects. The Rust core has the same
 `a=q` gap, registered as `B59` in its backlog.
+
+## 2026-11-11 — Super reaches the child when it asked for it (`L20` closed)
+
+**Context.** `L20` was right that AWT never reports Super as a modifier, and the
+shortcuts never suffered — `input.SuperKey` tracks the key by hand. What it also
+did was swallow every Super chord that was not ours. The Rust core runs the kitty
+encoder *before* "Super is the window manager's business", so a child that asks
+for the modifiers (`CSI > 8 u`) receives the chord; here the global dispatcher
+dropped it first, and the panel never put the bit in the modifiers anyway.
+
+**Activities.**
+
+- `input.Keys.superGoesToChild` is the rule: the chord goes out only when the
+  child asked and the encoder can carry Super (`CSI 97;9u`, `CSI 1;9D`). `Main`'s
+  dispatcher asks it for the terminal in front, and `TermPanel.keyPressed` ORs the
+  tracked Super into the modifiers. The legacy path still refuses meta, so Super
+  never arrives stripped of itself, and Super+N/Q/1..9 stay ours.
+- The E2E needed a window manager: without one `xdotool` reaches nothing under
+  Xvfb (the socket's `write` does), so `tools/super-e2e.py` runs `metacity` on
+  `:99` first and presses the keys for real.
+
+**Result.** 1135 checks (7 new). In Xvfb, with flag 8 `z a Super+a` arrive as
+`CSI 122u CSI 97u CSI 97;9u` and without it as `za`; Super+N never reaches the
+child either way. `L20` leaves the table, and the ids are not reused.

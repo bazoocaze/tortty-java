@@ -295,7 +295,7 @@ public final class Main {
 
             // A window manager may grab the Super chord and swallow its release;
             // losing the window's focus is the honest sign that the key state can
-            // no longer be trusted (`L20`).
+            // no longer be trusted.
             frame.addWindowFocusListener(new java.awt.event.WindowAdapter() {
                 @Override public void windowLostFocus(java.awt.event.WindowEvent e) {
                     input.SuperKey.lost();
@@ -1365,7 +1365,7 @@ public final class Main {
             }
             // Super+N/Q and Super+1..9 (0 = the tenth): the workspace alias, as in
             // the Rust `super_only`. `meta` here is AWT's (0 on X11) or the Super
-            // key the dispatcher tracked by hand (`L20`).
+            // key the dispatcher tracked by hand.
             boolean superOnly = meta && !ctrl && !alt;
             if (superOnly) {
                 switch (kc) {
@@ -1402,8 +1402,8 @@ public final class Main {
         /** Both dispatchers: the fixed shortcuts, then F2 (rename). */
         private void bindKeys() {
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
-                // Super by hand (`L20`): AWT hands over the key but never the
-                // modifier, so the press and the release are tracked here.
+                // Super by hand: AWT hands over the key but never the modifier
+                // on X11, so the press and the release are tracked here.
                 if (e.getID() == KeyEvent.KEY_RELEASED) return input.SuperKey.released(e.getKeyCode());
                 if (e.getID() != KeyEvent.KEY_PRESSED) return false;
                 if (input.SuperKey.pressed(e.getKeyCode())) return true;
@@ -1412,9 +1412,17 @@ public final class Main {
                         e.isShiftDown(), meta)) {
                     return true;
                 }
-                // A Super chord that is not ours is still not the child's: the
-                // encoder answers null for meta for the same reason.
-                return input.SuperKey.held();
+                // A Super chord that is not ours belongs to the window manager:
+                // `input.Keys.encodeEvent` answers null for meta for the same
+                // reason. The exception is a child that asked for the modifiers
+                // (`CSI > Nu`) — there the chord is the child's, as in the Rust
+                // core, where the kitty encoder runs before the super check.
+                // Only the terminal in front receives it.
+                if (!meta) return false;
+                Tab tab = activeTab();
+                if (tab == null || !tab.panel.isFocusOwner()) return true;
+                return !input.Keys.superGoesToChild(e.getKeyCode(), e.getKeyChar(),
+                        e.getModifiersEx(), tab.term.kbdFlags);
             });
             // F2 renames the workspace in front (the Rust version does the same)
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {

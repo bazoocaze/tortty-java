@@ -67,6 +67,18 @@ tools/imgtest.py delete     # clears every image
 `kitten icat` from kitty works too when it is installed; `/usr/bin/icat` from
 The Sleuth Kit is a different program and does not draw anything.
 
+## Testing the keyboard
+
+`tools/super-e2e.py` starts the app, presses real keys with `xdotool` and reads
+back what the child received: a Super chord reaches the child only when it asked
+for the modifiers (`CSI > 8 u`), and Super+N stays the app's. It needs a window
+manager on the display — without one AWT drops the key events under Xvfb:
+
+```sh
+Xvfb :99 -screen 0 1280x800x24 & DISPLAY=:99 metacity --replace &
+DISPLAY=:99 tools/super-e2e.py
+```
+
 ## Documentation
 
 - [`docs/FEATURES.md`](docs/FEATURES.md) — implemented features.

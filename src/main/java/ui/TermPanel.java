@@ -112,7 +112,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             // A key that goes down and never comes up (focus went away) must not
             // turn the next press into a repeat under kitty flag 2.
             // only the key bookkeeping: a workspace switch moves the focus between
-            // panels and must not forget that Super is still down (`L20`). The
+            // panels and must not forget that Super is still down. The
             // window-level listener in `Main` handles a real deactivation.
             @Override public void focusLost(java.awt.event.FocusEvent e) { downKeys.clear(); }
         });
@@ -863,15 +863,19 @@ public final class TermPanel extends JPanel implements KeyListener {
             return;
         }
         int keyCode = e.getKeyCode();
+        // Super is never in the AWT modifiers here: the hand-kept state is the
+        // modifier, so a child that asked for it gets `CSI 97;9u`
+        int mods = e.getModifiersEx();
+        if (input.SuperKey.held()) mods |= java.awt.event.InputEvent.META_DOWN_MASK;
         // AWT repeats keyPressed while the key is held and never says so; the
         // set of held keys is what tells a repeat from the first press.
         int event = downKeys.add(keyCode) ? input.Keys.EV_PRESS : input.Keys.EV_REPEAT;
         byte[] bytes = input.Keys.encodeEvent(keyCode, e.getKeyChar(),
-                e.getModifiersEx(), term.decckm, term.kbdFlags, event);
+                mods, term.decckm, term.kbdFlags, event);
         if (bytes != null) {
             char c = e.getKeyChar();
             boolean printable = c != KeyEvent.CHAR_UNDEFINED && c >= 0x20 && c != 0x7f;
-            if (printable && input.Keys.kitty(keyCode, c, e.getModifiersEx(), term.kbdFlags, event)) {
+            if (printable && input.Keys.kitty(keyCode, c, mods, term.kbdFlags, event)) {
                 // The text already travelled inside the `CSI u` sequence; keep
                 // keyTyped from sending it a second time.
                 kittyTypedChar = c;

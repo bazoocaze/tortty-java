@@ -28,6 +28,7 @@ public final class KeyChecks {
         kitty(c);
         specParser(c);
         superKey(c);
+        superReachesTheChildWhenAsked(c);
     }
 
     private static String enc(int code, char ch, int mods, boolean appCursor) {
@@ -157,7 +158,31 @@ public final class KeyChecks {
     }
 
     /**
-     * Super tracked by hand (`L20`): AWT never sets `META_DOWN_MASK` for it here,
+     * A Super chord the app does not map is the window manager's — unless the
+     * child asked for the modifiers (`CSI > Nu`), which is the order of the Rust
+     * core (`flag_8_sends_all_including_super`).
+     */
+    private static void superReachesTheChildWhenAsked(Check c) {
+        int meta = InputEvent.META_DOWN_MASK;
+        c.eq("flag 8 carries Super into the count",
+                encKitty(KeyEvent.VK_A, 'a', meta, Keys.F_ALL_KEYS, Keys.EV_PRESS), E + "[97;9u");
+        c.eq("and Super joins Ctrl: 1 + ctrl + super",
+                encKitty(KeyEvent.VK_A, 'a', meta | CTRL, Keys.F_ALL_KEYS, Keys.EV_PRESS), E + "[97;13u");
+        c.eq("a named key carries it in the parameter too",
+                encKitty(KeyEvent.VK_LEFT, KeyEvent.CHAR_UNDEFINED, meta,
+                        Keys.F_ALL_KEYS, Keys.EV_PRESS), E + "[1;9D");
+        c.is("the rule lets the chord through when the encoder can carry it",
+                Keys.superGoesToChild(KeyEvent.VK_A, 'a', 0, Keys.F_ALL_KEYS));
+        c.is("and keeps it when the child asked for nothing",
+                !Keys.superGoesToChild(KeyEvent.VK_A, 'a', 0, 0));
+        c.is("a modifier-only key is still nobody's",
+                !Keys.superGoesToChild(KeyEvent.VK_SHIFT, KeyEvent.CHAR_UNDEFINED, 0, Keys.F_ALL_KEYS));
+        c.is("without a kitty flag the chord is swallowed even with Super",
+                Keys.encodeEvent(KeyEvent.VK_A, 'a', meta, false, 0, Keys.EV_PRESS) == null);
+    }
+
+    /**
+     * Super tracked by hand: AWT never sets `META_DOWN_MASK` for it here,
      * but it does deliver `VK_WINDOWS` press/release, which is enough to keep the
      * state the shortcut table needs.
      */

@@ -167,9 +167,10 @@ Features implemented in the Java version of TorTTY.
   section below) and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
   and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
   (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
-  tracks the key from its own press and release (`L20`); a Super chord that is
-  no shortcut is swallowed rather than typed into the child, as the encoder
-  already refuses meta.
+  tracks the key from its own press and release. A Super chord that is no
+  shortcut is swallowed rather than typed into the child without its modifier —
+  unless the child asked for the modifiers with the kitty keyboard protocol
+  (`CSI > 8 u`), where the chord travels as `CSI 97;9u`, as in the Rust core.
 - Keyboard: text, Enter, Backspace, Tab/Shift+Tab, Esc, arrows, Home/End,
   PageUp/PageDown, Insert/Delete, F1–F24, keypad, Ctrl+letter and Ctrl
   one-offs, Alt as ESC prefix. Modifiers travel in the xterm parameter
@@ -445,4 +446,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
-`L16`, `L18`, `L20`, `L21`, `L22`).
+`L16`, `L18`, `L21`, `L22`).
