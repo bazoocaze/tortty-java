@@ -61,6 +61,8 @@ public final class GraphicsChecks {
     public static void run(Check c) {
         byFileReadsAndKeepsTheFile(c);
         tempFileIsDeletedAfterTheRead(c);
+        aTempFileIsKeptOutsideTheTempDirs(c);
+        aRelativePathCannotWalkOutOfTheTempDir(c);
         sharedMemoryIsReadAndUnlinked(c);
         sharedMemoryMissingAnswersEnoent(c);
         sharedMemoryAsAPlainPathIsNeverDeleted(c);
@@ -69,6 +71,7 @@ public final class GraphicsChecks {
         theClockOfAnAnimation(c);
         loadingWaitsAndTheLoopCountRunsOut(c);
         featureQueriesSayWhatWeUnderstand(c);
+        aQueryLoadsTheFileItNames(c);
         anAnimationNumberIsUnsigned(c);
         aFrameCanArriveThroughSharedMemory(c);
         deletingKeepsTheDataUnlessItIsCapital(c);
@@ -95,12 +98,66 @@ public final class GraphicsChecks {
     private static void tempFileIsDeletedAfterTheRead(Check c) {
         Term t = new Term(20, 4);
         io(c, "t=t", () -> {
-            Path f = Files.createTempFile("tortty-check", ".raw");
+            // the marker is what makes it a protocol temp file: kitty and the
+            // Rust core delete `t=t` only when the name carries it
+            Path f = Files.createTempFile("tortty-tty-graphics-protocol", ".raw");
             Files.write(f, new byte[] {1, 2, 3, 4});
             c.eq("t=t answers OK", reply(t, body("t", f.toString(), 4)),
                     E + "_Gi=4;OK" + E + "\\");
             c.eq("t=t stored the image", t.images.imageCount(), 1);
             c.is("t=t deletes after reading", !Files.exists(f));
+        });
+    }
+
+    /**
+     * The security half: the path is named by the child, so a `t=t` that points
+     * at the user's own files is read and <b>kept</b> — the terminal deletes
+     * only a file under a temporary directory carrying the protocol's marker.
+     */
+    private static void aTempFileIsKeptOutsideTheTempDirs(Check c) {
+        Term t = new Term(20, 4);
+        io(c, "t=t outside the temp dirs", () -> {
+            Path dir = Path.of("target");
+            Files.createDirectories(dir);
+            Path marked = Files.createTempFile(dir, "tortty-tty-graphics-protocol", ".raw");
+            Path bare = Files.createTempFile(dir, "tortty-check", ".raw");
+            try {
+                Files.write(marked, new byte[] {1, 2, 3});
+                Files.write(bare, new byte[] {4, 5, 6});
+                c.eq("t=t elsewhere answers OK", reply(t, body("t", marked.toString(), 5)),
+                        E + "_Gi=5;OK" + E + "\\");
+                c.is("t=t elsewhere keeps the file", Files.exists(marked));
+                c.eq("t=t without the marker answers OK", reply(t, body("t", bare.toString(), 6)),
+                        E + "_Gi=6;OK" + E + "\\");
+                c.is("t=t without the marker keeps the file", Files.exists(bare));
+            } finally {
+                Files.deleteIfExists(marked);
+                Files.deleteIfExists(bare);
+            }
+        });
+    }
+
+    /** A link in `/tmp` that points out of it is not a way around the check. */
+    private static void aRelativePathCannotWalkOutOfTheTempDir(Check c) {
+        Term t = new Term(20, 4);
+        io(c, "t=t and ..", () -> {
+            Path dir = Path.of("target");
+            Files.createDirectories(dir);
+            Path real = Files.createTempFile(dir, "tortty-tty-graphics-protocol", ".raw");
+            Path link = Path.of(System.getProperty("java.io.tmpdir"),
+                    "tortty-tty-graphics-protocol-link" + System.nanoTime());
+            Files.write(real, new byte[] {7, 8, 9});
+            try {
+                Files.createSymbolicLink(link, real.toAbsolutePath());
+                reply(t, body("t", link.toString(), 7));
+                c.is("t=t through a symlink keeps the target", Files.exists(real));
+                c.is("t=t through a symlink keeps the link", Files.exists(link, java.nio.file.LinkOption.NOFOLLOW_LINKS));
+            } catch (UnsupportedOperationException | java.io.IOException e) {
+                c.is("symlinks are available: " + e, false);
+            } finally {
+                Files.deleteIfExists(link);
+                Files.deleteIfExists(real);
+            }
         });
     }
 
@@ -244,6 +301,50 @@ public final class GraphicsChecks {
         c.is("the count ran out and it stopped",
                 !loop.images.advance(60) && g.anim == 0 && !loop.images.animating());
         c.is("a stopped animation does not tick", !loop.images.advance(1000));
+    }
+
+    /**
+     * `a=q` with a file media is a real load: the spec says the query action
+     * "will try to load the image and respond with either OK or an error", and
+     * `kitten icat` probes `t=t` and `t=s` that way before it sends anything.
+     */
+    private static void aQueryLoadsTheFileItNames(Check c) {
+        Term t = new Term(20, 4);
+        io(c, "a=q by file", () -> {
+            Path kept = Files.createTempFile("tortty-check", ".raw");
+            Path marked = Files.createTempFile("tortty-tty-graphics-protocol", ".raw");
+            Path short3 = Files.createTempFile("tortty-check", ".raw");
+            Path missing = Path.of(System.getProperty("java.io.tmpdir"), "tortty-tty-graphics-protocol-gone");
+            try {
+                Files.write(kept, new byte[] {1, 2, 3});
+                Files.write(marked, new byte[] {1, 2, 3});
+                Files.write(short3, new byte[] {1, 2});
+                c.eq("a=q,t=f loads the file and answers OK", reply(t, query("f", kept.toString(), 21)),
+                        E + "_Gi=21;OK" + E + "\\");
+                c.eq("a query stores no image", t.images.imageCount(), 0);
+                c.is("a=q,t=f keeps the file", Files.exists(kept));
+                c.eq("a=q,t=t loads and answers OK", reply(t, query("t", marked.toString(), 22)),
+                        E + "_Gi=22;OK" + E + "\\");
+                c.is("a=q,t=t deletes the marked temp file it read", !Files.exists(marked));
+                c.eq("a=q over a missing file answers ENOENT", reply(t, query("f", missing.toString(), 23)),
+                        E + "_Gi=23;ENOENT" + E + "\\");
+                c.eq("a=q over data that is not the size it claims is refused",
+                        reply(t, query("f", short3.toString(), 24)),
+                        E + "_Gi=24;EINVAL:unsupported transmission" + E + "\\");
+                c.eq("a=q with no payload is still the capability probe",
+                        reply(t, apc("a=q,i=9,t=s,f=32")), E + "_Gi=9;OK" + E + "\\");
+            } finally {
+                Files.deleteIfExists(kept);
+                Files.deleteIfExists(marked);
+                Files.deleteIfExists(short3);
+            }
+        });
+    }
+
+    /** An {@code a=q} whose payload names {@code name}: {@code s=1,v=1,f=24}. */
+    private static String query(String medium, String name, int id) {
+        String b64 = Base64.getEncoder().encodeToString(name.getBytes(StandardCharsets.UTF_8));
+        return E + "_Ga=q,f=24,s=1,v=1,t=" + medium + ",i=" + id + ";" + b64 + E + "\\";
     }
 
     private static void featureQueriesSayWhatWeUnderstand(Check c) {

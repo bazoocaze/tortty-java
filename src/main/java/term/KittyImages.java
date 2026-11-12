@@ -250,13 +250,31 @@ public final class KittyImages {
             if (!quiet(params)) out.responses.add(ident(params) + ";EINVAL:image id and number");
             return out;
         }
-        if (("t".equals(action) || "T".equals(action) || "f".equals(action))
+        // `a=q` with a file media loads the file too: the spec's query action
+        // "will try to load the image and respond with either OK or an error",
+        // and `kitten icat` probes `t=t`/`t=s` exactly that way before it dares
+        // to send a real transmission (`tools/utils/images.TempTemplate` carries
+        // the protocol's marker in the name, so the probe file is ours to remove).
+        boolean fileMedia = false;
+        // a query with no payload at all asks about the medium, not about a file:
+        // there is no name to load, so there is nothing to open
+        boolean probe = "q".equals(action) && data.length == 0;
+        if (!probe
+                && ("t".equals(action) || "T".equals(action) || "f".equals(action) || "q".equals(action))
                 && ("f".equals(medium) || "t".equals(medium) || "s".equals(medium))) {
             // the payload names a file: the Rust core hands it to the app; here
             // the process is the same one, so it is read on the spot
             String named = new String(data, java.nio.charset.StandardCharsets.UTF_8);
+            if (named.length() > MAX_NAME) {
+                // kitty's own limit on the path a transmission may carry
+                if (!quiet(params)) out.responses.add(ident(params) + ";EINVAL:filename too long");
+                return out;
+            }
             Path file;
             boolean unlink;
+            // `t=t` is the one the child names: its delete goes through the
+            // policy below. A `t=s` name is ours to resolve and unlink.
+            boolean namedByChild = "t".equals(medium);
             try {
                 if ("s".equals(medium)) {
                     // `t=s` carries a POSIX shared-memory *name* (`shm_open`),
@@ -268,7 +286,9 @@ public final class KittyImages {
                     unlink = shm != null && Files.isRegularFile(shm);
                     file = unlink ? shm : Path.of(named);
                 } else {
-                    file = Path.of(named);
+                    // `~` is the only expansion: the child may name the home
+                    // directory, and the app resolves it (the core never does)
+                    file = Path.of(expandHome(named));
                     unlink = "t".equals(medium);
                 }
             } catch (RuntimeException e) {
@@ -279,15 +299,25 @@ public final class KittyImages {
             try {
                 // only regular files: a FIFO or a device would block, or worse
                 if (!Files.isRegularFile(file)) throw new IOException("not a regular file");
-                bytes = Files.readAllBytes(file);
+                // one byte over the cap: the file is the child's, so its size is
+                // its choice — reading it whole would be the terminal's problem
+                try (java.io.InputStream in = Files.newInputStream(file)) {
+                    bytes = in.readNBytes(MAX_APC + 1);
+                }
+                if (bytes.length > MAX_APC) {
+                    if (!quiet(params)) out.responses.add(ident(params) + ";EINVAL:too big");
+                    return out;
+                }
             } catch (Exception e) {
                 // a frame names the image by `I=`, so the reply has to as well
                 if (!quiet(params)) out.responses.add(ident(params) + ";ENOENT");
                 return out;
             }
-            if (unlink) {
+            if (unlink && (!namedByChild || tempDeleteAllowed(file))) {
                 try { Files.deleteIfExists(file); } catch (IOException ignored) { }
             }
+            // the file is the image: a query loads it and says whether it could
+            fileMedia = true;
             data = bytes;
         }
         if ("z".equals(params.get("o")) && data.length > 0) {
@@ -298,12 +328,12 @@ public final class KittyImages {
             }
             data = inflated;
         }
-        dispatch(out, action, params, data, id, cursorX, cursorY, cellW, cellH);
+        dispatch(out, action, params, data, id, cursorX, cursorY, cellW, cellH, fileMedia);
         return out;
     }
 
     private void dispatch(Result out, String action, Map<String, String> kv, byte[] data,
-                          int id, int cx, int cy, int cellW, int cellH) {
+                          int id, int cx, int cy, int cellW, int cellH, boolean fileMedia) {
         boolean quiet = quiet(kv);
         switch (action) {
             case "f" -> frameTransmit(out, kv, data, quiet);
@@ -332,6 +362,7 @@ public final class KittyImages {
                 boolean ok = ("d".equals(medium) || "f".equals(medium)
                         || "t".equals(medium) || "s".equals(medium))
                         && (fmt == 24 || fmt == 32 || fmt == 100);
+                if (ok && fileMedia) ok = dims(kv, data, formatOf(kv, data)) != null;
                 if (id != 0) out.responses.add("Gi=" + id + ";" + (ok ? "OK" : "EINVAL:unsupported transmission"));
             }
             case "d" -> delete(out, kv, id, cx, cy, quiet);
@@ -601,8 +632,12 @@ public final class KittyImages {
             echo(b, kv, "c", "0", null);
             echo(b, kv, "z", "0", null);
         }
-        // `e=d`: the action exists, but our delete modes do not follow the spec's
-        // lowercase/uppercase split, so no `d=` value is advertised
+        // `e=d`: the fall the client asks about, if we honour it — the lower
+        // case takes the placements away, the upper case frees the data too, and
+        // the values here are the ones `delete()` accepts
+        if (e.equals("d")) {
+            echo(b, kv, "d", "", v -> v.length() == 1 && "ainrcpqxyz".indexOf(Character.toLowerCase(v.charAt(0))) >= 0);
+        }
         return b.toString();
     }
 
@@ -723,6 +758,57 @@ public final class KittyImages {
      * as the protocol requires. A name that cannot be one (empty, {@code ..}, a
      * NUL) answers {@code null} and the payload is then tried as a plain path.
      */
+    /** Longest path a transmission may carry (kitty answers `EINVAL` past it). */
+    private static final int MAX_NAME = 2048;
+
+    /** `~` and `~/…` against the home directory; anything else is kept as it is. */
+    private static String expandHome(String named) {
+        if (!named.equals("~") && !named.startsWith("~/")) return named;
+        String home = System.getProperty("user.home");
+        if (home == null || home.isEmpty()) return named;
+        return home + named.substring(1);
+    }
+
+    /**
+     * What {@code t=t} may delete: the path is named by the child — over
+     * {@code ssh}, by anything running in the terminal — so only a file inside a
+     * temporary directory is deleted, and only when its name carries
+     * {@code tty-graphics-protocol}, the marker kitty and the Rust core look
+     * for. Canonicalized first, so {@code ..} and symlinks cannot walk the check
+     * out of the temp directory; decided after the read, on a path that exists,
+     * so a dangling name never deletes. Everything else is read and kept.
+     */
+    private static boolean tempDeleteAllowed(Path path) {
+        Path canon;
+        try {
+            canon = path.toRealPath();
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+        if (!canon.toString().contains("tty-graphics-protocol")) return false;
+        return inTempDir(canon);
+    }
+
+    /**
+     * The known temporary directories: {@code /tmp} and {@code /dev/shm} (the
+     * spec's examples), {@code $TMPDIR} — which the JVM does <em>not</em> fold
+     * into {@code java.io.tmpdir} — and the platform's own choice.
+     */
+    private static boolean inTempDir(Path canon) {
+        String tmpdir = System.getenv("TMPDIR");
+        for (String dir : new String[] {"/tmp", "/dev/shm",
+                System.getProperty("java.io.tmpdir"), tmpdir}) {
+            if (dir == null || dir.isEmpty()) continue;
+            try {
+                // component-wise, so `/tmpfoo` is not under `/tmp`
+                if (canon.startsWith(Path.of(dir).toRealPath())) return true;
+            } catch (IOException | RuntimeException ignored) {
+                // a directory that does not exist cannot hold the file
+            }
+        }
+        return false;
+    }
+
     private static Path shmFile(String name) {
         if (name.startsWith("/dev/shm/")) return name.contains("..") ? null : Path.of(name);
         String n = name.startsWith("/") ? name.substring(1) : name;

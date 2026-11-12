@@ -871,3 +871,28 @@ measures the window before drawing refuses.
 Xvfb `:99`: `icat --print-window-size` prints `1106x624` (79×14 by 24×26),
 a PNG is drawn from `t=f` and from `t=s`, `--clear` takes it away, and an
 animated GIF plays both frames. `L22` is the only row left from this work.
+
+## 2026-11-11 — file media: `t=t` only deletes in a temp dir, and `a=q` loads it
+
+**Context.** The spec's medium table says a temporary file is deleted *"only
+... if it is in a known temporary directory ... and the file has the string
+`tty-graphics-protocol` in its full file path"*. The port deleted whatever path
+the child named — over `ssh`, that is a remote `rm` — and `a=q` with a file
+medium never opened the file, while `kitten icat` probes `t=t`/`t=s` that way
+before trusting the medium, so every run leaked a temp file and a shm object.
+
+**Activities.**
+
+- `KittyImages.tempDeleteAllowed` decides the delete: real path first, then the
+  marker, then `/tmp`, `/dev/shm`, `java.io.tmpdir` and `$TMPDIR` (the JVM does
+  not fold the variable in), compared by path component; anything else is read
+  and **kept**. `~` expands, a name past 2048 bytes is refused, and the read
+  stops one byte past `MAX_APC` so a 10 GB file answers `EINVAL:too big`.
+- `a=q` with `t=f/t=t/t=s` now resolves the file like a transmission and answers
+  `OK`/`ENOENT`/an error for data that does not match `s=`/`v=`/`f=`, storing
+  nothing; a query with no payload stays the capability probe. `e=d` echoes the
+  `d` values `a=d` honours.
+
+**Result.** 1128 checks (106 graphics), and the `icat` E2E in Xvfb is still
+green with no leftover `/tmp` or `/dev/shm` objects. The Rust core has the same
+`a=q` gap, registered as `B59` in its backlog.

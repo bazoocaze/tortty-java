@@ -57,8 +57,14 @@ Features implemented in the Java version of TorTTY.
 - kitty graphics (images): `a=t`/`a=T`/`a=p`/`a=d`/`a=q`, `f=24` RGB, `f=32`
   RGBA, `f=100` PNG, `m=1` chunks, `o=z` zlib, `t=d/f/t/s` (direct, file, temp
   file, shared memory), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The three file
-  media are read on the spot and only from a regular file: `t=t` deletes the
-  file after reading, `t=s` takes a POSIX shared-memory **name** (`shm_open`) —
+  media are read on the spot and only from a regular file, at most `MAX_APC`
+  (64 MB) — the child chooses the file, so its size is not the terminal's
+  problem. `t=t` deletes the file after reading, but **only** a canonical path
+  under `/tmp`, `$TMPDIR` or `/dev/shm` whose name carries
+  `tty-graphics-protocol`: the path arrives from the child (a script, a remote
+  over `ssh`), and anything else is read and kept — `..` and symlinks are
+  resolved first, so they cannot walk out of those directories. `t=s` takes a
+  POSIX shared-memory **name** (`shm_open`) —
   resolved under `/dev/shm` and unlinked after the read, as the protocol
   requires — and a payload that already is a path is read as it is and never
   deleted, which is what the Rust core does. A frame (`a=f`) takes the same four
@@ -99,8 +105,16 @@ Features implemented in the Java version of TorTTY.
 - Feature queries (`a=q,e=<action>`): the reply carries `e` and every key of the
   query we understand *for that action* that is not at its default — `e=T,C=1`
   (the cursor policy is ours, `U=1` is not), `e=f,X=1` (`r=` editing a frame is
-  not), `e=a,s=3,v=2`. Without `e` in the reply the action is unsupported, which
-  is how `e=c` answers: composing one frame onto another is out.
+  not), `e=a,s=3,v=2`, `e=d,d=A` (a delete value `a=d` honours). Without `e` in
+  the reply the action is unsupported, which is how `e=c` answers: composing one
+  frame onto another is out.
+- A query with a file medium (`a=q,t=f/t=t/t=s`) is a **load**, as the spec's
+  query action says: the file is read and the reply is `OK`, `ENOENT` when it
+  cannot be read, or an error when the data does not match `s=`/`v=`/`f=`; no
+  image is stored and a `t=t` name passes the delete rule above. `kitten icat`
+  probes exactly this way before it sends anything, and the probe file carries
+  the `tty-graphics-protocol` marker, so the terminal is the one that removes it.
+  A query with **no payload** stays the capability probe it always was.
 - DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
   tracks (`1`, `6`, `7`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
   `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
