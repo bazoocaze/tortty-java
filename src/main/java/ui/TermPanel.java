@@ -245,6 +245,9 @@ public final class TermPanel extends JPanel implements KeyListener {
         ascent = lm.getAscent();
         initFallbacks(fontPx, avail);
         term.setCellSize(cellW(), cellH());
+        // the child measures the window in pixels through TIOCGWINSZ, and a
+        // font change is the only thing that moves a cell (`kitten icat`)
+        if (pty != null) pty.setCellSize(cellW(), cellH());
         setPreferredSize(new Dimension(term.cols * Math.max(1, (int) Math.round(cw)) + 2 * padding,
                                       term.rows * Math.max(1, (int) Math.round(ch)) + 2 * padding));
     }
@@ -295,7 +298,11 @@ public final class TermPanel extends JPanel implements KeyListener {
     public float chF() { return ch; }
     public float ascentF() { return ascent; }
 
-    public void setPty(ChildPty p) { this.pty = p; }
+    public void setPty(ChildPty p) {
+        this.pty = p;
+        // the grid may have been born before the child: tell it the cell now
+        if (p != null && cw >= 1 && ch >= 1) p.setCellSize(cellW(), cellH());
+    }
     public void setOnGridChange(java.util.function.BiConsumer<Integer, Integer> c) { this.onGridChange = c; }
 
     public void setTheme(Theme t) {

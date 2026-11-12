@@ -24,6 +24,14 @@
       <artifactId>gson</artifactId>
       <version>2.11.0</version>
     </dependency>
+    <!-- pty4j brings JNA at runtime only; the pixel half of TIOCSWINSZ has to be
+         written through it (see pty/WinPixels), so it is a compile dependency
+         here. Same version pty4j itself resolves, so nothing new is bundled. -->
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>5.19.1</version>
+    </dependency>
     <!-- The headless checks (B24) live in src/main so the selftest flag runs them
          from the jar; this dependency only lets `mvn test` drive the same ones. -->
     <dependency>

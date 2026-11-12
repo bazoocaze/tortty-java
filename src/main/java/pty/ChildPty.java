@@ -23,6 +23,8 @@ public final class ChildPty {
     private final java.util.concurrent.BlockingQueue<byte[]> queue =
             new java.util.concurrent.LinkedBlockingQueue<>();
     private volatile int cols, rows;
+    /** Cell size in pixels, from the font; the pixel half of `TIOCSWINSZ`. */
+    private volatile int cellW, cellH;
     private volatile boolean closed;
 
     private static String resolveShell(String shell) {
@@ -141,7 +143,37 @@ public final class ChildPty {
         if (cols == this.cols && rows == this.rows) return;
         this.cols = cols; this.rows = rows;
         proc.setWinSize(new WinSize(cols, rows, 0, 0));
+        // pty4j's WinSize has no pixel half, so it has just cleared what
+        // `setCellSize` wrote: the two go together, always in this order.
+        applyPixels();
         System.out.flush();
+    }
+
+    /**
+     * Tells the child how big a cell is, in pixels: with the grid it gives the
+     * window size in pixels a client asks `TIOCGWINSZ` for (`kitten icat`
+     * refuses to draw without it). A font change lands here.
+     */
+    public synchronized void setCellSize(int w, int h) {
+        if (w <= 0 || h <= 0) return;
+        if (w == cellW && h == cellH) return;
+        cellW = w; cellH = h;
+        applyPixels();
+    }
+
+    /** The cell size the child was told about, {@code {w, h}} (zeros = never told). */
+    public int[] cellSize() { return new int[] {cellW, cellH}; }
+
+    /**
+     * What the child reads back through `TIOCGWINSZ`: {@code {rows, cols,
+     * xpixels, ypixels}}, or {@code null} when it cannot be read.
+     */
+    public int[] winSize() { return WinPixels.read(proc); }
+
+    /** `TIOCSWINSZ` with the pixels: rows, cols, xpixel, ypixel. */
+    private void applyPixels() {
+        if (cols <= 0 || rows <= 0) return;
+        WinPixels.apply(proc, cols, rows, cellW, cellH);
     }
 
     public boolean isAlive() { return !closed && proc.isAlive(); }

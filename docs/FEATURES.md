@@ -61,9 +61,13 @@ Features implemented in the Java version of TorTTY.
   file after reading, `t=s` takes a POSIX shared-memory **name** (`shm_open`) —
   resolved under `/dev/shm` and unlinked after the read, as the protocol
   requires — and a payload that already is a path is read as it is and never
-  deleted, which is what the Rust core does. The image follows the scroll
-  into the history, is pruned with it, and `ED 3` clears it. See `L16` for what
-  is out.
+  deleted, which is what the Rust core does. A frame (`a=f`) takes the same four
+  media, because `icat` sends every frame after the root as `a=f,t=s` with the
+  shared-memory name as the payload. Image ids and numbers are 32-bit
+  **unsigned** (`icat` numbers an animation around 2^32, `I=4281793601`), kept as
+  the same 32 bits and echoed back in the decimal the client sent. The image
+  follows the scroll into the history, is pruned with it, and `ED 3` clears it.
+  See `L16` for what is out.
 - kitty animation (`a=f`/`a=a`, the half of `L16` that is in): every frame after
   the root hangs on the image the client names — by `i=` or by `I=`, which is
   what `icat` uses when an image has more than one frame — and is composed onto
@@ -80,13 +84,23 @@ Features implemented in the Java version of TorTTY.
   frame past `MAX_APC` (64 MB) answers `ENOSPC`. The panel ticks at 60 Hz only
   while an image that is actually **placed** is running, and composes each frame
   once (`TermPanel.frameOf`), so a still image costs one decode.
+- Deleting (`a=d`): the value of `d` says **what** goes and its case says
+  whether the pixels go with it — lower case only takes the placements away, so
+  the client can place the picture again without resending it, upper case frees
+  the data as well (`icat --clear` is `d=A`, `--clear-all` is
+  `d=R,y=4294967295`, and a whole range does not fit an `int`). `a`/`A` is every
+  placement (nothing lives in the scrollback here), `i`/`I` an image id,
+  `n`/`N` a client number, `r`/`R` an id range, `c`/`C` the cell under the
+  cursor, `p`/`P` the cell in `x`,`y`, `x`/`X` a column, `y`/`Y` a row and
+  `z`/`Z` a z-index (all placements are at 0). Any delete aborts an upload in
+  flight. `f`/`F` (animation frames) and a `p` placement id answer `EINVAL`
+  rather than pretend, as `L16` says. See `FEATURES` → the pty below for how a
+  client learns the size it draws into.
 - Feature queries (`a=q,e=<action>`): the reply carries `e` and every key of the
   query we understand *for that action* that is not at its default — `e=T,C=1`
   (the cursor policy is ours, `U=1` is not), `e=f,X=1` (`r=` editing a frame is
   not), `e=a,s=3,v=2`. Without `e` in the reply the action is unsupported, which
-  is how `e=c` and `e=d` answer: composition of frames is out, and our delete
-  modes do not follow the spec's lower/upper case split, so no `d=` value is
-  advertised.
+  is how `e=c` answers: composing one frame onto another is out.
 - DECRQM (`CSI ? Ps $ p`, `B29`): reports the state of every mode this parser
   tracks (`1`, `6`, `7`, `25`, `47`/`1047`/`1049`, `1000`/`1002`/`1003`/`1005`/`1006`/`1016`,
   `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
@@ -365,6 +379,15 @@ what the hot reload watches.
   terminal saw: a full-screen app's own buffer (`less`, `vim`, `pi`) never reaches
   the byte stream, so it is not in the snapshot — the app is gone and only the
   terminal's bytes are carried over.
+- The pty carries the window size in **pixels** (`L22`): the grid goes out as
+  `TIOCSWINSZ` rows/columns as pty4j sends it, and the pixel half is written by
+  `pty/WinPixels` through JNA on the master fd, `cols × cellW` by `rows × cellH`,
+  re-applied whenever the cell size or the grid moves. A client that measures the
+  window that way before it draws — `kitten icat`, WezTerm's tools, anything
+  using `ioctl(TIOCGWINSZ)` — used to see zeros and refuse with "Terminal does
+  not support reporting screen sizes in pixels"; `icat --print-window-size`
+  prints the real size now. `pty/PtyChecks` reads the struct back from a real
+  child.
 - Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
   so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,
@@ -381,12 +404,14 @@ what the hot reload watches.
 
 - Headless checks (`B24`) in `src/main/java/checks/`, one class per area (term,
   snapshot, keys, config, cli, drop, mouse, fonts, toast, session, graphics,
-  frame, find), asserting the grid after feeding bytes: printing and
+  frame, find, pty), asserting the grid after feeding bytes: printing and
   wrap, cursor and editing, scroll region, alt screen, SGR, wide cells and
   clusters, DEC graphics, scrollback and text accessors, `CSI t`, cursor style,
   modes, kitty keyboard flags, replies to the child, and reflow — plus the kitty
-  file media, the animation clock driven with injected times, the draw gate's
-  16 ms pacing, and the search's hits over a wrapped paragraph and a wide glyph.
+  file media and its delete modes, the animation clock driven with injected
+  times, the draw gate's 16 ms pacing, the search's hits over a wrapped
+  paragraph and a wide glyph, and the pty's `winsize` read back from a real
+  child.
 - Two entry points, one source of truth: `--selftest` runs them from the jar
   without a display (exit 0/1), and `mvn test` runs the same list through JUnit.
 - Visual gate (`B34`): `tools/render-check.sh` paints a known grid off screen
@@ -406,4 +431,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
-`L16`, `L18`, `L20`, `L21`).
+`L16`, `L18`, `L20`, `L21`, `L22`).

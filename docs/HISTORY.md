@@ -838,3 +838,36 @@ history, smart case) and 28 in the visual gate — the amber cells, the underlin
 and the bar's border read from the pixels. Verified live in Xvfb `:99` through
 the socket, where `Ctrl+Shift+F` opened the bar and the query found the echoed
 line. `L9` leaves the table.
+
+## 2026-11-11 — the pty reports its size in pixels (`L22`), and `a=d` follows the spec
+
+**Context.** Running the real client inside the terminal (`kitty +kitten icat
+brazil_flag.png`) stopped at the first step: *"Terminal does not support
+reporting screen sizes in pixels, use a terminal such as kitty, WezTerm,
+Konsole"*. pty4j's `WinSize` carries columns and rows only — its four-argument
+constructor is deprecated and drops the two pixels — so `TIOCGWINSZ` answered
+`ws_xpixel`/`ws_ypixel` 0 for the whole life of the child, and a client that
+measures the window before drawing refuses.
+
+**Activities.**
+
+- `pty/WinPixels` writes the whole `struct winsize` (`TIOCSWINSZ`) on the pty
+  master fd through JNA, which pty4j already resolves at runtime; `ChildPty`
+  keeps the cell size and re-applies it whenever the grid or the font moves, and
+  reads the struct back for the checks. `pty/PtyChecks` spawns a real `cat` and
+  asserts what the child reads.
+- The client then found three more, all fixed against the spec: **`a=d` had the
+  case split backwards** (`icat --clear` is `d=A`, which frees the data;
+  `--clear-all` is `d=R,y=4294967295`, one past an `int`), **image numbers are
+  u32** (`icat` numbers an animation's frames around 2^32, so `I=4281793601`
+  overflowed and every frame answered `ENOENT`), and **a frame arrives through a
+  medium** (`a=f,t=s` carries the shared-memory name, not pixels). `a=d` now
+  implements `a/A i/I n/N r/R c/C p/P q/Q x/X y/Y z/Z`, aborts an upload in
+  flight, and refuses `d=f`/`p` instead of pretending.
+- `state` reports `frames` and `animating`, which is how the E2E watches the
+  clock.
+
+**Result.** 1114 checks (92 graphics, 9 pty) and 28 in the visual gate. Live in
+Xvfb `:99`: `icat --print-window-size` prints `1106x624` (79×14 by 24×26),
+a PNG is drawn from `t=f` and from `t=s`, `--clear` takes it away, and an
+animated GIF plays both frames. `L22` is the only row left from this work.

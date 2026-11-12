@@ -6,9 +6,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
@@ -162,6 +164,13 @@ public final class KittyImages {
 
     public int imageCount() { return images.size(); }
 
+    /** Frames held for every image: one for a still, the animation's count. */
+    public int frameCount() {
+        int n = 0;
+        for (Image img : images.values()) n += 1 + img.frames.size();
+        return n;
+    }
+
     /** {@code ED 3}: no image survives. */
     public void clear() {
         images.clear();
@@ -235,13 +244,13 @@ public final class KittyImages {
         }
         String action = params.getOrDefault("a", "t");
         String medium = params.getOrDefault("t", "d");
-        int id = parse(params.get("i"), 0);
-        if (id > 0 && parse(params.get("I"), 0) > 0) {
+        int id = parseIdent(params.get("i"));
+        if (id != 0 && parseIdent(params.get("I")) != 0) {
             // kitty refuses the two identifiers together
-            if (!quiet(params)) out.responses.add("Gi=" + id + ";EINVAL:image id and number");
+            if (!quiet(params)) out.responses.add(ident(params) + ";EINVAL:image id and number");
             return out;
         }
-        if (("t".equals(action) || "T".equals(action))
+        if (("t".equals(action) || "T".equals(action) || "f".equals(action))
                 && ("f".equals(medium) || "t".equals(medium) || "s".equals(medium))) {
             // the payload names a file: the Rust core hands it to the app; here
             // the process is the same one, so it is read on the spot
@@ -263,7 +272,7 @@ public final class KittyImages {
                     unlink = "t".equals(medium);
                 }
             } catch (RuntimeException e) {
-                if (!quiet(params)) out.responses.add("Gi=" + id + ";ENOENT");
+                if (!quiet(params)) out.responses.add(ident(params) + ";ENOENT");
                 return out;
             }
             byte[] bytes;
@@ -272,7 +281,8 @@ public final class KittyImages {
                 if (!Files.isRegularFile(file)) throw new IOException("not a regular file");
                 bytes = Files.readAllBytes(file);
             } catch (Exception e) {
-                if (!quiet(params)) out.responses.add("Gi=" + id + ";ENOENT");
+                // a frame names the image by `I=`, so the reply has to as well
+                if (!quiet(params)) out.responses.add(ident(params) + ";ENOENT");
                 return out;
             }
             if (unlink) {
@@ -310,7 +320,7 @@ public final class KittyImages {
                     // keys of the query we understand for that action, and `e` itself
                     // says we support the action at all
                     String keys = featureKeys(e, kv);
-                    if (id != 0 || parse(kv.get("I"), 0) != 0) {
+                    if (id != 0 || parseIdent(kv.get("I")) != 0) {
                         out.responses.add(ident(kv) + (keys == null ? "" : ",e=" + e + keys) + ";OK");
                     }
                     return;
@@ -324,18 +334,7 @@ public final class KittyImages {
                         && (fmt == 24 || fmt == 32 || fmt == 100);
                 if (id != 0) out.responses.add("Gi=" + id + ";" + (ok ? "OK" : "EINVAL:unsupported transmission"));
             }
-            case "d" -> {
-                String how = kv.getOrDefault("d", "a");
-                if ("i".equals(how)) {
-                    images.remove(id);
-                    placements.removeIf(p -> p.imageId == id);
-                } else {
-                    placements.clear();
-                    if ("a".equals(how)) images.clear();
-                }
-                out.changed = true;
-                if (!quiet) out.responses.add("Gi=" + id + ";OK");
-            }
+            case "d" -> delete(out, kv, id, cx, cy, quiet);
             case "p" -> {
                 Image img = byIdent(kv);
                 if (img == null) {
@@ -354,6 +353,94 @@ public final class KittyImages {
         }
     }
 
+    /**
+     * `a=d`: which fall is decided by the `d` key, and the case decides whether
+     * the pixel data goes with it. Lower case only takes the placements away, so
+     * the client can place the picture again without resending it; upper case
+     * frees the data too, "provided that the image is not referenced elsewhere"
+     * — and nothing here keeps images in the scrollback, so it always is free.
+     *
+     * <p>`a`/`A` are every placement (every placement is on screen in this
+     * terminal), `i`/`I` and `n`/`N` are whole images, `r`/`R` is an id range —
+     * `icat --clear-all` sends {@code d=R,y=4294967295}, which does not fit an
+     * {@code int}. `f`/`F` (animation frames) and a `p` placement id are refused
+     * rather than faked, as `L16` says. Any delete aborts an upload in flight.
+     */
+    private void delete(Result out, Map<String, String> kv, int id, int cx, int cy, boolean quiet) {
+        buf = null;
+        String how = kv.getOrDefault("d", "a");
+        if (how.isEmpty()) how = "a";
+        char letter = how.charAt(0);
+        boolean dropData = Character.isUpperCase(letter);
+        char kind = Character.toLowerCase(letter);
+        long lo = parseLong(kv.get("x"), 0);
+        long hi = parseLong(kv.get("y"), -1);
+        int cellX = parse(kv.get("x"), 0);
+        int cellY = parse(kv.get("y"), 0);
+        int z = parse(kv.get("z"), 0);
+
+        switch (kind) {
+            case 'a' -> {
+                placements.clear();
+                if (dropData) images.clear();
+            }
+            case 'i', 'n' -> {
+                if (kv.containsKey("p")) { refuse(out, kv, quiet, "EINVAL:placement-id"); return; }
+                int which = kind == 'i' ? id : numberOf(parseIdent(kv.get("I")));
+                if (which == 0) { refuse(out, kv, quiet, "EINVAL:no-id"); return; }
+                dropImages(Set.of(which), dropData);
+            }
+            case 'r' -> {
+                Set<Integer> gone = new HashSet<>();
+                for (int key : images.keySet()) if (key >= lo && key <= hi) gone.add(key);
+                dropImages(gone, dropData);
+            }
+            case 'c' -> prunePlacements(p -> covers(p, cx, cy), dropData);
+            case 'p' -> prunePlacements(p -> covers(p, cellX, cellY), dropData);
+            case 'q' -> prunePlacements(p -> z == 0 && covers(p, cellX, cellY), dropData);
+            case 'x' -> prunePlacements(p -> cellX >= p.col && cellX < p.col + p.cols, dropData);
+            case 'y' -> prunePlacements(p -> cellY >= p.line && cellY < p.line + p.rows, dropData);
+            case 'z' -> prunePlacements(p -> z == 0, dropData);
+            default -> { refuse(out, kv, quiet, "EINVAL:delete"); return; }
+        }
+        out.changed = true;
+        if (!quiet) out.responses.add("Gi=" + id + ";OK");
+    }
+
+    private void refuse(Result out, Map<String, String> kv, boolean quiet, String why) {
+        if (!quiet) out.responses.add(ident(kv) + ";" + why);
+    }
+
+    /** A placement covers a cell when the cell is inside its rectangle. */
+    private static boolean covers(Placement p, int col, int line) {
+        return col >= p.col && col < p.col + p.cols
+                && line >= p.line && line < p.line + p.rows;
+    }
+
+    /** The id of the image with this client number, 0 when there is none. */
+    private int numberOf(int number) {
+        if (number == 0) return 0;
+        for (Image img : images.values()) if (img.number == number) return img.id;
+        return 0;
+    }
+
+    private void prunePlacements(java.util.function.Predicate<Placement> which, boolean dropData) {
+        List<Placement> gone = new ArrayList<>();
+        for (Placement p : placements) if (which.test(p)) gone.add(p);
+        placements.removeAll(gone);
+        if (!dropData || gone.isEmpty()) return;
+        Set<Integer> keep = new HashSet<>();
+        for (Placement p : placements) keep.add(p.imageId);
+        for (Placement p : gone) if (!keep.contains(p.imageId)) images.remove(p.imageId);
+    }
+
+    /** `d=i`/`d=n`/`d=r`: whole images, so every placement of theirs goes too. */
+    private void dropImages(Set<Integer> ids, boolean dropData) {
+        placements.removeIf(p -> ids.contains(p.imageId));
+        if (!dropData) return;
+        for (int key : ids) images.remove(key);
+    }
+
     private void transmit(Result out, Map<String, String> kv, byte[] data, int id, boolean quiet,
                           int cx, int cy, int cellW, int cellH) {
         int fmt = formatOf(kv, data);
@@ -365,7 +452,7 @@ public final class KittyImages {
         int width = dim[0], height = dim[1];
         int key = id == 0 ? Math.max(1, nextId++) : id;
         generation++;
-        Image img = new Image(key, parse(kv.get("I"), 0), generation, width, height, fmt, data);
+        Image img = new Image(key, parseIdent(kv.get("I")), generation, width, height, fmt, data);
         images.put(key, img);
         out.changed = true;
         if ("T".equals(kv.get("a"))) {
@@ -375,7 +462,7 @@ public final class KittyImages {
         if (!quiet) {
             // an image sent as a number is answered with that number, not with
             // the internal id we gave it
-            String who = id == 0 && parse(kv.get("I"), 0) > 0 ? ident(kv) : "Gi=" + key;
+            String who = id == 0 && parseIdent(kv.get("I")) != 0 ? ident(kv) : "Gi=" + key;
             out.responses.add(who + ";OK");
         }
     }
@@ -455,19 +542,19 @@ public final class KittyImages {
 
     /** The image a command points at: {@code i=<id>} or {@code I=<number>}. */
     private Image byIdent(Map<String, String> kv) {
-        int id = parse(kv.get("i"), 0);
-        if (id > 0) return images.get(id);
-        int n = parse(kv.get("I"), 0);
-        if (n > 0) for (Image img : images.values()) if (img.number == n) return img;
+        int id = parseIdent(kv.get("i"));
+        if (id != 0) return images.get(id);
+        int n = parseIdent(kv.get("I"));
+        if (n != 0) for (Image img : images.values()) if (img.number == n) return img;
         return null;
     }
 
     /** The reply's identifier: what the client sent, as {@code i=} or {@code I=}. */
     private static String ident(Map<String, String> kv) {
-        int id = parse(kv.get("i"), 0);
-        if (id > 0) return "Gi=" + id;
-        int n = parse(kv.get("I"), 0);
-        return n > 0 ? "GI=" + n : "Gi=0";
+        int id = parseIdent(kv.get("i"));
+        if (id != 0) return "Gi=" + Integer.toUnsignedString(id);
+        int n = parseIdent(kv.get("I"));
+        return n != 0 ? "GI=" + Integer.toUnsignedString(n) : "Gi=0";
     }
 
     /**
@@ -647,6 +734,29 @@ public final class KittyImages {
         if (s == null || s.isEmpty()) return def;
         try {
             return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
+     * An image id or number. The protocol's {@code i=}/{@code I=} are 32-bit
+     * <em>unsigned</em> — `kitten icat` numbers an animation's frames around
+     * 4281793601, which is past what an {@code int} holds — so the value is kept
+     * as the same 32 bits and printed back unsigned (see {@link #ident}).
+     */
+    private static int parseIdent(String s) {
+        return (int) parseLong(s, 0);
+    }
+
+    /**
+     * A 32-bit unsigned field: the delete range uses {@code y=4294967295} for
+     * "every image", which is one past what an {@code int} holds.
+     */
+    private static long parseLong(String s, long def) {
+        if (s == null || s.isEmpty()) return def;
+        try {
+            return Long.parseLong(s.trim());
         } catch (NumberFormatException e) {
             return def;
         }

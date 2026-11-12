@@ -69,6 +69,11 @@ public final class GraphicsChecks {
         theClockOfAnAnimation(c);
         loadingWaitsAndTheLoopCountRunsOut(c);
         featureQueriesSayWhatWeUnderstand(c);
+        anAnimationNumberIsUnsigned(c);
+        aFrameCanArriveThroughSharedMemory(c);
+        deletingKeepsTheDataUnlessItIsCapital(c);
+        theDeleteFallsSelectWhatTheSpecSays(c);
+        anUploadInFlightIsAbortedByADelete(c);
     }
 
     private static void byFileReadsAndKeepsTheFile(Check c) {
@@ -256,5 +261,125 @@ public final class GraphicsChecks {
                 reply(t, apc("a=q,i=9,e=c")), E + "_Gi=9;OK" + E + "\\");
         c.eq("a plain query still answers as it always did",
                 reply(t, apc("a=q,i=9,t=s,f=32")), E + "_Gi=9;OK" + E + "\\");
+    }
+
+    /** Two placed images: the first on row 0, the second two rows below it. */
+    private static Term twoImages() {
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=1", PX2));
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=2", PX2));
+        return t;
+    }
+
+    private static void deletingKeepsTheDataUnlessItIsCapital(Check c) {
+        Term t = twoImages();
+        c.eq("two placements", t.images.placements().size(), 2);
+        c.eq("the lower case takes the placements only", reply(t, apc("a=d,d=a")),
+                E + "_Gi=0;OK" + E + "\\");
+        c.eq("so nothing is on screen", t.images.placements().size(), 0);
+        c.eq("but both images stay, to be placed again", t.images.imageCount(), 2);
+        Check.feed(t, apc("a=p,i=1"));
+        c.eq("and placing one again works without a resend", t.images.placements().size(), 1);
+        reply(t, apc("a=d,d=A"));
+        c.eq("the capital frees the data too", t.images.imageCount(), 0);
+        c.eq("and the placement goes with it", t.images.placements().size(), 0);
+    }
+
+    private static void theDeleteFallsSelectWhatTheSpecSays(Check c) {
+        Term t = twoImages();
+        // `kitten icat --clear-all` sends exactly this: y is 2^32-1, past an int
+        c.eq("a whole id range, y one past an int", reply(t, apc("a=d,d=R,y=4294967295")),
+                E + "_Gi=0;OK" + E + "\\");
+        c.eq("everything is gone", t.images.imageCount() + t.images.placements().size(), 0);
+
+        Term r = twoImages();
+        reply(r, apc("a=d,d=R,x=0,y=1"));
+        c.eq("a range frees only the ids in it", r.images.imageCount(), 1);
+        c.is("and it is the second that is left", r.images.image(2) != null);
+
+        Term y = twoImages();
+        c.eq("a row delete answers OK", reply(y, apc("a=d,d=y,y=0")), E + "_Gi=0;OK" + E + "\\");
+        c.eq("and takes the placement on that row", y.images.placements().size(), 1);
+        c.eq("keeping the data, lower case", y.images.imageCount(), 2);
+
+        Term x = twoImages();
+        reply(x, apc("a=d,d=Y,y=0"));
+        c.eq("an upper case fall frees the image it orphaned", x.images.imageCount(), 1);
+        c.is("which is the first", x.images.image(1) == null);
+        c.eq("and the other one keeps its placement", x.images.placements().size(), 1);
+
+        Term i = twoImages();
+        reply(i, apc("a=d,d=i,i=2"));
+        c.eq("by id: the placement goes", i.images.placements().size(), 1);
+        c.eq("and the data stays", i.images.imageCount(), 2);
+        reply(i, apc("a=d,d=I,i=2"));
+        c.eq("with a capital it goes too", i.images.imageCount(), 1);
+
+        Term frames = twoImages();
+        c.eq("deleting animation frames is refused, not faked",
+                reply(frames, apc("a=d,d=f")), E + "_Gi=0;EINVAL:delete" + E + "\\");
+        c.eq("and nothing was deleted", frames.images.placements().size(), 2);
+        c.eq("a placement id is refused as well (L16)",
+                reply(frames, apc("a=d,d=i,i=1,p=7")), E + "_Gi=1;EINVAL:placement-id" + E + "\\");
+        c.eq("and it deleted nothing", frames.images.placements().size(), 2);
+    }
+
+    private static void anUploadInFlightIsAbortedByADelete(Check c) {
+        byte[] head = java.util.Arrays.copyOf(PX2, 6), tail = java.util.Arrays.copyOfRange(PX2, 6, 12);
+        Term ok = new Term(20, 8);
+        Check.feed(ok, apc("a=T,f=24,s=2,v=2,i=3,m=1", head));
+        Check.feed(ok, apc("i=3,m=0", tail));
+        c.is("the two chunks make one image", ok.images.image(3) != null);
+
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=3,m=1", head));
+        c.is("half an upload lands nothing", t.images.image(3) == null);
+        reply(t, apc("a=d,d=a"));
+        Check.feed(t, apc("i=3,m=0", tail));
+        c.is("and the delete throws the half away, so the tail cannot finish it",
+                t.images.image(3) == null);
+    }
+
+    /**
+     * `kitten icat` numbers an animation's frames around 2^32 (`I=4281793601`),
+     * which does not fit an `int`: the id has to keep the same 32 bits and come
+     * back to the client as the decimal it sent.
+     */
+    private static void anAnimationNumberIsUnsigned(Check c) {
+        Term t = new Term(20, 8);
+        String num = "4281793601";
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,I=" + num, PX2));
+        c.eq("the image is addressable by the number", t.images.imageCount(), 1);
+        c.eq("a frame named by that number finds it", reply(t, apc("a=f,f=24,s=2,v=2,I=" + num, PX2)),
+                E + "_GI=" + num + ";OK" + E + "\\");
+        c.eq("so the animation has two frames", t.images.frameCount(), 2);
+        Check.feed(t, apc("a=a,I=" + num + ",s=3"));
+        c.is("and the clock is armed by the same number", t.images.animating());
+    }
+
+    /**
+     * The frames after the first do not carry pixels: `icat` sends
+     * {@code a=f,t=s} with the shared-memory name as the payload, so a frame has
+     * to go through the same medium as a transmission.
+     */
+    private static void aFrameCanArriveThroughSharedMemory(Check c) {
+        if (!Files.isDirectory(Path.of("/dev/shm"))) {
+            c.is("/dev/shm is there for the t=s frame check", false);
+            return;
+        }
+        Term t = new Term(20, 8);
+        String num = "77";
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,I=" + num, PX2));
+        String name = "/tortty-frame-" + ProcessHandle.current().pid();
+        io(c, "a=f,t=s", () -> {
+            Path obj = Path.of("/dev/shm", name.substring(1));
+            Files.write(obj, PX2);
+            String b64 = Base64.getEncoder().encodeToString(name.getBytes(StandardCharsets.UTF_8));
+            c.eq("a frame by shared memory answers with its number",
+                    reply(t, E + "_Ga=f,f=24,s=2,v=2,I=" + num + ",t=s;" + b64 + E + "\\"),
+                    E + "_GI=" + num + ";OK" + E + "\\");
+            c.eq("and it is a second frame", t.images.frameCount(), 2);
+            c.is("the object is unlinked like a transmission's", !Files.exists(obj));
+        });
     }
 }

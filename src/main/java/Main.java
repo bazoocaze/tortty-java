@@ -1477,6 +1477,8 @@ public final class Main {
                     m.put("kbd_flags", term.kbdFlags);
                     m.put("images", term.images.imageCount());
                     m.put("placements", term.images.placements().size());
+                    m.put("frames", term.images.frameCount());
+                    m.put("animating", term.images.animating());
                     m.put("mouse_mode", term.mouseMode);
                     m.put("mouse_sgr", term.mouseSgr);
                     m.put("mouse_utf8", term.mouseUtf8);
