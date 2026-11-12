@@ -223,7 +223,10 @@ Features implemented in the Java version of TorTTY.
   reorders, and the tab only moves after passing half of its own label, so a
   shake does not wobble it (`B25`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
-  name, tab count), hidden while there is only one. The column takes no grid
+  name, tab count), hidden while there is only one. The column wears the
+  terminal's palette — `background`/`foreground`, the card in front a 10% lift
+  with a `palette[12]` mark — and its text, like the tab strip's, runs half
+  again the LaF's size; the geometry follows the fonts. The column takes no grid
   rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are
   spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the

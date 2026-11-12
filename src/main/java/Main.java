@@ -217,7 +217,7 @@ public final class Main {
             split.addPropertyChangeListener("dividerLocation", e -> {
                 if (syncingSide || !sideShown) return;
                 Object v = e.getNewValue();
-                if (v instanceof Integer n && n >= Side.MIN_W && n <= Side.MAX_W) sideW = n;
+                if (v instanceof Integer n && n >= side.minW && n <= Side.MAX_W) sideW = n;
             });
             frame.setContentPane(split);
             paintChrome(cfg.theme().bg);
@@ -469,6 +469,7 @@ public final class Main {
             Workspace w = new Workspace();
             w.card = "ws" + (++nextCard);
             w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+            w.pane.setFont(chromeFont("TabbedPane.font"));
             w.pane.setFocusable(false);
             w.pane.addChangeListener(e -> tabSelected(w));
             bindTabBar(w);
@@ -721,22 +722,51 @@ public final class Main {
         }
 
         /**
+         * The chrome's text runs half again the LaF's size: 11-12 px is small on
+         * a dense screen, and the workspace column and the tab strip are the
+         * only chrome with text. Only the size changes — the family and the
+         * style stay whatever the LaF chose.
+         */
+        private static final float CHROME_SCALE = 1.5f;
+
+        private static Font chromeFont(String key) {
+            Font f = UIManager.getFont(key);
+            if (f == null) f = UIManager.getFont("Label.font");
+            if (f == null) f = new Font("Dialog", Font.PLAIN, 12);
+            return f.deriveFont(f.getSize2D() * CHROME_SCALE);
+        }
+
+        /**
          * The workspace column (`B21`): one row per workspace, the front one
          * marked, an alert dot while a parked tab has a notification. No tabs
          * are listed here — they live on the strip above the grid.
          */
         private final class Side extends JComponent {
-            static final int HEAD = 26;   // room for the caption
-            static final int ROW = 27;
-            /** Space kept at the bottom for the `F2 rename` hint. */
-            static final int HINT = 16;
             static final int MIN_W = 110;
             static final int MAX_W = 420;
-            private final Font base = labelFont();
+            /** Left edge of the numbers, and of what does not start with one. */
+            private static final int TEXT_X = 9;
+            private final Font base = chromeFont("Label.font");
             private final Font bold = base.deriveFont(Font.BOLD);
             private final Font tiny = base.deriveFont(Math.max(9f, base.getSize2D() - 2f));
+            // the geometry follows the fonts: the size is a scale factor, so a
+            // fixed row height would clip the text the moment it grew
+            private final int head;      // room for the caption
+            private final int row;       // one workspace card
+            private final int hint;      // the `F2 rename` line at the bottom
+            private final int rowBase;   // baseline of a card's text, inside the row
+            private final int labelX;    // where the names start, clear of the numbers
+            private final int minW;      // a column where the caption still fits
 
             Side() {
+                FontMetrics bm = getFontMetrics(base);
+                FontMetrics tm = getFontMetrics(tiny);
+                row = bm.getHeight() + 5;
+                rowBase = (row + bm.getAscent() - bm.getDescent()) / 2;
+                head = tm.getHeight() + 8;
+                hint = tm.getHeight() + 4;
+                labelX = TEXT_X + bm.stringWidth("00") + 6;
+                minW = Math.max(MIN_W, tm.stringWidth("WORKSPACES") + 18);
                 setFocusable(false);
                 setRequestFocusEnabled(false);
                 setToolTipText("");
@@ -781,7 +811,7 @@ public final class Main {
 
             /** Cards that fit in the column, the `+ new` row included, at least one. */
             private int visibleRows() {
-                return Math.max(1, (getHeight() - HEAD - HINT) / ROW);
+                return Math.max(1, (getHeight() - head - hint) / row);
             }
 
             /** The list is the cards plus the `+ new` row. */
@@ -805,7 +835,7 @@ public final class Main {
                 return n;
             }
 
-            private int rowY(int i) { return HEAD + (i - sideScroll) * ROW; }
+            private int rowY(int i) { return head + (i - sideScroll) * row; }
 
             /** Screen coordinates of each card drawn, for automation (like tab_rects). */
             private java.util.List<int[]> rects() {
@@ -814,14 +844,9 @@ public final class Main {
                 java.awt.Point origin = getLocationOnScreen();
                 int end = Math.min(sideScroll + visibleRows(), workspaces.size());
                 for (int i = sideScroll; i < end; i++) {
-                    out.add(new int[] {origin.x, origin.y + rowY(i), getWidth(), ROW});
+                    out.add(new int[] {origin.x, origin.y + rowY(i), getWidth(), row});
                 }
                 return out;
-            }
-
-            private Font labelFont() {
-                Font f = UIManager.getFont("Label.font");
-                return f == null ? new Font("Dialog", Font.PLAIN, 12) : f;
             }
 
             /** Row under {@code y}, or -1 for the caption, the `+` row and below. */
@@ -834,8 +859,8 @@ public final class Main {
 
             /** Index of the row under {@code y}, counting the `+ new` row; -1 outside. */
             private int rowIndexAt(int y) {
-                if (y < HEAD) return -1;
-                int d = (y - HEAD) / ROW;
+                if (y < head) return -1;
+                int d = (y - head) / row;
                 if (d >= visibleRows()) return -1; // below the last row drawn
                 return sideScroll + d;
             }
@@ -868,8 +893,11 @@ public final class Main {
                 Graphics2D g = (Graphics2D) g0;
                 g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                         RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                Color bg = color("Panel.background", new Color(0xEEEEEE));
-                Color fg = color("Label.foreground", new Color(0x202020));
+                // the column wears the terminal's own palette: the LaF's light
+                // grey next to a black grid was the one piece of chrome that
+                // did not follow `background`/`foreground`
+                Color bg = new Color(theme.bg);
+                Color fg = new Color(theme.fg);
                 Color muted = mix(fg, bg, 0.45f);
                 Color chip = mix(bg, fg, 0.10f);
                 g.setColor(bg);
@@ -877,33 +905,36 @@ public final class Main {
 
                 g.setFont(tiny);
                 g.setColor(muted);
-                g.drawString("WORKSPACES", 9, 18);
+                g.drawString("WORKSPACES", TEXT_X, head - 8);
 
                 FontMetrics fmTiny = g.getFontMetrics();
-                // the list is drawn from `sideScroll` and clipped: a row that
-                // does not fit must not paint over the caption or the hint
+                // the list is drawn from `sideScroll`, one whole row per slot:
+                // half a row under the hint read as a broken card once the text
+                // grew, so the sliver the extra row used to fill is gone
                 java.awt.Shape clip = g.getClip();
-                g.clipRect(0, HEAD, getWidth(), Math.max(0, getHeight() - HEAD - HINT));
-                int end = Math.min(sideScroll + visibleRows() + 1, contentRows());
+                g.clipRect(0, head, getWidth(), Math.max(0, getHeight() - head - hint));
+                int end = Math.min(sideScroll + visibleRows(), contentRows());
                 for (int i = sideScroll; i < end; i++) {
                     int y = rowY(i);
                     if (i == workspaces.size()) {
                         g.setFont(base);
                         g.setColor(muted);
-                        g.drawString("+ new", 9, y + 18);
+                        g.drawString("+ new", TEXT_X, y + rowBase);
                         break;
                     }
                     Workspace w = workspaces.get(i);
                     boolean sel = i == ws;
                     if (sel) {
                         g.setColor(chip);
-                        g.fillRect(0, y, getWidth(), ROW);
-                        g.setColor(new Color(theme.palette[4]));
-                        g.fillRect(0, y, 2, ROW);
+                        g.fillRect(0, y, getWidth(), row);
+                        // palette[4] is a dark blue that vanishes on black: the
+                        // bright half of the palette keeps the mark readable
+                        g.setColor(new Color(theme.palette[12]));
+                        g.fillRect(0, y, 3, row);
                     }
                     g.setFont(bold);
                     g.setColor(sel ? fg : muted);
-                    g.drawString(String.valueOf(i + 1), 9, y + 18);
+                    g.drawString(String.valueOf(i + 1), TEXT_X, y + rowBase);
 
                     // the right side: an alert dot, or the tab count when >1
                     int right = 10;
@@ -914,7 +945,7 @@ public final class Main {
                     FontMetrics fm = g.getFontMetrics();
                     String label = w.label();
                     if (label.isEmpty()) label = "\u2014";
-                    int avail = getWidth() - 26 - right;
+                    int avail = getWidth() - labelX - 17 - right;
                     if (fm.stringWidth(label) > avail) {
                         while (label.length() > 1 && fm.stringWidth(label + "\u2026") > avail) {
                             label = label.substring(0, label.length() - 1);
@@ -922,29 +953,24 @@ public final class Main {
                         label = label + "\u2026";
                     }
                     g.setColor(sel ? fg : muted);
-                    g.drawString(label, 26, y + 18);
+                    g.drawString(label, labelX, y + rowBase);
 
                     if (w.alert()) {
                         g.setColor(new Color(theme.palette[3]));
-                        g.fillOval(getWidth() - 18, y + 10, 8, 8);
+                        g.fillOval(getWidth() - 18, y + (row - 8) / 2, 8, 8);
                     } else if (w.tabs.size() > 1) {
                         g.setFont(tiny);
                         g.setColor(muted);
                         String n = w.tabs.size() + "t";
-                        g.drawString(n, getWidth() - 9 - fmTiny.stringWidth(n), y + 18);
+                        g.drawString(n, getWidth() - TEXT_X - fmTiny.stringWidth(n), y + rowBase);
                     }
                 }
                 g.setClip(clip);
 
                 g.setFont(tiny);
                 String hint = "F2 rename";
-                g.drawString(hint, Math.max(9, getWidth() - 9 - fmTiny.stringWidth(hint)),
-                        getHeight() - 9);
-            }
-
-            private Color color(String key, Color fallback) {
-                Color c = UIManager.getColor(key);
-                return c == null ? fallback : c;
+                g.drawString(hint, Math.max(TEXT_X, getWidth() - TEXT_X - fmTiny.stringWidth(hint)),
+                        getHeight() - fmTiny.getDescent() - 2);
             }
 
             private Color mix(Color a, Color b, float t) {
@@ -1952,6 +1978,8 @@ public final class Main {
             t.panel.setCopyOnSelect(c.copyOnSelect);
             t.panel.setLigatures(c.ligatures != 0);
             Theme liveTheme = c.theme();
+            theme = liveTheme;              // the column reads it on every paint
+            side.repaint();
             paintChrome(liveTheme.bg);
             t.term.setTheme(liveTheme);
             t.panel.setTheme(liveTheme);

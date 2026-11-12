@@ -1,6 +1,6 @@
 # HISTORY
 
-Concise history of past activities. Maximum of 10 lines per activity.
+Concise history of past activities. Maximum of 5 lines per activity.
 
 ## 2026-11-07 — Java experiment
 
@@ -920,3 +920,23 @@ dropped it first, and the panel never put the bit in the modifiers anyway.
 **Result.** 1135 checks (7 new). In Xvfb, with flag 8 `z a Super+a` arrive as
 `CSI 122u CSI 97u CSI 97;9u` and without it as `za`; Super+N never reaches the
 child either way. `L20` leaves the table, and the ids are not reused.
+
+## 2026-11-12 — the column wears the terminal's palette (`B21`)
+
+**Context.** The workspace column was the last piece of chrome asking the LaF
+for its colours: `Panel.background` answers `#EEEEEE` under Metal, a light grey
+beside a black grid — two designs in one window.
+
+**Activities.**
+
+- `Side` paints from `theme.bg`/`theme.fg`; the card in front is a 10% lift and
+  its mark moved to `palette[12]`, because `palette[4]` is a dark blue that
+  disappears on black. Tab strip, popup and rename dialog untouched.
+- The chrome's text (column and tab strip) runs 1.5× the LaF's size, and the
+  column's geometry — caption, row, hint band, label column — is computed from
+  its fonts instead of fixed at 26/27/16/26, which had clipped two-digit numbers
+  into the names and the last card into the `F2 rename` line.
+- `applyLive` refreshes `theme` and repaints the column, so a reload carries.
+
+**Result.** A black column on a black grid, the card in front a step above it;
+the light tab strip that remains is `B61`.
