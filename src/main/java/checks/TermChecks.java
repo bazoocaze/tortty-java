@@ -452,6 +452,27 @@ public final class TermChecks {
         Check.feed(r, E + "[?6l" + E + "[3;5r");
         c.eq("DECSTBM homes to the screen top with origin off", r.cy, 0);
 
+        // B60: the margins stop a walk from inside, with origin on or off,
+        // but they are no fence around the region (xterm's CursorUp/Down).
+        Term m = new Term(20, 6);
+        Check.feed(m, E + "[2;4r");                  // region rows 2..4 -> top=1 bot=3
+        Check.feed(m, E + "[1;1H" + E + "[5A");      // row 1, above the region
+        c.eq("above the region CUU reaches the screen top", m.cy, 0);
+        Check.feed(m, E + "[6;1H" + E + "[5B");      // row 6, below the region
+        c.eq("below the region CUD reaches the last row", m.cy, 5);
+        Check.feed(m, E + "[3;1H" + E + "[9A");      // row 3, inside
+        c.eq("a walk from inside stops at the top margin", m.cy, 1);
+        Check.feed(m, E + "[9B");
+        c.eq("and at the bottom margin", m.cy, 3);
+
+        // B60: ?6 moves the cursor home as it flips (xterm's CursorSet).
+        Term h = new Term(20, 6);
+        Check.feed(h, E + "[2;4r" + E + "[6;1H");   // parked on the last row
+        Check.feed(h, E + "[?6h");
+        c.eq("?6h homes to the region top", h.cy, 1);
+        Check.feed(h, E + "[6;1H" + E + "[?6l");
+        c.eq("?6l homes to the screen top", h.cy, 0);
+
         // DECSTR takes both back to the defaults (Rust soft_reset does)
         Term s = new Term(10, 4);
         Check.feed(s, E + "[?6h" + E + "[?7l" + E + "[!p");

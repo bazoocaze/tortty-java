@@ -1667,12 +1667,12 @@ public final class Term {
                 if (c < 0) c = 0; if (c >= cols) c = cols - 1;
                 cx = c; cy = r; wrapPending = false;
             }
-            case 'A' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.max(top, cy - n); wrapPending = false; }
-            case 'B' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.min(bot, cy + n); wrapPending = false; }
+            case 'A' -> { int n = (p0 >= 0 ? p0 : 1); int min = cy < top ? 0 : top; cy = Math.max(min, cy - n); wrapPending = false; }
+            case 'B' -> { int n = (p0 >= 0 ? p0 : 1); int max = cy > bot ? rows - 1 : bot; cy = Math.min(max, cy + n); wrapPending = false; }
             case 'C' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.min(cols - 1, cx + n); wrapPending = false; }
             case 'D' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, cx - n); wrapPending = false; }
-            case 'E' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.min(bot, cy + n); cx = 0; wrapPending = false; }
-            case 'F' -> { int n = (p0 >= 0 ? p0 : 1); cy = Math.max(top, cy - n); cx = 0; wrapPending = false; }
+            case 'E' -> { int n = (p0 >= 0 ? p0 : 1); int max = cy > bot ? rows - 1 : bot; cy = Math.min(max, cy + n); cx = 0; wrapPending = false; }
+            case 'F' -> { int n = (p0 >= 0 ? p0 : 1); int min = cy < top ? 0 : top; cy = Math.max(min, cy - n); cx = 0; wrapPending = false; }
             case 'G' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, Math.min(cols - 1, n - 1)); wrapPending = false; }
             case 'd' -> {
                 int r = (p0 >= 0 ? p0 - 1 : 0);
@@ -1754,7 +1754,7 @@ public final class Term {
                         int v = params[pi] < 0 ? 0 : params[pi];
                         switch (v) {
                             case 1 -> decckm = on;
-                            case 6 -> origin = on;
+                            case 6 -> { origin = on; cx = 0; cy = on ? top : 0; wrapPending = false; }
                             case 7 -> autowrap = on;
                             case 12 -> { cursorBlink = on; if (cy >= 0 && cy < rows) dirty[cy] = true; }
                             case 25 -> cursorVisible = on;

@@ -124,9 +124,13 @@ Features implemented in the Java version of TorTTY.
   end of the line — the next glyph overwrites it and no wrap is armed (a wide
   glyph backs up into the last two cells); with `?6h` `CUP`/`HVP`/`VPA` count
   rows from the scroll region's top and stop at its bottom, and `DECSTBM` homes
-  to the region top. Relative moves and `CHA` stay absolute (the Rust version
-  routes them through `cursor_to` and so offsets them twice — measured there:
-  `CUU` with `?6h` does not move; not copied). Both are carried by
+  to the region top. Relative moves never take the origin offset (the Rust
+  version routes them through `cursor_to` and so offsets them twice — measured
+  there: `CUU` with `?6h` does not move; not copied): the margins stop a walk
+  from inside the region, but a cursor above it reaches the screen top and one
+  below reaches the last row (`B60`, xterm's `CursorUp`/`CursorDown`). Flipping
+  `?6` moves the cursor home — the region top going on, the screen top going
+  off. Both are carried by
   `DECSC`/`DECRC` and the alt screen, and `DECSTR`/`RIS` reset them; `state`
   reports them as `autowrap` and `origin`.
 - `DECSTR` (`CSI ! p`, `B29`): the soft reset vim and tmux send on entry —

@@ -940,3 +940,22 @@ beside a black grid — two designs in one window.
 
 **Result.** A black column on a black grid, the card in front a step above it;
 the light tab strip that remains is `B61`.
+
+## 2026-11-12 — `?6` clamps like xterm (`B60` closed)
+
+**Context.** The relative moves (`CUU`/`CUD`/`CNL`/`CPL`) clamped to the scroll
+region unconditionally, so with origin off a walk from outside was pulled
+inside; and `?6h`/`?6l` flipped the flag without moving the cursor. xterm clamps
+only from inside, and homes on the flip.
+
+**Activities.**
+
+- `Term.java`: `CUU`/`CPL` take `cy < top ? 0 : top` as the floor, `CUD`/`CNL`
+  `cy > bot ? rows - 1 : bot` as the ceiling (the Rust `cursor_up`/`cursor_down`
+  rule, origin flag not consulted); the `6` arm of the mode switch homes to the
+  region top going on, the screen top going off.
+- Six checks in `TermChecks.originAndWrap`: from above the region `CUU` reaches
+  0, from below `CUD` reaches the last row, from inside both stop at the margin,
+  and each flip homes.
+
+**Result.** `selftest` passes 1141 checks (term 192); `B60` leaves `BACKLOG.md`.
