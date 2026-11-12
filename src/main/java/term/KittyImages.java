@@ -128,8 +128,10 @@ public final class KittyImages {
         public final int cols, rows;
         /** {@code X=}/{@code Y=}: pixel offset inside the first cell. */
         public final int dx, dy;
+        /** {@code z=}: stacking order, higher paints later (on top). */
+        public final int z;
 
-        Placement(int imageId, int col, int line, int cols, int rows, int dx, int dy) {
+        Placement(int imageId, int col, int line, int cols, int rows, int dx, int dy, int z) {
             this.imageId = imageId;
             this.col = col;
             this.line = line;
@@ -137,6 +139,7 @@ public final class KittyImages {
             this.rows = rows;
             this.dx = dx;
             this.dy = dy;
+            this.z = z;
         }
     }
 
@@ -159,6 +162,17 @@ public final class KittyImages {
     private Map<String, String> bufKv;
 
     public List<Placement> placements() { return placements; }
+
+    /**
+     * Placements in the order they paint: {@code z=} first, arrival order
+     * breaking the ties, as kitty stacks them (a later placement covers an
+     * earlier one at the same height).
+     */
+    public List<Placement> paintOrder() {
+        List<Placement> out = new ArrayList<>(placements);
+        out.sort(java.util.Comparator.comparingInt(p -> p.z)); // stable
+        return out;
+    }
 
     public Image image(int id) { return images.get(id); }
 
@@ -426,12 +440,28 @@ public final class KittyImages {
                 for (int key : images.keySet()) if (key >= lo && key <= hi) gone.add(key);
                 dropImages(gone, dropData);
             }
+            case 'f' -> {
+                // the animation's frames go, the root stays: the image is a
+                // still again and stops, placed or not. A fresh object, so its
+                // version turns and the UI rebuilds its canvases from the root
+                // alone instead of showing the dropped frames. `dropData` has
+                // nothing to say here: the frames are the extra data.
+                if (kv.containsKey("p")) { refuse(out, kv, quiet, "EINVAL:placement-id"); return; }
+                int which = id != 0 ? id : numberOf(parseIdent(kv.get("I")));
+                if (which == 0) { refuse(out, kv, quiet, "EINVAL:no-id"); return; }
+                Image img = images.get(which);
+                if (img != null && !img.frames.isEmpty()) {
+                    generation++;
+                    images.put(which, new Image(img.id, img.number, generation,
+                            img.width, img.height, img.format, img.data));
+                }
+            }
             case 'c' -> prunePlacements(p -> covers(p, cx, cy), dropData);
             case 'p' -> prunePlacements(p -> covers(p, cellX, cellY), dropData);
             case 'q' -> prunePlacements(p -> z == 0 && covers(p, cellX, cellY), dropData);
             case 'x' -> prunePlacements(p -> cellX >= p.col && cellX < p.col + p.cols, dropData);
             case 'y' -> prunePlacements(p -> cellY >= p.line && cellY < p.line + p.rows, dropData);
-            case 'z' -> prunePlacements(p -> z == 0, dropData);
+            case 'z' -> prunePlacements(p -> p.z == z, dropData);
             default -> { refuse(out, kv, quiet, "EINVAL:delete"); return; }
         }
         out.changed = true;
@@ -622,8 +652,9 @@ public final class KittyImages {
             echo(b, kv, "c", "0", null); // columns and rows
             echo(b, kv, "r", "0", null);
             echo(b, kv, "C", "0", v -> v.equals("1"));
-            // `U` (unicode placeholder) and `z` (z-index) are the two a client
-            // asks about most, and we do not have them
+            echo(b, kv, "z", "0", null); // stacking order, higher on top
+            // `U` (unicode placeholder) is the one a client asks about most
+            // that we still do not have
         }
         if (e.equals("a")) {
             echo(b, kv, "s", "0", v -> v.equals("1") || v.equals("2") || v.equals("3"));
@@ -636,7 +667,7 @@ public final class KittyImages {
         // case takes the placements away, the upper case frees the data too, and
         // the values here are the ones `delete()` accepts
         if (e.equals("d")) {
-            echo(b, kv, "d", "", v -> v.length() == 1 && "ainrcpqxyz".indexOf(Character.toLowerCase(v.charAt(0))) >= 0);
+            echo(b, kv, "d", "", v -> v.length() == 1 && "afinrcpqxyz".indexOf(Character.toLowerCase(v.charAt(0))) >= 0);
         }
         return b.toString();
     }
@@ -742,7 +773,7 @@ public final class KittyImages {
                 ? Math.max(1, parse(kv.get("r"), 1))
                 : Math.max(1, (img.height + chh - 1) / chh);
         placements.add(new Placement(img.id, cx, cy, cols, rows,
-                parse(kv.get("X"), 0), parse(kv.get("Y"), 0)));
+                parse(kv.get("X"), 0), parse(kv.get("Y"), 0), parse(kv.get("z"), 0)));
         return rows;
     }
 

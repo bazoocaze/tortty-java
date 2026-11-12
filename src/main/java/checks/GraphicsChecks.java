@@ -76,6 +76,8 @@ public final class GraphicsChecks {
         aFrameCanArriveThroughSharedMemory(c);
         deletingKeepsTheDataUnlessItIsCapital(c);
         theDeleteFallsSelectWhatTheSpecSays(c);
+        deletingFramesStopsTheAnimation(c);
+        stackingFollowsTheZIndex(c);
         anUploadInFlightIsAbortedByADelete(c);
     }
 
@@ -355,6 +357,12 @@ public final class GraphicsChecks {
         c.eq("placement: the cursor policy is ours, the placeholder is not",
                 reply(t, apc("a=q,i=9,e=T,U=1,C=1")),
                 E + "_Gi=9,e=T,C=1;OK" + E + "\\");
+        c.eq("placement: a z-index comes back",
+                reply(t, apc("a=q,i=9,e=T,z=2")),
+                E + "_Gi=9,e=T,z=2;OK" + E + "\\");
+        c.eq("delete: frames are a value we honour",
+                reply(t, apc("a=q,i=9,e=d,d=f")),
+                E + "_Gi=9,e=d,d=f;OK" + E + "\\");
         c.eq("control: state and loops both come back",
                 reply(t, apc("a=q,i=9,e=a,s=3,v=2")),
                 E + "_Gi=9,e=a,s=3,v=2;OK" + E + "\\");
@@ -416,13 +424,65 @@ public final class GraphicsChecks {
         reply(i, apc("a=d,d=I,i=2"));
         c.eq("with a capital it goes too", i.images.imageCount(), 1);
 
-        Term frames = twoImages();
-        c.eq("deleting animation frames is refused, not faked",
-                reply(frames, apc("a=d,d=f")), E + "_Gi=0;EINVAL:delete" + E + "\\");
-        c.eq("and nothing was deleted", frames.images.placements().size(), 2);
-        c.eq("a placement id is refused as well (L16)",
-                reply(frames, apc("a=d,d=i,i=1,p=7")), E + "_Gi=1;EINVAL:placement-id" + E + "\\");
-        c.eq("and it deleted nothing", frames.images.placements().size(), 2);
+        Term frames = animated();
+        c.eq("deleting the frames answers OK",
+                reply(frames, apc("a=d,d=f,i=1")), E + "_Gi=1;OK" + E + "\\");
+        c.eq("the root frame is left", frames.images.frameCount(), 1);
+        c.is("and it stopped", !frames.images.animating());
+        c.eq("the image data stays", frames.images.imageCount(), 1);
+        c.eq("a still is a no-op OK",
+                reply(frames, apc("a=d,d=f,i=1")), E + "_Gi=1;OK" + E + "\\");
+        c.eq("with no address it is refused",
+                reply(frames, apc("a=d,d=f")), E + "_Gi=0;EINVAL:no-id" + E + "\\");
+        c.eq("a placement id is refused (L16)",
+                reply(frames, apc("a=d,d=f,i=1,p=7")), E + "_Gi=1;EINVAL:placement-id" + E + "\\");
+        c.eq("by number too",
+                reply(frames, apc("a=d,d=f,I=5")), E + "_GI=5;EINVAL:no-id" + E + "\\");
+    }
+
+    /** An animation to delete the frames of: two frames on image 1, running. */
+    private static Term animated() {
+        Term t = new Term(20, 4);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=1,C=1", PX2));
+        Check.feed(t, apc("a=f,i=1,f=24,s=2,v=2,z=20,c=1", PX2));
+        Check.feed(t, apc("a=f,i=1,f=24,s=2,v=2,z=20,c=1", PX2));
+        Check.feed(t, apc("a=a,i=1,r=1,z=20,s=3"));
+        return t;
+    }
+
+    private static void deletingFramesStopsTheAnimation(Check c) {
+        Term t = animated();
+        c.is("running before", t.images.animating());
+        long before = t.images.image(1).version;
+        c.eq("the frames are gone after d=f", reply(t, apc("a=d,d=f,i=1")),
+                E + "_Gi=1;OK" + E + "\\");
+        c.eq("only the root is left", t.images.frameCount(), 1);
+        c.is("and it stopped", !t.images.animating());
+        c.is("the version turned, so the UI rebuilds from the root",
+                t.images.image(1).version != before);
+        c.eq("its placement survived", t.images.placements().size(), 1);
+        Check.feed(t, apc("a=f,i=1,f=24,s=2,v=2,z=20,c=1", PX2));
+        Check.feed(t, apc("a=a,i=1,r=1,z=20,s=3"));
+        c.is("new frames animate again", t.images.animating());
+        t.images.advance(0); // arms the clock on the root's gap
+        c.is("and the clock reaches them", t.images.advance(10000));
+    }
+
+    private static void stackingFollowsTheZIndex(Check c) {
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=1,z=2", PX2));
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=2", PX2));
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=3,z=2", PX2));
+        c.eq("the placement keeps its height", t.images.placements().get(0).z, 2);
+        c.eq("the default is the floor", t.images.placements().get(1).z, 0);
+        java.util.List<term.KittyImages.Placement> order = t.images.paintOrder();
+        c.eq("paint order is z first", order.get(0).imageId, 2);
+        c.eq("ties keep arrival order", order.get(1).imageId, 1);
+        c.eq("then the later arrival", order.get(2).imageId, 3);
+        c.eq("a z delete answers OK", reply(t, apc("a=d,d=z,z=2")), E + "_Gi=0;OK" + E + "\\");
+        c.eq("and takes only that shelf", t.images.placements().size(), 1);
+        c.eq("which is the z=0 one", t.images.placements().get(0).imageId, 2);
+        c.eq("keeping the data, lower case", t.images.imageCount(), 3);
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {

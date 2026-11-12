@@ -959,3 +959,28 @@ only from inside, and homes on the flip.
   and each flip homes.
 
 **Result.** `selftest` passes 1141 checks (term 192); `B60` leaves `BACKLOG.md`.
+
+## 2026-11-12 — `d=f` drops the frames, `z=` stacks (`L16` shrinks)
+
+**Context.** Two slices of `L16` with no Rust reference (the Rust core has
+neither): deleting animation frames answered `EINVAL:delete`, and every
+placement painted in arrival order with `d=z` as a stub that deleted everything
+when `z=0`.
+
+**Activities.**
+
+- `KittyImages.java`: a `d=f` arm drops `img.frames` by replacing the image on
+  a fresh `generation` — the animation stops, the root stays placed, and the
+  UI's version-keyed canvases rebuild from the root alone. `Placement` carries
+  `z`, `paintOrder()` sorts a copy (stable: ties keep arrival order),
+  `TermPanel.paintImages` paints it, and `d=z` matches per placement. The `e=T`
+  query echoes `z`, the `e=d` one admits `f`.
+- 23 checks in `GraphicsChecks`: replies and refusals, stop and rebirth of the
+  clock, the version turning, `paintOrder` with ties, a `d=z` that takes only
+  its shelf.
+- Live in Xvfb: a blue `z=0` and a red `z=1` on the same cells show red even
+  with the blue arriving last — the height wins over the arrival.
+
+**Result.** `selftest` passes 1164 checks (graphics 129), `render-check` 28/28;
+`L16` keeps placement id, Unicode placeholder, source crop, composition and
+frame edits.

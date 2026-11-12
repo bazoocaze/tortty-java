@@ -1191,7 +1191,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     /** kitty images sit on top of the text, as in the Rust version. */
     private void paintImages(Graphics2D g2, int pad, int cols, int rows, int cw, int chh) {
-        java.util.List<KittyImages.Placement> list = term.images.placements();
+        java.util.List<KittyImages.Placement> list = term.images.paintOrder();
         if (list.isEmpty()) return;
         Object oldInterp = g2.getRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION);
         g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,

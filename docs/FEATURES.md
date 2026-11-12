@@ -98,9 +98,11 @@ Features implemented in the Java version of TorTTY.
   placement (nothing lives in the scrollback here), `i`/`I` an image id,
   `n`/`N` a client number, `r`/`R` an id range, `c`/`C` the cell under the
   cursor, `p`/`P` the cell in `x`,`y`, `x`/`X` a column, `y`/`Y` a row and
-  `z`/`Z` a z-index (all placements are at 0). Any delete aborts an upload in
-  flight. `f`/`F` (animation frames) and a `p` placement id answer `EINVAL`
-  rather than pretend, as `L16` says. See `FEATURES` → the pty below for how a
+  `z`/`Z` a z-index: higher paints later, ties keep arrival order, and `e=T`
+  answers the height back. `f`/`F` drops the animation's frames — the image goes
+  back to its root still and stops, placed or not, on a fresh version so the
+  composed canvases are rebuilt — and any delete aborts an upload in flight. A
+  `p` placement id answers `EINVAL` rather than pretend, as `L16` says. See `FEATURES` → the pty below for how a
   client learns the size it draws into.
 - Feature queries (`a=q,e=<action>`): the reply carries `e` and every key of the
   query we understand *for that action* that is not at its default — `e=T,C=1`
