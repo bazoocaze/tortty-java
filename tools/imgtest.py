@@ -10,6 +10,9 @@ Run it inside the terminal (it puts the tty in raw mode, and restores it):
   tools/imgtest.py scroll     place the image, then push three screens of text
   tools/imgtest.py query      a=q, expects an OK reply
   tools/imgtest.py delete     a=d,d=a
+  tools/imgtest.py crop       x,y,w,h: only the red quadrant is shown
+  tools/imgtest.py named      p=: one placement, then the same pair again moved
+  tools/imgtest.py under      z=-1: the picture behind the words written over it
 
 The image is a 4-color checker so the placement, the scaling and the clipping
 are visible at a glance. Replies are printed as `reply: ...`; a silent terminal
@@ -123,6 +126,30 @@ def main():
             apc(out, b"a=q,i=0,f=100,t=d;")
         elif mode == "delete":
             apc(out, b"a=d,d=a;")
+        elif mode == "crop":
+            # the source rectangle: the top-left quadrant, stretched over the
+            # whole placement. Stretched because `c`/`r` still say 8x16 cells.
+            apc(out, b"a=T,f=100,i=6,c=%d,r=%d;%s" % (cols, rows, b64))
+            out.write(b"\r\n")          # past the first placement
+            apc(out, b"a=T,f=100,i=7,c=%d,r=%d,x=0,y=0,w=%d,h=%d;%s"
+                % (cols, rows, W // 2, H // 2, b64))
+            print("top: the whole image. below: the red quadrant, stretched")
+        elif mode == "named":
+            # the same (image, placement id) twice: the second replaces the first
+            apc(out, b"a=T,f=100,i=8,p=7,c=%d,r=%d;%s" % (cols, rows, b64))
+            print("placed with p=7 — answering OK,p=7")
+            time.sleep(1.0)
+            out.write(b"\r\n\r\n")
+            apc(out, b"a=p,i=8,p=7,c=%d,r=%d" % (cols // 2, rows // 2))
+            print("moved the same p=7 below, at half the size: one placement, not two")
+        elif mode == "under":
+            apc(out, b"a=T,f=100,i=9,c=%d,r=%d,z=-1;%s" % (cols, rows, b64))
+            time.sleep(0.3)
+            out.write(b"\x1b[1;1H")
+            out.write(b"TEXT OVER THE PICTURE\r\n")
+            out.write(b"second line, also on top\r\n")
+            out.flush()
+            print("the words above the picture are readable: z=-1 is under the text")
         else:
             sys.exit(__doc__)
 
