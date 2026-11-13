@@ -1129,3 +1129,19 @@ rows of a placement, not a frame edit, and `e=c` is answered (composition works)
 A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
+
+## 2026-11-13 — the under-text band stops costing anything
+
+**Context.** `z<0` places a picture under the glyphs, and the band is drawn row
+by row. Measured off screen, that cost **+0.61 ms per paint** over an image with
+`z=1` — 1.45 against 0.91 on a 79x24 grid, which is 38% of a 16 ms frame.
+
+**Activities.** `clipTo` narrowed the clip by intersecting a `java.awt.geom.Area`
+per row: 24 allocations and 24 area intersections per frame. `Graphics.clipRect`
+intersects in place, so a `Rectangle` save/restore does the same job. The whole
+`Area` helper went away.
+
+**Result.** 0.81–1.02 ms/paint against 0.78–0.81 for `z=1` and 0.79–0.99 with no
+image: the band is inside the noise. `selftest` 1247, `render-check` 38/38, and
+the live `under` demo still shows the words over the picture. Numbers in
+`BENCHMARKS.md`.

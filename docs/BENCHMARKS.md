@@ -97,3 +97,23 @@ disables XRender by default.
 - Font 17 pt was chosen because it produces a cell (14x26) close to the Rust
   reference (13.65x26.39) and to the published 13.9x27.3; comparison is by grid
   in cells.
+
+## Images in the paint path (2026-11-13)
+
+Measured off screen with `render.Gate`'s recipe — `TermPanel` + a 79x24 grid of
+text, full repaint, 300 paints after 40 warmup, headless, DejaVu Sans Mono 17 pt
+(cell 14x26). One full-screen image (`c=79,r=24`) in the three positions the
+protocol allows. ms per paint, best of three runs:
+
+| scene | ms/paint |
+|---|---|
+| no image | 0.79 – 0.99 |
+| image `z=1` (over the text) | 0.78 – 0.81 |
+| image `z=-1` (under the text) | 0.81 – 1.02 |
+
+The `z<0` band is drawn once per row — after the row's background, before its
+glyphs — so the text lands on top. With the clip narrowed by an `Area` per row
+this cost **+0.61 ms**; with `Graphics.clipRect`, which intersects in place, the
+band disappears into the noise. A full-screen picture therefore costs about one
+`drawImage` per visible row of itself, and nothing measurable when none is
+placed.

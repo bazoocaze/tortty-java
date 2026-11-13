@@ -1281,11 +1281,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     /** Narrows the clip and hands back what it was, to put it back afterwards. */
     private static java.awt.Shape clipTo(Graphics2D g2, int x, int y, int w, int h) {
         java.awt.Shape old = g2.getClip();
-        java.awt.geom.Area a = old == null
-                ? new java.awt.geom.Area(new java.awt.Rectangle(x, y, w, h))
-                : new java.awt.geom.Area(old);
-        a.intersect(new java.awt.geom.Area(new java.awt.Rectangle(x, y, w, h)));
-        g2.setClip(a);
+        g2.clipRect(x, y, w, h);
         return old;
     }
 
