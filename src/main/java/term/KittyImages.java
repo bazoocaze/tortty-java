@@ -157,17 +157,27 @@ public final class KittyImages {
 
     public static final class Placement {
         public final int imageId;
+        /**
+         * {@code p=}: the client's own name for this placement, 0 when it gave
+         * none. The pair {@code (imageId, pid)} is what a delete addresses, and
+         * a second placement carrying the same pair replaces the first.
+         */
+        public final int pid;
         public final int col;
         /** Screen line: 0 is the top grid row, negative is the scrollback. */
         public int line;
         public final int cols, rows;
         /** {@code X=}/{@code Y=}: pixel offset inside the first cell. */
         public final int dx, dy;
-        /** {@code z=}: stacking order, higher paints later (on top). */
+        /** {@code z=}: stacking order — a negative one paints under the text. */
         public final int z;
+        /** {@code x}/{@code y}/{@code w}/{@code h}: the part of the image shown. */
+        public final int sx, sy, sw, sh;
 
-        Placement(int imageId, int col, int line, int cols, int rows, int dx, int dy, int z) {
+        Placement(int imageId, int pid, int col, int line, int cols, int rows,
+                  int dx, int dy, int z, int sx, int sy, int sw, int sh) {
             this.imageId = imageId;
+            this.pid = pid;
             this.col = col;
             this.line = line;
             this.cols = cols;
@@ -175,6 +185,10 @@ public final class KittyImages {
             this.dx = dx;
             this.dy = dy;
             this.z = z;
+            this.sx = sx;
+            this.sy = sy;
+            this.sw = sw;
+            this.sh = sh;
         }
     }
 
@@ -199,13 +213,16 @@ public final class KittyImages {
     public List<Placement> placements() { return placements; }
 
     /**
-     * Placements in the order they paint: {@code z=} first, arrival order
-     * breaking the ties, as kitty stacks them (a later placement covers an
-     * earlier one at the same height).
+     * Placements in the order they paint: {@code z=} first, then the lower image
+     * id — kitty's tie-break — and arrival order last. A placement with a
+     * negative {@code z} paints under the text, so the UI draws this list in two
+     * bands: the negative ones before the grid, the rest after it.
      */
     public List<Placement> paintOrder() {
         List<Placement> out = new ArrayList<>(placements);
-        out.sort(java.util.Comparator.comparingInt(p -> p.z)); // stable
+        out.sort(java.util.Comparator
+                .comparingInt((Placement p) -> p.z)
+                .thenComparingInt(p -> p.imageId)); // stable, so arrival last
         return out;
     }
 
@@ -433,7 +450,7 @@ public final class KittyImages {
                 out.lines = place(img, kv, cx, cy, cellW, cellH);
                 out.moveCursor = !"1".equals(kv.get("C"));
                 out.changed = true;
-                if (!quiet) out.responses.add(ident(kv) + ";OK");
+                if (!quiet) out.responses.add(ident(kv) + pid(kv) + ";OK");
             }
             case "t", "T" -> transmit(out, kv, data, id, quiet, cx, cy, cellW, cellH);
             default -> {
@@ -452,8 +469,11 @@ public final class KittyImages {
      * <p>`a`/`A` are every placement (every placement is on screen in this
      * terminal), `i`/`I` and `n`/`N` are whole images, `r`/`R` is an id range —
      * `icat --clear-all` sends {@code d=R,y=4294967295}, which does not fit an
-     * {@code int}. `f`/`F` (animation frames) and a `p` placement id are refused
-     * rather than faked, as `L16` says. Any delete aborts an upload in flight.
+     * {@code int}. `i`/`n` with a `p` key take a single placement — the
+     * {@code (image, placement id)} pair — instead of the image. `p` (lower case)
+     * is the cell under `x`/`y`, not a placement id: the protocol's `d` table is
+     * read literally here. `f`/`F` (animation frames) still refuses a placement
+     * id rather than faking it. Any delete aborts an upload in flight.
      */
     private void delete(Result out, Map<String, String> kv, int id, int cx, int cy, boolean quiet) {
         buf = null;
@@ -474,10 +494,12 @@ public final class KittyImages {
                 if (dropData) images.clear();
             }
             case 'i', 'n' -> {
-                if (kv.containsKey("p")) { refuse(out, kv, quiet, "EINVAL:placement-id"); return; }
                 int which = kind == 'i' ? id : numberOf(parseIdent(kv.get("I")));
                 if (which == 0) { refuse(out, kv, quiet, "EINVAL:no-id"); return; }
-                dropImages(Set.of(which), dropData);
+                // with `p` it is one placement of that image, not the whole image
+                int pid = parseIdent(kv.get("p"));
+                if (pid != 0) prunePlacements(q -> q.imageId == which && q.pid == pid, dropData);
+                else dropImages(Set.of(which), dropData);
             }
             case 'r' -> {
                 Set<Integer> gone = new HashSet<>();
@@ -568,7 +590,7 @@ public final class KittyImages {
             // an image sent as a number is answered with that number, not with
             // the internal id we gave it
             String who = id == 0 && parseIdent(kv.get("I")) != 0 ? ident(kv) : "Gi=" + key;
-            out.responses.add(who + ";OK");
+            out.responses.add(who + ("T".equals(kv.get("a")) ? pid(kv) : "") + ";OK");
         }
     }
 
@@ -691,6 +713,12 @@ public final class KittyImages {
         return null;
     }
 
+    /** The {@code ,p=<id>} half of a reply, empty when the client named no placement. */
+    private static String pid(Map<String, String> kv) {
+        int p = parseIdent(kv.get("p"));
+        return p == 0 ? "" : ",p=" + Integer.toUnsignedString(p);
+    }
+
     /** The reply's identifier: what the client sent, as {@code i=} or {@code I=}. */
     private static String ident(Map<String, String> kv) {
         int id = parseIdent(kv.get("i"));
@@ -733,9 +761,9 @@ public final class KittyImages {
             echo(b, kv, "v", "0", null);
         }
         if (e.equals("f")) {
-            // a frame's own keys: the rectangle, what it is built on, its gap and
-            // the overwrite mode. `r` (editing an existing frame) and `Y` (the
-            // background colour) are out, so they are not echoed.
+            // a frame's own keys: the rectangle, what it is built on, its gap,
+            // the overwrite mode and the canvas colour. `r` is the number of
+            // rows of a placement, not a frame key, so it is not echoed here.
             echo(b, kv, "x", "0", null);
             echo(b, kv, "y", "0", null);
             echo(b, kv, "c", "0", null);
@@ -746,10 +774,15 @@ public final class KittyImages {
         if (place) {
             echo(b, kv, "X", "0", null); // the cell offsets the placement takes
             echo(b, kv, "Y", "0", null);
+            echo(b, kv, "x", "0", null); // the source rectangle, in pixels
+            echo(b, kv, "y", "0", null);
+            echo(b, kv, "w", "0", null);
+            echo(b, kv, "h", "0", null);
             echo(b, kv, "c", "0", null); // columns and rows
             echo(b, kv, "r", "0", null);
+            echo(b, kv, "p", "0", null); // the client's name for the placement
             echo(b, kv, "C", "0", v -> v.equals("1"));
-            echo(b, kv, "z", "0", null); // stacking order, higher on top
+            echo(b, kv, "z", "0", null); // stacking order, negative under the text
             // `U` (unicode placeholder) is the one a client asks about most
             // that we still do not have
         }
@@ -863,14 +896,29 @@ public final class KittyImages {
 
     private int place(Image img, Map<String, String> kv, int cx, int cy, int cellW, int cellH) {
         int cw = Math.max(1, cellW), chh = Math.max(1, cellH);
+        // `x`,`y`,`w`,`h`: the part of the image to show, in pixels. The area is
+        // the intersection with the image, so a crop that runs past the edge is
+        // the edge, not an error — and a crop of nothing is a pixel of it.
+        int sx = Math.max(0, Math.min(parse(kv.get("x"), 0), img.width - 1));
+        int sy = Math.max(0, Math.min(parse(kv.get("y"), 0), img.height - 1));
+        int sw = kv.containsKey("w") ? Math.max(1, parse(kv.get("w"), img.width)) : img.width;
+        int sh = kv.containsKey("h") ? Math.max(1, parse(kv.get("h"), img.height)) : img.height;
+        sw = Math.max(1, Math.min(sw, img.width - sx));
+        sh = Math.max(1, Math.min(sh, img.height - sy));
+        // without `c`/`r` the placement is the cropped area at its own size
         int cols = kv.containsKey("c")
                 ? Math.max(1, parse(kv.get("c"), 1))
-                : Math.max(1, (img.width + cw - 1) / cw);
+                : Math.max(1, (sw + cw - 1) / cw);
         int rows = kv.containsKey("r")
                 ? Math.max(1, parse(kv.get("r"), 1))
-                : Math.max(1, (img.height + chh - 1) / chh);
-        placements.add(new Placement(img.id, cx, cy, cols, rows,
-                parse(kv.get("X"), 0), parse(kv.get("Y"), 0), parse(kv.get("z"), 0)));
+                : Math.max(1, (sh + chh - 1) / chh);
+        int pid = parseIdent(kv.get("p"));
+        // the same (image, placement id) twice replaces the first, which is how a
+        // client moves or resizes a placement without a flicker
+        if (pid != 0) placements.removeIf(q -> q.imageId == img.id && q.pid == pid);
+        placements.add(new Placement(img.id, pid, cx, cy, cols, rows,
+                parse(kv.get("X"), 0), parse(kv.get("Y"), 0), parse(kv.get("z"), 0),
+                sx, sy, sw, sh));
         return rows;
     }
 

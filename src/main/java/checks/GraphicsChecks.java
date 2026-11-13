@@ -79,6 +79,9 @@ public final class GraphicsChecks {
         theDeleteFallsSelectWhatTheSpecSays(c);
         deletingFramesStopsTheAnimation(c);
         stackingFollowsTheZIndex(c);
+        aPlacementCanBeNamed(c);
+        aPlacementShowsPartOfTheImage(c);
+        aNegativeZGoesUnderTheText(c);
         aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
     }
@@ -568,12 +571,119 @@ public final class GraphicsChecks {
         c.eq("the default is the floor", t.images.placements().get(1).z, 0);
         java.util.List<term.KittyImages.Placement> order = t.images.paintOrder();
         c.eq("paint order is z first", order.get(0).imageId, 2);
-        c.eq("ties keep arrival order", order.get(1).imageId, 1);
-        c.eq("then the later arrival", order.get(2).imageId, 3);
+        c.eq("a tie goes to the lower image id", order.get(1).imageId, 1);
+        c.eq("then the higher one", order.get(2).imageId, 3);
+
+        // the same two heights, but the higher id arrives first: the id decides,
+        // not the arrival (the protocol's rule, not ours)
+        Term u = new Term(20, 8);
+        Check.feed(u, apc("a=T,f=24,s=2,v=2,i=9,z=1", PX2));
+        Check.feed(u, apc("a=T,f=24,s=2,v=2,i=7,z=1", PX2));
+        java.util.List<term.KittyImages.Placement> byId = u.images.paintOrder();
+        c.eq("id 7 paints first though it arrived second", byId.get(0).imageId, 7);
+        c.eq("id 9 paints over it", byId.get(1).imageId, 9);
         c.eq("a z delete answers OK", reply(t, apc("a=d,d=z,z=2")), E + "_Gi=0;OK" + E + "\\");
         c.eq("and takes only that shelf", t.images.placements().size(), 1);
         c.eq("which is the z=0 one", t.images.placements().get(0).imageId, 2);
         c.eq("keeping the data, lower case", t.images.imageCount(), 3);
+    }
+
+    /**
+     * `p=`: the client's own name for a placement. The pair (image, placement id)
+     * identifies it, so a second placement carrying the same pair replaces the
+     * first — how a client moves or resizes without a flicker —, the answer
+     * echoes the pair, and a delete by the pair takes only that one.
+     */
+    private static void aPlacementCanBeNamed(Check c) {
+        Term t = new Term(20, 8);
+        c.eq("a named placement is answered with its name",
+                reply(t, apc("a=T,f=24,s=2,v=2,i=4,p=7,C=1", PX2)), E + "_Gi=4,p=7;OK" + E + "\\");
+        c.eq("and it is on screen", t.images.placements().size(), 1);
+        c.eq("the pair is kept", t.images.placements().get(0).pid, 7);
+
+        // the same pair again: the placement moves instead of piling up
+        Check.feed(t, apc("a=p,i=4,p=7,c=2,r=2", new byte[0]));
+        c.eq("the same pair replaces instead of stacking", t.images.placements().size(), 1);
+        c.eq("and it is the new rectangle", t.images.placements().get(0).cols, 2);
+
+        // a different name, or none, is a second placement of the same image
+        Check.feed(t, apc("a=p,i=4,p=8", new byte[0]));
+        Check.feed(t, apc("a=p,i=4", new byte[0]));
+        c.eq("another name is another placement", t.images.placements().size(), 3);
+        c.eq("an unnamed one says 0", t.images.placements().get(2).pid, 0);
+
+        // delete by the pair: one placement, the image data stays (lower case)
+        c.eq("the pair delete answers OK", reply(t, apc("a=d,d=i,i=4,p=7")), E + "_Gi=4;OK" + E + "\\");
+        c.eq("and takes only that placement", t.images.placements().size(), 2);
+        c.eq("keeping the image", t.images.imageCount(), 1);
+        c.eq("the unnamed one is still there", t.images.placements().get(1).pid, 0);
+
+        // a pair that names nothing is not an error: the image is there, so the
+        // answer is OK and nothing goes
+        c.eq("a pair with no placement answers OK", reply(t, apc("a=d,d=i,i=4,p=99")), E + "_Gi=4;OK" + E + "\\");
+        c.eq("and takes nothing", t.images.placements().size(), 2);
+
+        // upper case frees the data — but only once no placement is left holding
+        // it, which is why deleting the pair above kept the image
+        reply(t, apc("a=d,d=I,i=4,p=8"));
+        c.eq("the data survives while a placement holds it", t.images.imageCount(), 1);
+        reply(t, apc("a=d,d=Z,z=0"));
+        c.eq("the last placement takes the data with it", t.images.imageCount(), 0);
+        c.eq("and nothing is left on screen", t.images.placements().size(), 0);
+    }
+
+    /**
+     * `x`,`y`,`w`,`h`: the part of the image to show, in pixels. The area is the
+     * intersection with the image, the missing keys are the whole of it, and
+     * without `c`/`r` the placement takes the size of what is shown.
+     */
+    private static void aPlacementShowsPartOfTheImage(Check c) {
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=4,v=4,i=2,C=1", new byte[4 * 4 * 3]));
+        term.KittyImages.Placement whole = t.images.placements().get(0);
+        c.eq("nothing asked: the whole image", whole.sx + "," + whole.sy + ","
+                + whole.sw + "," + whole.sh, "0,0,4,4");
+
+        Check.feed(t, apc("a=p,i=2,x=1,y=2,w=2,h=2,C=1", new byte[0]));
+        term.KittyImages.Placement crop = t.images.placements().get(1);
+        c.eq("the rectangle is kept", crop.sx + "," + crop.sy + "," + crop.sw + "," + crop.sh, "1,2,2,2");
+
+        // the crop that runs past the edge is the edge, and a crop of nothing is
+        // one pixel: neither is an error, as the protocol says
+        Check.feed(t, apc("a=p,i=2,x=3,y=3,w=9,h=9,C=1", new byte[0]));
+        term.KittyImages.Placement edge = t.images.placements().get(2);
+        c.eq("a crop past the edge is clipped", edge.sw + "," + edge.sh, "1,1");
+        Check.feed(t, apc("a=p,i=2,x=0,y=0,w=0,h=0,C=1", new byte[0]));
+        c.eq("a crop of nothing is a pixel", t.images.placements().get(3).sw, 1);
+
+        // without `c`/`r` the size is the cropped area at the cell size, not the
+        // whole image
+        Term u = new Term(20, 8);
+        u.setCellSize(8, 16);
+        Check.feed(u, apc("a=T,f=24,s=8,v=8,i=3,C=1", new byte[8 * 8 * 3]));
+        Check.feed(u, apc("a=p,i=3,x=0,y=0,w=8,h=8,C=1", new byte[0]));
+        term.KittyImages.Placement half = u.images.placements().get(1);
+        c.eq("a 8x8 crop in 8x16 cells is one column", half.cols, 1);
+        c.eq("and half a row, rounded up", half.rows, 1);
+    }
+
+    /**
+     * `z<0` paints under the text: the paint order carries it, and the panel
+     * draws that band before the grid so a glyph lands on top of the picture.
+     */
+    private static void aNegativeZGoesUnderTheText(Check c) {
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=1,z=1", PX2));
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=2,z=-1", PX2));
+        java.util.List<term.KittyImages.Placement> order = t.images.paintOrder();
+        c.eq("the negative one comes first", order.get(0).z, -1);
+        c.eq("so it is the first painted", order.get(0).imageId, 2);
+        c.eq("and the ordinary one after it", order.get(1).z, 1);
+
+        // the panel splits the list on that sign, not on the id or the arrival
+        int under = 0, over = 0;
+        for (term.KittyImages.Placement p : order) { if (p.z < 0) under++; else over++; }
+        c.eq("one placement in each band", under + "/" + over, "1/1");
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {

@@ -1098,3 +1098,34 @@ started at 150 px, which clipped "WORKSPACES" to "WORKSPAC".
 
 **Result.** 12 px → 24 px in the popup, 18 px → 27 px in the column and strip,
 with "WORKSPACES" whole. `selftest` 1219, `render-check` 38/38.
+
+## 2026-11-13 — kitty placements: a name, a crop and a depth under the text
+
+**Context.** `L16` still refused a placement id and ignored the source rectangle,
+and every image painted over the text whatever its `z` said.
+
+**Activities.**
+
+- **`p=`** names a placement: the pair `(image, placement id)` identifies it, a
+  second `a=p`/`a=T` carrying the same pair replaces the first — how a client
+  moves or resizes without a flicker —, the answer echoes `,p=<id>`, and
+  `d=i`/`d=n` with `p` takes that one placement, keeping the data while another
+  placement of the image still holds it. The `d` table is read literally:
+  lowercase `p` is the cell under `x`/`y`, not a placement id.
+- **`x`,`y`,`w`,`h`** show part of the image: the rectangle is the intersection
+  with the image (past the edge is the edge, empty is a pixel), and without
+  `c`/`r` the placement takes the size of what is shown, not of the whole image.
+- **`z<0`** paints under the text, row by row — after the row's background,
+  before its glyphs — and the tie between two equal `z` now goes to the lower
+  image id, as the protocol says, instead of to who arrived first.
+
+**Result.** `selftest` 1247 (+28), `render-check` 38/38. Live in Xvfb: the
+cropped red quadrant stretched over four cells, `z=-1` with the text readable on
+top, `z=1` hiding the same text, `p=7` placed twice leaving one placement, and a
+`z<0` picture surviving a later partial repaint of its row.
+
+**Notes.** Two things in the docs were wrong and are fixed: `r=` is the number of
+rows of a placement, not a frame edit, and `e=c` is answered (composition works).
+A cell whose background is not the theme's still covers a `z<0` picture — the
+protocol only does that past half of `INT32_MIN`; matching it would mean
+splitting every row into background, picture and glyphs.

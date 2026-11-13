@@ -103,18 +103,31 @@ Features implemented in the Java version of TorTTY.
   placement (nothing lives in the scrollback here), `i`/`I` an image id,
   `n`/`N` a client number, `r`/`R` an id range, `c`/`C` the cell under the
   cursor, `p`/`P` the cell in `x`,`y`, `x`/`X` a column, `y`/`Y` a row and
-  `z`/`Z` a z-index: higher paints later, ties keep arrival order, and `e=T`
-  answers the height back. `f`/`F` drops the animation's frames — the image goes
+  `z`/`Z` a z-index: higher paints later, a tie goes to the lower image id, and
+  `e=T` answers the height back. `i`/`n` with a `p` key take one placement —
+  the `(image, placement id)` pair — and keep the data while another placement
+  of that image holds it. `f`/`F` drops the animation's frames — the image goes
   back to its root still and stops, placed or not, on a fresh version so the
-  composed canvases are rebuilt — and any delete aborts an upload in flight. A
-  `p` placement id answers `EINVAL` rather than pretend, as `L16` says. See `FEATURES` → the pty below for how a
-  client learns the size it draws into.
+  composed canvases are rebuilt — and any delete aborts an upload in flight. See
+  `FEATURES` → the pty below for how a client learns the size it draws into.
+- A placement can be **named** (`p=`): the pair `(image, placement id)` is what a
+  delete addresses, the answer echoes `,p=<id>`, and a second placement carrying
+  the same pair replaces the first — which is how a client moves or resizes one
+  without a flicker. `x`,`y`,`w`,`h` show **part** of the image (the source
+  rectangle in pixels, taken as the intersection with the image), and without
+  `c`/`r` the placement takes the size of what is shown. A negative `z` paints
+  **under the text**: the panel draws that band row by row, after the row's
+  background and before its glyphs, so a document can put a picture behind its
+  words. A cell whose background is not the theme's covers the picture — stricter
+  than the protocol, which only puts it under those cells past half of
+  `INT32_MIN` — and that is the one place this follows the simpler rule.
 - Feature queries (`a=q,e=<action>`): the reply carries `e` and every key of the
   query we understand *for that action* that is not at its default — `e=T,C=1`
-  (the cursor policy is ours, `U=1` is not), `e=f,X=1` (`r=` editing a frame is
-  not), `e=a,s=3,v=2`, `e=d,d=A` (a delete value `a=d` honours). Without `e` in
-  the reply the action is unsupported, which is how `e=c` answers: composing one
-  frame onto another is out.
+  (the cursor policy is ours, `U=1` is not), `e=f,X=1` (a frame's rectangle,
+  gap and canvas colour are ours), `e=a,s=3,v=2`, `e=c,C=1` (a composition's
+  rectangle, frames and overwrite mode), `e=d,d=A` (a delete value `a=d`
+  honours). Without `e` in the reply the action is unsupported — the one an
+  unpatched client reads as "no", which is what the Unicode placeholder gets.
 - A query with a file medium (`a=q,t=f/t=t/t=s`) is a **load**, as the spec's
   query action says: the file is read and the reply is `OK`, `ENOENT` when it
   cannot be read, or an error when the data does not match `s=`/`v=`/`f=`; no

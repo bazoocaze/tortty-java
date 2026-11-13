@@ -544,6 +544,12 @@ public final class TermPanel extends JPanel implements KeyListener {
             }
         }
 
+        // the images once per paint: the under band is drawn row by row, and
+        // sorting the placements per row would be a per-frame tax
+        java.util.List<KittyImages.Placement> imgs = term.images.paintOrder();
+        boolean anyUnder = false;
+        for (KittyImages.Placement p : imgs) if (p.z < 0) { anyUnder = true; break; }
+
         for (int y = 0; y < rows; y++) {
             if (!full && !paintRows[y]) continue;
             int yPx = padding + y * cellH;
@@ -551,6 +557,10 @@ public final class TermPanel extends JPanel implements KeyListener {
                 g2.setColor(color(theme.bg));
                 g2.fillRect(padding, yPx, cols * cellW, cellH);
             }
+            // `z<0` sits under the text, so it goes down per row — after the row's
+            // background and before its glyphs. Painting it only on a full repaint
+            // made a dirty row wipe the picture and never put it back.
+            if (anyUnder) paintUnder(g2, imgs, padding, cols, rows, cellW, cellH, yPx);
             int[] cps = term.lineCp(y);
             String[] cls = term.lineCluster(y);
             int off = term.lineOffset(y);
@@ -643,7 +653,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             }
         }
 
-        paintImages(g2, padding, cols, rows, cellW, cellH);
+        if (!imgs.isEmpty()) paintImages(g2, imgs, padding, cols, rows, cellW, cellH);
 
         boolean cursorOn = term.cursorVisible && term.viewOff() == 0
                 && (!term.cursorBlink || blinkOn);
@@ -1209,27 +1219,74 @@ public final class TermPanel extends JPanel implements KeyListener {
         }
     }
 
-    /** kitty images sit on top of the text, as in the Rust version. */
-    private void paintImages(Graphics2D g2, int pad, int cols, int rows, int cw, int chh) {
-        java.util.List<KittyImages.Placement> list = term.images.paintOrder();
-        if (list.isEmpty()) return;
-        Object oldInterp = g2.getRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION);
+    /** The {@code z>=0} band: painted after the grid, so it covers the text. */
+    private void paintImages(Graphics2D g2, java.util.List<KittyImages.Placement> imgs,
+                             int pad, int cols, int rows, int cw, int chh) {
+        java.awt.Shape old = clipTo(g2, pad, pad, cols * cw, rows * chh);
+        Object oldInterp = bilinear(g2);
+        for (KittyImages.Placement p : imgs) {
+            if (p.z >= 0) paintOne(g2, p, pad, cols, rows, cw, chh);
+        }
+        if (oldInterp != null) {
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
+        }
+        g2.setClip(old);
+    }
+
+    /**
+     * The {@code z<0} slice of one row: that row's text lands on top of it. A
+     * cell whose background is not the theme's covers the picture, which is
+     * stricter than the protocol — it only puts the picture under those cells
+     * past half of {@code INT32_MIN} — and keeps the paint one pass per row
+     * instead of splitting every row into background, picture and glyphs.
+     */
+    private void paintUnder(Graphics2D g2, java.util.List<KittyImages.Placement> imgs,
+                            int pad, int cols, int rows, int cw, int chh, int yPx) {
+        java.awt.Shape old = clipTo(g2, pad, yPx, cols * cw, chh);
+        Object oldInterp = bilinear(g2);
+        for (KittyImages.Placement p : imgs) {
+            if (p.z < 0) paintOne(g2, p, pad, cols, rows, cw, chh);
+        }
+        if (oldInterp != null) {
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
+        }
+        g2.setClip(old);
+    }
+
+    /** Draws one placement, cropped by its source rectangle. */
+    private void paintOne(Graphics2D g2, KittyImages.Placement p, int pad, int cols, int rows,
+                          int cw, int chh) {
+        int y = p.line + term.viewOff();
+        if (y + p.rows <= 0 || y >= rows) return; // fully outside the view
+        KittyImages.Image img = term.images.image(p.imageId);
+        if (img == null) return;
+        java.awt.image.BufferedImage bi = frameOf(img);
+        if (bi == null) return;
+        // `x`,`y`,`w`,`h`: the part of the source that is shown, clipped to it
+        int sw = Math.min(p.sw, bi.getWidth() - p.sx), sh = Math.min(p.sh, bi.getHeight() - p.sy);
+        if (p.sx < 0 || p.sy < 0 || sw <= 0 || sh <= 0) return;
+        int x0 = pad + p.col * cw + p.dx, y0 = pad + y * chh + p.dy;
+        g2.drawImage(bi, x0, y0, x0 + p.cols * cw, y0 + p.rows * chh,
+                p.sx, p.sy, p.sx + sw, p.sy + sh, null);
+    }
+
+    /** Sets bilinear scaling for the images and hands back what was there. */
+    private static Object bilinear(Graphics2D g2) {
+        Object old = g2.getRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION);
         g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
                 java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        for (KittyImages.Placement p : list) {
-            int y = p.line + term.viewOff();
-            if (y + p.rows <= 0 || y >= rows) continue; // fully outside the view
-            KittyImages.Image img = term.images.image(p.imageId);
-            if (img == null) continue;
-            java.awt.image.BufferedImage bi = frameOf(img);
-            if (bi == null) continue;
-            java.awt.Shape oldClip = g2.getClip();
-            g2.clipRect(pad, pad, cols * cw, rows * chh);
-            g2.drawImage(bi, pad + p.col * cw + p.dx, pad + y * chh + p.dy,
-                    p.cols * cw, p.rows * chh, null);
-            g2.setClip(oldClip);
-        }
-        if (oldInterp != null) g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
+        return old;
+    }
+
+    /** Narrows the clip and hands back what it was, to put it back afterwards. */
+    private static java.awt.Shape clipTo(Graphics2D g2, int x, int y, int w, int h) {
+        java.awt.Shape old = g2.getClip();
+        java.awt.geom.Area a = old == null
+                ? new java.awt.geom.Area(new java.awt.Rectangle(x, y, w, h))
+                : new java.awt.geom.Area(old);
+        a.intersect(new java.awt.geom.Area(new java.awt.Rectangle(x, y, w, h)));
+        g2.setClip(a);
+        return old;
     }
 
     /**
