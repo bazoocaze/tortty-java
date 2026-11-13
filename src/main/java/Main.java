@@ -209,6 +209,9 @@ public final class Main {
             cardLayout = new CardLayout();
             host = new JPanel(cardLayout);
             side = new Side();
+            // the caption sets the floor, and it moves with the chrome's size:
+            // a width saved under a smaller font would clip "WORKSPACES"
+            sideW = Math.min(Side.MAX_W, Math.max(sideW, side.minW));
             split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, side, host);
             split.setBorder(null);
             split.setDividerSize(4);
@@ -1002,6 +1005,7 @@ public final class Main {
             m.add(ren);
             m.addSeparator();
             m.add(close);
+            Chrome.menuSized(m);
             return m;
         }
 

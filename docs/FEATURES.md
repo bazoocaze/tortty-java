@@ -245,10 +245,13 @@ Features implemented in the Java version of TorTTY.
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column wears the
   terminal's palette — `background`/`foreground`, the selected card leaned toward the palette's green,
-  still marked with a `palette[12]` bar — and its text, like the tab strip's, runs half
-  again the LaF's size; the geometry follows the fonts. The tab strip wears the
+  still marked with a `palette[12]` bar — and its text, like the tab strip's, runs
+  a bit over twice the LaF's size; the geometry follows the fonts, and the
+  column's width is never narrower than its caption needs. The tab strip wears the
   palette too — the selected card leaned toward the palette's green, no content border (`B61`) — while the
-  popup, the dialogs and the divider keep the desktop's. The column takes no grid
+  popup, the dialogs and the divider keep the desktop's colours — the popup's
+  text, though, runs twice the LaF's size, because it is read while aiming at a
+  row. The column takes no grid
   rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are
   spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the

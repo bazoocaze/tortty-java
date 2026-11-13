@@ -1081,3 +1081,20 @@ Xvfb: a red canvas from `Y=4278190335` with a green patch copied across by
 
 **Note.** `LIMITATIONS.md` said the graphics protocol had an `fc`/`fs` query for
 the font; the specification has no such keys — the row was wrong and is fixed.
+
+## 2026-11-13 — larger chrome text
+
+**Context.** The workspace cards and the tab strip were readable but small, and
+the context menu was the LaF's 12 px.
+
+**Activities.** `Chrome.SCALE` went from 1.5 to 2.25 — half again what it was —,
+which the column and the strip both follow because their geometry is computed
+from their fonts. The popup got its own scale (`MENU_SCALE`, 2× the LaF's):
+`Chrome.menuSized` sets the font on the menu *and* on every item, since a
+`JMenuItem` reads `MenuItem.font` when its UI installs and ignores the font of
+the popup that holds it. The column's width is now floored at `Side.minW` when
+the window opens: `--no-state` and a width saved under the smaller font both
+started at 150 px, which clipped "WORKSPACES" to "WORKSPAC".
+
+**Result.** 12 px → 24 px in the popup, 18 px → 27 px in the column and strip,
+with "WORKSPACES" whole. `selftest` 1219, `render-check` 38/38.

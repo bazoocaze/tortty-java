@@ -16,18 +16,50 @@ public final class Chrome {
     private Chrome() {}
 
     /**
-     * The chrome's text runs half again the LaF's size: 11-12 px is small on
-     * a dense screen, and the workspace column and the tab strip are the
-     * only chrome with text. Only the size changes — the family and the
+     * The chrome's text runs a bit over twice the LaF's size: 11-12 px is small
+     * on a dense screen, and the workspace column and the tab strip are the
+     * only chrome with text. The LaF's size is the unit everything is expressed
+     * in, so the column's geometry follows from the metrics and no fixed row
+     * height has to grow with it. Only the size changes — the family and the
      * style stay whatever the LaF chose.
      */
-    private static final float SCALE = 1.5f;
+    private static final float SCALE = 2.25f;
+
+    /**
+     * The context menu is the one chrome read while aiming at a row, so its
+     * text runs twice the LaF's size. It is set on the menu and on every item:
+     * a {@code JMenuItem} reads {@code MenuItem.font} when its UI installs and
+     * ignores the font of the popup that holds it.
+     */
+    private static final float MENU_SCALE = 2f;
 
     public static Font chromeFont(String key) {
+        return scaled(key, SCALE);
+    }
+
+    /** The font for a context menu: {@link #MENU_SCALE} times the LaF's. */
+    public static Font menuFont() {
+        return scaled("MenuItem.font", MENU_SCALE);
+    }
+
+    /** The LaF's font for {@code key}, at {@code scale} times its size. */
+    private static Font scaled(String key, float scale) {
         Font f = UIManager.getFont(key);
         if (f == null) f = UIManager.getFont("Label.font");
         if (f == null) f = new Font("Dialog", Font.PLAIN, 12);
-        return f.deriveFont(f.getSize2D() * SCALE);
+        return f.deriveFont(f.getSize2D() * scale);
+    }
+
+    /**
+     * Sizes a built context menu: the popup itself and every item in it,
+     * separators aside (they draw no text).
+     */
+    public static void menuSized(javax.swing.JPopupMenu menu) {
+        Font f = menuFont();
+        menu.setFont(f);
+        for (java.awt.Component c : menu.getComponents()) {
+            if (c instanceof javax.swing.JComponent j) j.setFont(f);
+        }
     }
 
     /**
