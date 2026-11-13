@@ -37,17 +37,20 @@ shortcut:
 
 The shortcut is installed for your user only; no root or elevated permissions are
 needed. The installer builds `target/tortty-java.jar` first if it is missing, then
-creates:
+installs a self-contained copy that does not depend on this checkout:
 
+- `~/.local/share/tortty-java/` (honours `$XDG_DATA_HOME`) — the shaded jar, a
+  launcher and a `BUILD` file with the installed commit and date;
 - `~/.local/bin/tortty-java` (honours `$XDG_BIN_HOME`) — the command, if that
   directory is in your `PATH`;
 - `~/.local/share/applications/tortty-java.desktop`;
 - the desktop shortcut `TorTTY (Java).desktop` in your XDG Desktop directory
   (usually `~/Desktop`).
 
-All three launch `run.sh` from this checkout. If you move the repository, run
-`./install.sh` again to update the paths. To remove them, delete the command and
-the two `.desktop` files.
+Developing from the clone keeps using `./run.sh`, which runs the checkout's
+jar. After rebuilding (`mvn package`), run `./install.sh` again to refresh the
+installed copy. `./uninstall.sh` removes the command, the app copy, the menu
+entry and the desktop shortcut (user data under `~/.config/tortty-java` stays).
 
 ## Testing kitty images
 
