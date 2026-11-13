@@ -76,12 +76,31 @@ public final class Term {
     public long notifs, notifSeq;
     public String notifText = "";
 
+    /**
+     * {@code OSC 52}: the child asks for the system clipboard. The model records
+     * the request and the panel performs it — {@link #clipSeq} is the edge the
+     * panel watches, as it does with {@link #notifSeq}. A read ({@code ?}) is
+     * refused here on purpose: letting a program in the terminal read the whole
+     * clipboard is a leak, and no reply is the answer a client reads as "not
+     * supported".
+     */
+    public long clipSeq;
+    public String clipText = "";
+    public String clipSel = "";
+
     // default cursor preference from the configuration
     public int defaultCursorShape = 0;
     public boolean defaultCursorBlink = false;
 
     // scroll region (inclusive)
     private int top, bot;
+
+    /**
+     * One flag per column: {@code HTS} sets a stop, {@code TBC} clears one or
+     * all, and {@code HT}/{@code CHT}/{@code CBT} walk them. Default is a stop
+     * every eighth column, which is what xterm and the Rust version start with.
+     */
+    private boolean[] tabStops = new boolean[0];
 
     // pen
     private int penFg = DEFAULT, penBg = DEFAULT;
@@ -240,6 +259,36 @@ public final class Term {
         dirtyAll = true;
         top = 0; bot = rows - 1;
         cx = 0; cy = 0; wrapPending = false;
+        tabStops = defaultTabStops(cols);
+    }
+
+    /** Every eighth column, counting from the first: 8, 16, 24, … */
+    private static boolean[] defaultTabStops(int n) {
+        boolean[] t = new boolean[n];
+        for (int i = 8; i < n; i += 8) t[i] = true;
+        return t;
+    }
+
+    /** A resize keeps the stops that still exist; new columns get the default. */
+    private void resizeTabStops(int nc) {
+        if (tabStops.length == nc) return;
+        boolean[] t = new boolean[nc];
+        int keep = Math.min(nc, tabStops.length);
+        System.arraycopy(tabStops, 0, t, 0, keep);
+        for (int i = keep; i < nc; i++) if (i > 0 && i % 8 == 0) t[i] = true;
+        tabStops = t;
+    }
+
+    /** The first stop to the right of {@code x}, or the last column when none is set. */
+    private int nextTabStop(int x) {
+        for (int i = x + 1; i < cols - 1; i++) if (tabStops[i]) return i;
+        return cols - 1;
+    }
+
+    /** The first stop to the left of {@code x}, or column 0 when none is set. */
+    private int prevTabStop(int x) {
+        for (int i = x - 1; i > 0; i--) if (tabStops[i]) return i;
+        return 0;
     }
 
     public void reset() {
@@ -253,6 +302,7 @@ public final class Term {
         bracketed = false; sync = false; focusEvents = false;
         kbdFlags = 0; kbdDepth = 0;
         top = 0; bot = rows - 1;
+        tabStops = defaultTabStops(cols);
         mainCp = null; mainCluster = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
         mainUl = null; mainUlColor = null;
         mainWrapped = null;
@@ -277,6 +327,7 @@ public final class Term {
         }
         int oldCols = cols, oldRows = rows;
         cols = nc; rows = nr;
+        resizeTabStops(nc);
         cp = copyGridInt(cp, oldCols, oldRows, nc, nr, ' ');
         cluster = copyGridStr(cluster, oldCols, oldRows, nc, nr);
         fg = copyGridInt(fg, oldCols, oldRows, nc, nr, DEFAULT);
@@ -480,6 +531,7 @@ public final class Term {
 
         cols = nc;
         rows = nr;
+        resizeTabStops(nc);
         cp = new int[nc * nr];
         cluster = new String[nc * nr];
         fg = new int[nc * nr];
@@ -1091,9 +1143,7 @@ public final class Term {
             case 8 -> { wrapPending = false; if (cx > 0) cx--; }
             case 9 -> {
                 wrapPending = false;
-                int next = (cx / 8 + 1) * 8;
-                if (next > cols - 1) next = cols - 1;
-                cx = next;
+                cx = nextTabStop(cx);
             }
             case 10, 11, 12 -> lineFeed();
             case 13 -> { cx = 0; wrapPending = false; }
@@ -1326,7 +1376,7 @@ public final class Term {
             case '=' -> { keypadApp = true; state = GROUND; }  // DECKPAM
             case '>' -> { keypadApp = false; state = GROUND; } // DECKPNM
             case 'n', 'o' -> state = GROUND; // SS2/SS3
-            case 'H' -> state = GROUND; // HTS ignored
+            case 'H' -> { if (cx >= 0 && cx < cols) tabStops[cx] = true; state = GROUND; } // HTS
             case 'P', 'X', '^' -> state = SKIP; // DCS/PM/SOS consume until ST
             case '_' -> { state = APC; apcBuf.setLength(0); } // APC: kitty graphics
             case '\\' -> state = GROUND; // ST
@@ -1390,6 +1440,8 @@ public final class Term {
         } else if (s.equals("10") || s.equals("11") || s.equals("12")) {
             int which = s.equals("10") ? 10 : (s.equals("11") ? 11 : 12);
             oscColor(which, "");
+        } else if (s.startsWith("52;")) {
+            oscClipboard(s.substring(3));
         } else if (s.equals("104") || s.startsWith("104;")) {
             oscResetPalette(s.length() > 3 ? s.substring(4) : "");
         } else if (s.equals("110") || s.startsWith("110;")) {
@@ -1522,8 +1574,43 @@ public final class Term {
         return Color.rgb(v[0], v[1], v[2]);
     }
 
-    private void notify(String text) {
-        text = utf8(text);
+    /**
+     * {@code OSC 52;<sel>;<base64| ?>}: a write to the system clipboard. The
+     * payload is the selection field (`c`, `p`, `s`, `0`-`7`, possibly several)
+     * and the text in base64; {@code ?} asks for a read, which is refused.
+     */
+    private void oscClipboard(String arg) {
+        int semi = arg.indexOf(';');
+        String sel = semi < 0 ? "" : arg.substring(0, semi);
+        String payload = semi < 0 ? arg : arg.substring(semi + 1);
+        StringBuilder clean = new StringBuilder();
+        for (int i = 0; i < sel.length() && clean.length() < 8; i++) {
+            char c = sel.charAt(i);
+            if (c == 'c' || c == 'p' || c == 's' || (c >= '0' && c <= '7')) clean.append(c);
+        }
+        if (clean.length() == 0) clean.append('s');
+        if (payload.trim().equals("?")) {
+            debug.Log.ln("osc 52: clipboard read refused");
+            return;
+        }
+        if (payload.length() > MAX_CLIP) return; // refuse past the cap, silently
+        String text;
+        try {
+            byte[] raw = java.util.Base64.getMimeDecoder().decode(payload);
+            text = new String(raw, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return; // a bad base64 is not a clipboard write
+        }
+        if (text.isEmpty()) return;
+        clipSel = clean.toString();
+        clipText = text;
+        clipSeq++;
+    }
+
+    /** Longest clipboard payload a child may send: big enough for a page of text. */
+    private static final int MAX_CLIP = 1 << 20;
+
+    private void notify(String text) {        text = utf8(text);
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < text.length() && sb.length() < 256; i++) {
             char c = text.charAt(i);
@@ -1688,6 +1775,24 @@ public final class Term {
             case 'X' -> { ech(p0 >= 0 ? p0 : 1); }
             case 'S' -> { scrollUp(p0 >= 0 ? p0 : 1); }
             case 'T' -> { scrollDown(p0 >= 0 ? p0 : 1); }
+            case 'I' -> {
+                // CHT: forward n stops, staying on the last column when they run out
+                int n = (p0 >= 0 ? p0 : 1);
+                for (int k = 0; k < n; k++) cx = nextTabStop(cx);
+                wrapPending = false;
+            }
+            case 'Z' -> {
+                // CBT: backward n stops, stopping at the first column
+                int n = (p0 >= 0 ? p0 : 1);
+                for (int k = 0; k < n; k++) cx = prevTabStop(cx);
+                wrapPending = false;
+            }
+            case 'g' -> {
+                // TBC: 0 (the default) clears the stop here, 3 clears them all
+                int v = (p0 >= 0 ? p0 : 0);
+                if (v == 0) { if (cx >= 0 && cx < cols) tabStops[cx] = false; }
+                else if (v == 3) java.util.Arrays.fill(tabStops, false);
+            }
             case 'r' -> {
                 int t = (p0 >= 0 ? p0 - 1 : 0);
                 int b = (p1 >= 0 ? p1 - 1 : rows - 1);

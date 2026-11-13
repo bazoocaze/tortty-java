@@ -60,6 +60,7 @@ public final class GraphicsChecks {
 
     public static void run(Check c) {
         byFileReadsAndKeepsTheFile(c);
+        aFileCanBeReadByTheSlice(c);
         tempFileIsDeletedAfterTheRead(c);
         aTempFileIsKeptOutsideTheTempDirs(c);
         aRelativePathCannotWalkOutOfTheTempDir(c);
@@ -78,6 +79,7 @@ public final class GraphicsChecks {
         theDeleteFallsSelectWhatTheSpecSays(c);
         deletingFramesStopsTheAnimation(c);
         stackingFollowsTheZIndex(c);
+        aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
     }
 
@@ -91,6 +93,51 @@ public final class GraphicsChecks {
                         E + "_Gi=3;OK" + E + "\\");
                 c.eq("t=f stored the image", t.images.imageCount(), 1);
                 c.is("t=f never deletes", Files.exists(f));
+            } finally {
+                Files.deleteIfExists(f);
+            }
+        });
+    }
+
+    /**
+     * `O`/`S`: reading a window of the file. A client that keeps several images
+     * in one object names the offset and the length; without them the whole
+     * file is the image, as before.
+     */
+    private static void aFileCanBeReadByTheSlice(Check c) {
+        Term t = new Term(20, 4);
+        io(c, "O/S", () -> {
+            Path f = Files.createTempFile("tortty-slice", ".raw");
+            try {
+                byte[] all = new byte[24];
+                for (int i = 0; i < all.length; i++) all[i] = (byte) i;
+                Files.write(f, all);
+                String b64 = Base64.getEncoder().encodeToString(f.toString().getBytes(StandardCharsets.UTF_8));
+
+                // the whole file, as it always was
+                c.eq("no window reads the whole file", reply(t,
+                        E + "_Ga=T,f=24,s=1,v=1,t=f,i=21;" + b64 + E + "\\"), E + "_Gi=21;OK" + E + "\\");
+                c.eq("and the model has all 24 bytes", t.images.image(21).data.length, 24);
+
+                // O=8,S=4: four bytes from the eighth
+                c.eq("a window answers OK", reply(t,
+                        E + "_Ga=T,f=24,s=1,v=1,t=f,i=22,O=8,S=4;" + b64 + E + "\\"),
+                        E + "_Gi=22;OK" + E + "\\");
+                byte[] slice = t.images.image(22).data;
+                c.eq("the window is as long as asked", slice.length, 4);
+                c.eq("and starts where asked", slice[0], (byte) 8);
+                c.eq("running to the next bytes", slice[3], (byte) 11);
+
+                // a size past the end is clamped by the file itself
+                c.eq("a window past the end answers OK", reply(t,
+                        E + "_Ga=T,f=24,s=1,v=1,t=f,i=23,O=20,S=100;" + b64 + E + "\\"),
+                        E + "_Gi=23;OK" + E + "\\");
+                c.eq("and stops at the last byte", t.images.image(23).data.length, 4);
+
+                // an offset past the end leaves nothing, which is not an image
+                c.eq("an offset past the end is not an image", reply(t,
+                        E + "_Ga=T,f=24,s=1,v=1,t=f,i=24,O=99,S=4;" + b64 + E + "\\"),
+                        E + "_Gi=24;EINVAL:size" + E + "\\");
             } finally {
                 Files.deleteIfExists(f);
             }
@@ -227,8 +274,8 @@ public final class GraphicsChecks {
                 reply(t, apc("a=f,I=999,f=24,s=2,v=2", PX2)), E + "_GI=999;ENOENT" + E + "\\");
         c.eq("control over that image too", reply(t, apc("a=a,I=999,s=3")),
                 E + "_GI=999;ENOENT" + E + "\\");
-        c.eq("and composing frames is out, loudly", reply(t, apc("a=c,i=5,r=1,c=2,w=1,h=1", PX2)),
-                E + "_Gi=5;EINVAL:compose" + E + "\\");
+        c.eq("and a frame can be composed onto another", reply(t, apc("a=c,i=5,r=1,c=2,w=1,h=1")),
+                E + "_Gi=5;OK" + E + "\\");
     }
 
     /** The protocol's second identifier: {@code I=}, which is what {@code icat} uses for an animation. */
@@ -366,10 +413,54 @@ public final class GraphicsChecks {
         c.eq("control: state and loops both come back",
                 reply(t, apc("a=q,i=9,e=a,s=3,v=2")),
                 E + "_Gi=9,e=a,s=3,v=2;OK" + E + "\\");
-        c.eq("composing frames: not supported, so no e at all",
-                reply(t, apc("a=q,i=9,e=c")), E + "_Gi=9;OK" + E + "\\");
+        c.eq("composing frames: the rectangle and the two frames come back",
+                reply(t, apc("a=q,i=9,e=c,r=1,c=2,w=4,h=5,x=1,C=1")),
+                E + "_Gi=9,e=c,r=1,c=2,w=4,h=5,x=1,C=1;OK" + E + "\\");
         c.eq("a plain query still answers as it always did",
                 reply(t, apc("a=q,i=9,t=s,f=32")), E + "_Gi=9;OK" + E + "\\");
+    }
+
+    /**
+     * `Y=` gives a frame the colour its canvas starts from, and `a=c` joins two
+     * finished frames: the model records the rectangle and the two frames, and
+     * a frame or a rectangle that is not there is refused as the protocol says.
+     */
+    private static void aFrameHasACanvasColourAndFramesCompose(Check c) {
+        Term t = new Term(20, 4);
+        c.eq("the root goes in", reply(t, apc("a=T,f=24,s=2,v=2,i=11,C=1", PX2)),
+                E + "_Gi=11;OK" + E + "\\");
+        // Y is a 32-bit RGBA: 0xff0000ff is opaque red
+        c.eq("a frame with a canvas colour", reply(t,
+                apc("a=f,i=11,f=24,s=2,v=2,Y=4278190335", PX2)), E + "_Gi=11;OK" + E + "\\");
+        c.eq("the colour is kept", t.images.image(11).frames.get(0).background, 0xFF0000FF);
+        c.eq("and no colour means transparent black", t.images.image(11).frames.get(0).composeOnto, 0);
+        c.eq("a second frame, built on the first", reply(t,
+                apc("a=f,i=11,f=24,s=2,v=2,c=1", PX2)), E + "_Gi=11;OK" + E + "\\");
+        c.eq("no Y on it", t.images.image(11).frames.get(1).background, 0);
+
+        // a=c: a rectangle of frame 1 onto frame 2
+        c.eq("composing a rectangle onto another frame",
+                reply(t, apc("a=c,i=11,r=1,c=2,w=1,h=1,X=1,Y=1,x=0,y=0")), E + "_Gi=11;OK" + E + "\\");
+        term.KittyImages.Image img = t.images.image(11);
+        c.eq("one composition recorded", img.composes.size(), 1);
+        c.eq("from the frame asked for", img.composes.get(0).src, 1);
+        c.eq("onto the frame asked for", img.composes.get(0).dst, 2);
+        c.eq("with the rectangle it named", img.composes.get(0).w + "x" + img.composes.get(0).h, "1x1");
+        c.is("alpha-blending unless C=1", !img.composes.get(0).replace);
+        c.eq("C=1 replaces instead", reply(t, apc("a=c,i=11,r=1,c=2,w=1,h=1,C=1")),
+                E + "_Gi=11;OK" + E + "\\");
+        c.is("and it is recorded as such", t.images.image(11).composes.get(1).replace);
+
+        // the refusals
+        c.eq("a frame nobody has", reply(t, apc("a=c,i=11,r=1,c=9")), E + "_Gi=11;ENOENT" + E + "\\");
+        c.eq("an image nobody sent", reply(t, apc("a=c,i=77,r=1,c=1")), E + "_Gi=77;ENOENT" + E + "\\");
+        c.eq("a rectangle past the edge",
+                reply(t, apc("a=c,i=11,r=1,c=2,w=9,h=1,x=0,y=0")),
+                E + "_Gi=11;EINVAL:compose" + E + "\\");
+        c.eq("a rectangle read past the edge",
+                reply(t, apc("a=c,i=11,r=1,c=2,w=1,h=1,X=9,y=0")),
+                E + "_Gi=11;EINVAL:compose" + E + "\\");
+        c.eq("and nothing was recorded for them", t.images.image(11).composes.size(), 2);
     }
 
     /** Two placed images: the first on row 0, the second two rows below it. */

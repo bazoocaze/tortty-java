@@ -1289,6 +1289,9 @@ public final class Main {
                 byte[] replies = term.takeChildOut();
                 if (replies.length > 0 && t.pty != null) t.pty.write(replies);
                 if (!ui) return;
+                // the clipboard is the window's, not the tab's: a background
+                // tab may put text on it while another one is in front
+                t.panel.checkClipboard();
                 if (activeTab() == t) {
                     syncFrameTitle();
                     // a background tab keeps a badge instead of a toast, as in

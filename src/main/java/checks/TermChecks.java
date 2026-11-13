@@ -31,6 +31,8 @@ public final class TermChecks {
         replies(c);
         modeReports(c);
         originAndWrap(c);
+        tabStops(c);
+        osc52(c);
         logicalLines(c);
         resizing(c);
     }
@@ -404,6 +406,107 @@ public final class TermChecks {
      * autowrap off the last column is overwritten, and with origin on CUP
      * counts from the region's top.
      */
+    /**
+     * `HT`, `HTS`, `TBC`, `CHT` and `CBT`: a stop every eighth column by
+     * default, moved and cleared by the escapes, walked in both directions,
+     * and restarted by a reset.
+     */
+    /**
+     * `OSC 52`: a child writes the system clipboard, and a read is refused —
+     * no reply is what a client reads as "not supported", and letting a program
+     * in the terminal read the clipboard is a leak.
+     */
+    private static void osc52(Check c) {
+        Term t = new Term(20, 3);
+        c.eq("nothing is asked for at first", t.clipSeq, 0L);
+        String hello = java.util.Base64.getEncoder().encodeToString("hello".getBytes());
+        Check.feed(t, E + "]52;c;" + hello + E + "\\");
+        c.eq("a write wakes the panel", t.clipSeq, 1L);
+        c.eq("with the text decoded", t.clipText, "hello");
+        c.eq("and the selection kept", t.clipSel, "c");
+
+        // several selections in one field are accepted, and the default is `s`
+        Check.feed(t, E + "]52;cp;" + hello + E + "\\");
+        c.eq("two selections survive", t.clipSel, "cp");
+        Check.feed(t, E + "]52;" + hello + E + "\\");
+        c.eq("an empty field means the selection buffer", t.clipSel, "s");
+
+        // a read is refused: no reply, no request, no text moved
+        long before = t.clipSeq;
+        Check.feed(t, E + "]52;c;?" + E + "\\");
+        c.eq("a read does not reach the panel", t.clipSeq, before);
+        c.eq("and is answered with nothing", Check.childOut(t), "");
+
+        // a bad base64 is not a write
+        Check.feed(t, E + "]52;c;!!!!" + E + "\\");
+        c.eq("bad base64 is dropped", t.clipSeq, before);
+
+        // UTF-8 goes through untouched
+        String accented = java.util.Base64.getEncoder()
+                .encodeToString("ação".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Check.feed(t, E + "]52;c;" + accented + E + "\\");
+        c.eq("accented text survives the round trip", t.clipText, "ação");
+
+        // a BEL terminator works too, as with the other OSC commands
+        Check.feed(t, E + "]52;c;" + hello + "\u0007");
+        c.eq("BEL ends the command as well", t.clipText, "hello");
+    }
+
+    private static void tabStops(Check c) {
+        Term t = new Term(24, 2);
+        Check.feed(t, "\t");
+        c.eq("HT goes to column 8", t.cx, 8);
+        Check.feed(t, "\t");
+        c.eq("and the next to 16", t.cx, 16);
+        Check.feed(t, "\t");
+        c.eq("past the last stop it lands on the last column", t.cx, 23);
+        Check.feed(t, "\t");
+        c.eq("and stays there", t.cx, 23);
+
+        // HTS sets a stop; TBC 0 clears the one under the cursor
+        Term h = new Term(24, 2);
+        Check.feed(h, E + "[1;3H" + E + "H");   // HTS at column 3 (index 2)
+        Check.feed(h, E + "[1;1H\t");
+        c.eq("HTS puts a stop before the eighth", h.cx, 2);
+        Check.feed(h, "\t");
+        c.eq("the default one is still there", h.cx, 8);
+        Check.feed(h, E + "[1;9H" + E + "[g");  // TBC 0 at column 9 (index 8)
+        Check.feed(h, E + "[1;1H\t\t");
+        c.eq("TBC 0 cleared the default stop", h.cx, 16);
+
+        // TBC 3 clears them all, so HT runs to the margin
+        Term all = new Term(24, 2);
+        Check.feed(all, E + "[3g" + E + "[1;1H\t");
+        c.eq("TBC 3 leaves no stop at all", all.cx, 23);
+
+        // CHT and CBT count stops, not columns
+        Term m = new Term(40, 2);
+        Check.feed(m, E + "[1;1H" + E + "[3I");
+        c.eq("CHT 3 is the third stop", m.cx, 24);
+        Check.feed(m, E + "[Z");
+        c.eq("CBT 1 goes back one stop", m.cx, 16);
+        Check.feed(m, E + "[2Z");
+        c.eq("CBT 2 goes back two more", m.cx, 0);
+        Check.feed(m, E + "[Z");
+        c.eq("CBT at the first column stops there", m.cx, 0);
+        Check.feed(m, E + "[9I");
+        c.eq("CHT past the last stop stops at the margin", m.cx, 39);
+
+        // a reset restarts the default pattern
+        Term r = new Term(24, 2);
+        Check.feed(r, E + "[3g" + E + "c" + "\t");
+        c.eq("RIS brings the eighth-column stops back", r.cx, 8);
+
+        // a resize keeps the stops that survive and defaults the new columns
+        Term z = new Term(24, 2);
+        Check.feed(z, E + "[1;3H" + E + "H");   // stop at index 2
+        z.resize(40, 2);
+        Check.feed(z, E + "[1;1H\t");
+        c.eq("the stop set before the resize survives it", z.cx, 2);
+        Check.feed(z, E + "[1;1H" + E + "[5I");
+        c.eq("and the new columns get the default eighth stop", z.cx, 32);
+    }
+
     private static void originAndWrap(Check c) {
         // ?7: DECAWM. Off, the line ends at the last column.
         Term w = new Term(10, 3);

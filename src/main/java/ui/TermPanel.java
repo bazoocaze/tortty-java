@@ -85,10 +85,12 @@ public final class TermPanel extends JPanel implements KeyListener {
     private static final class Pic {
         long version;
         int built;
+        /** How many {@code a=c} compositions were already applied to the canvases. */
+        int composed;
         java.awt.image.BufferedImage[] canvas;
     }
 
-    private long lastBellSeq, lastNotifSeq;
+    private long lastBellSeq, lastNotifSeq, lastClipSeq;
     private long flashUntil;
     private javax.swing.Timer blinkTimer, attentionTimer, animTimer;
 
@@ -374,6 +376,24 @@ public final class TermPanel extends JPanel implements KeyListener {
             return term.notifText;
         }
         return null;
+    }
+
+    /**
+     * {@code OSC 52} (`Term.oscClipboard`): the child put text on the system
+     * clipboard. A read never reaches here — the model refuses it, so a program
+     * in the terminal cannot read what the user copied elsewhere.
+     */
+    public void checkClipboard() {
+        if (term.clipSeq == lastClipSeq) return;
+        lastClipSeq = term.clipSeq;
+        try {
+            java.awt.datatransfer.Clipboard cb =
+                    java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (cb == null) return;
+            cb.setContents(new java.awt.datatransfer.StringSelection(term.clipText), null);
+        } catch (Exception e) {
+            System.err.println("tortty-java: osc 52 clipboard failed: " + e);
+        }
     }
 
     private void tickAttention() {
@@ -1244,6 +1264,9 @@ public final class TermPanel extends JPanel implements KeyListener {
             p.canvas[p.built++] = c;
         }
         if (p.built == 0) return null;
+        // `a=c` joins two finished canvases, so it runs once they are all built:
+        // the model kept the requests, the pixels are ours
+        applyComposes(img, p, need);
         int cur = Math.min(Math.max(1, img.current), p.built);
         return p.canvas[cur - 1];
     }
@@ -1264,6 +1287,13 @@ public final class TermPanel extends JPanel implements KeyListener {
         } else {
             base = new java.awt.image.BufferedImage(img.width, img.height,
                     java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            if (fr.background != 0) { // `Y=`: the canvas colour
+                java.awt.Graphics2D bg = base.createGraphics();
+                bg.setComposite(AlphaComposite.Src);
+                bg.setColor(kittyRgba(fr.background));
+                bg.fillRect(0, 0, img.width, img.height);
+                bg.dispose();
+            }
         }
         java.awt.Graphics2D g = base.createGraphics();
         try {
@@ -1273,6 +1303,40 @@ public final class TermPanel extends JPanel implements KeyListener {
             g.dispose();
         }
         return base;
+    }
+
+    /**
+     * A {@code Y=} colour: the protocol writes it as {@code 0xRRGGBBAA}, the
+     * other way round from Java's {@code 0xAARRGGBB}.
+     */
+    private static java.awt.Color kittyRgba(int v) {
+        return new java.awt.Color((v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+    }
+
+    /**
+     * Runs the {@code a=c} compositions the model recorded, in the order they
+     * arrived. Only canvases that exist take part: a composition naming a frame
+     * still in flight waits for the next build, which the next version brings.
+     */
+    private static void applyComposes(KittyImages.Image img, Pic p, int need) {
+        // the canvases live as long as the version: an alpha blend applied twice
+        // would show, so only the compositions still unapplied are run
+        while (p.composed < img.composes.size()) {
+            KittyImages.Composed c = img.composes.get(p.composed);
+            if (c.src < 1 || c.src > need || c.dst < 1 || c.dst > need) return;
+            java.awt.image.BufferedImage from = p.canvas[c.src - 1];
+            java.awt.image.BufferedImage to = p.canvas[c.dst - 1];
+            if (from == null || to == null) return; // a frame still in flight
+            p.composed++;
+            java.awt.Graphics2D g = to.createGraphics();
+            try {
+                g.setComposite(c.replace ? AlphaComposite.Src : AlphaComposite.SrcOver);
+                java.awt.image.BufferedImage part = from.getSubimage(c.sx, c.sy, c.w, c.h);
+                g.drawImage(part, c.dx, c.dy, null);
+            } finally {
+                g.dispose();
+            }
+        }
     }
 
     private static java.awt.image.BufferedImage copyOf(java.awt.image.BufferedImage src) {

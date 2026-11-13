@@ -56,7 +56,8 @@ Features implemented in the Java version of TorTTY.
   for keeps the legacy xterm shape.
 - kitty graphics (images): `a=t`/`a=T`/`a=p`/`a=d`/`a=q`, `f=24` RGB, `f=32`
   RGBA, `f=100` PNG, `m=1` chunks, `o=z` zlib, `t=d/f/t/s` (direct, file, temp
-  file, shared memory), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`. The three file
+  file, shared memory), `i=`, `c=`, `r=`, `X=`, `Y=`, `C=`, `q=`, and a window
+  into the file with `O`/`S` (offset and length). The three file
   media are read on the spot and only from a regular file, at most `MAX_APC`
   (64 MB) — the child chooses the file, so its size is not the terminal's
   problem. `t=t` deletes the file after reading, but **only** a canonical path
@@ -78,7 +79,11 @@ Features implemented in the Java version of TorTTY.
   the root hangs on the image the client names — by `i=` or by `I=`, which is
   what `icat` uses when an image has more than one frame — and is composed onto
   the frame in `c=` (alpha blend by default, `X=1` overwrites; no `c=` starts
-  from black transparent pixels). `z` is the clock of a frame: the ms it stays,
+  from black transparent pixels, or from the `Y=` colour, a 32-bit
+  `0xRRGGBBAA`). `a=c` then joins two finished frames: a rectangle of `r=`
+  (`X`/`Y` inside it) onto `c=` (`x`/`y` in the destination), `w`/`h` the size
+  and `C=1` replacing instead of blending; a frame or image that is not there
+  is `ENOENT`, a rectangle past the edge `EINVAL`. `z` is the clock of a frame: the ms it stays,
   **40 ms** when it does not ask for one and 0 for the root, negative meaning
   gapless and never shown. `a=a` runs it — `s=2` *loading* (it stops at the last
   frame and waits for the frames still to come), `s=3` running (it loops, `v`
@@ -205,6 +210,15 @@ Features implemented in the Java version of TorTTY.
 - Paste with Ctrl+Shift+V (CLIPBOARD) or the middle button (PRIMARY), both
   respecting bracketed paste.
 - OSC 8 links: Ctrl underlines links and Ctrl+click opens `http/https/file/ftp/mailto`.
+- `OSC 52` puts text on the system CLIPBOARD (base64, `c`/`p`/`s`/`0`-`7`, more
+  than one selection per command, at most 1 MB): an editor or a multiplexer
+  inside the terminal can copy out. A **read** (`?`) is refused — no reply, which
+  a client reads as "not supported" — so a program in the terminal cannot pull
+  what the user copied elsewhere.
+- Tab stops: every eighth column by default, moved with `ESC H` (HTS), cleared
+  with `CSI g` (one) or `CSI 3 g` (all), and walked by `HT`, `CSI I` (forward)
+  and `CSI Z` (back). A resize keeps the stops that survive and defaults the new
+  columns; `RIS` restarts the pattern.
 - `BEL` is a visual or audible bell, chosen by the config; `OSC 9`/`777` raises a
   window notice (8 s) — see [`Toast`](#toast-b38).
 - `ligatures` off/standard/all (`B27`): on, each run of same-style cells is shaped

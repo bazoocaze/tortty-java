@@ -1046,3 +1046,38 @@ lift — too quiet to read as selected at a glance.
 **Result.** `selftest` passes 1164 checks, `render-check` 38/38; live in Xvfb
 the front workspace row and the front tab wear `#004800` on the default
 theme, legible under the light labels.
+
+## 2026-11-13 — five small gaps, closed together
+
+**Context.** The backlog was empty and five cheap, real gaps were on the table:
+tab stops, `OSC 52`, frame composition, a frame's canvas colour and a window
+into a transmitted file.
+
+**Activities.**
+
+- **Tab stops** (`Term`): the fixed every-eighth-column `HT` became a per-column
+  array — `ESC H` sets, `CSI g`/`CSI 3 g` clear one or all, `CSI I`/`CSI Z` walk
+  them; a resize keeps the surviving stops and defaults the new columns, `RIS`
+  restarts the pattern. 16 checks.
+- **`OSC 52`**: the child writes the system CLIPBOARD (base64, selection field,
+  1 MB cap); the model records the request and the panel performs it, as it does
+  with `OSC 9`. A read (`?`) is refused with no reply, so a program inside the
+  terminal cannot read the clipboard. 11 checks.
+- **`a=c`** composes a rectangle of one frame onto another (`r=`, `c=`, `w`/`h`,
+  `X`/`Y`, `x`/`y`, `C=1`); the model keeps the request and `TermPanel` applies
+  it once the canvases exist, tracking what it already applied so an alpha blend
+  is never run twice. `ENOENT` for a missing frame or image, `EINVAL` for a
+  rectangle past the edge.
+- **`Y=`** gives a frame the colour its canvas starts from. The protocol writes
+  it `0xRRGGBBAA`, Java reads `0xAARRGGBB` — the first live proof came out blue
+  where it should have been red, and the conversion is now its own helper.
+- **`O`/`S`** read a window of a `t=f`/`t=t`/`t=s` file (offset and length),
+  which a client keeping several images in one object needs. A skip past the end
+  leaves nothing and is refused by the size check.
+
+**Result.** `selftest` passes 1219 checks (+28), `render-check` 38/38. Live in
+Xvfb: a red canvas from `Y=4278190335` with a green patch copied across by
+`a=c`, and the `z=` stacking case still green over red.
+
+**Note.** `LIMITATIONS.md` said the graphics protocol had an `fc`/`fs` query for
+the font; the specification has no such keys — the row was wrong and is fixed.

@@ -81,6 +81,8 @@ public final class KittyImages {
         public long nextAt = -1;
         /** The root frame's own gap ({@code a=a r=1 z=}): 0 = none, negative = gapless. */
         public int rootGap;
+        /** {@code a=c} compositions, in the order they were asked for. */
+        public final java.util.List<Composed> composes = new ArrayList<>();
 
         Image(int id, int number, long version, int width, int height, int format, byte[] data) {
             this.id = id;
@@ -103,11 +105,17 @@ public final class KittyImages {
         public final int composeOnto;
         /** {@code X=1}: overwrite the pixels instead of alpha-blending them. */
         public final boolean replace;
+        /**
+         * {@code Y}: the 32-bit RGBA the canvas starts from when the frame is not
+         * built on another one ({@code c=0}); 0 is the protocol's transparent
+         * black. Only read when {@link #composeOnto} is 0.
+         */
+        public final int background;
         /** {@code z}: >0 the gap in ms, 0 not asked, <0 gapless (never displayed). */
         public int gap;
 
         Frame(byte[] data, int format, int width, int height, int x, int y,
-              int composeOnto, boolean replace, int gap) {
+              int composeOnto, boolean replace, int background, int gap) {
             this.data = data;
             this.format = format;
             this.width = width;
@@ -116,7 +124,34 @@ public final class KittyImages {
             this.y = y;
             this.composeOnto = composeOnto;
             this.replace = replace;
+            this.background = background;
             this.gap = gap;
+        }
+    }
+
+    /**
+     * One {@code a=c} composition already performed on an image: a rectangle of
+     * the source frame ({@code r}, {@code X}/{@code Y} inside it) lands on the
+     * destination frame ({@code c}, {@code x}/{@code y}). The model records it
+     * and the UI applies it when it builds the frame canvases — the protocol
+     * stays testable without a screen, as with the frames themselves.
+     */
+    public static final class Composed {
+        public final int src, dst;
+        public final int w, h, sx, sy, dx, dy;
+        /** {@code C=1}: replace the pixels instead of alpha-blending them. */
+        public final boolean replace;
+
+        Composed(int src, int dst, int w, int h, int sx, int sy, int dx, int dy, boolean replace) {
+            this.src = src;
+            this.dst = dst;
+            this.w = w;
+            this.h = h;
+            this.sx = sx;
+            this.sy = sy;
+            this.dx = dx;
+            this.dy = dy;
+            this.replace = replace;
         }
     }
 
@@ -313,10 +348,23 @@ public final class KittyImages {
             try {
                 // only regular files: a FIFO or a device would block, or worse
                 if (!Files.isRegularFile(file)) throw new IOException("not a regular file");
+                // `O`/`S`: read a window of the file, as the protocol allows for a
+                // client that keeps several images in one object
+                long offset = Math.max(0, parseLong(params.get("O"), 0));
+                long size = parseLong(params.get("S"), 0);
                 // one byte over the cap: the file is the child's, so its size is
                 // its choice — reading it whole would be the terminal's problem
                 try (java.io.InputStream in = Files.newInputStream(file)) {
-                    bytes = in.readNBytes(MAX_APC + 1);
+                    // `skip` stops at the end of the file instead of throwing: an
+                    // offset past it leaves nothing, which the size check refuses
+                    long left = Math.min(offset, MAX_APC);
+                    while (left > 0) {
+                        long n = in.skip(left);
+                        if (n <= 0) break;
+                        left -= n;
+                    }
+                    bytes = size > 0 ? in.readNBytes((int) Math.min(size, MAX_APC + 1L))
+                            : in.readNBytes(MAX_APC + 1);
                 }
                 if (bytes.length > MAX_APC) {
                     if (!quiet(params)) out.responses.add(ident(params) + ";EINVAL:too big");
@@ -352,11 +400,7 @@ public final class KittyImages {
         switch (action) {
             case "f" -> frameTransmit(out, kv, data, quiet);
             case "a" -> animateControl(out, kv, quiet);
-            case "c" -> {
-                // composing one frame onto another is out on purpose, and it must
-                // say so: a client that took it for done would show the wrong pixels
-                if (!quiet) out.responses.add(ident(kv) + ";EINVAL:compose");
-            }
+            case "c" -> composeFrames(out, kv, quiet);
             case "q" -> {
                 String e = kv.get("e");
                 if (e != null) {
@@ -552,7 +596,9 @@ public final class KittyImages {
         }
         img.frames.add(new Frame(data, fmt, dim[0], dim[1],
                 parse(kv.get("x"), 0), parse(kv.get("y"), 0),
-                parse(kv.get("c"), 0), "1".equals(kv.get("X")), parse(kv.get("z"), 0)));
+                parse(kv.get("c"), 0), "1".equals(kv.get("X")),
+                // `Y` is a 32-bit RGBA, past what a signed int holds
+                parseIdent(kv.get("Y")), parse(kv.get("z"), 0)));
         img.frameBytes += data.length;
         out.changed = true;
         if (!quiet) out.responses.add(who + ";OK");
@@ -565,6 +611,41 @@ public final class KittyImages {
      * shell when it exits — kitty is silent for this action too. Only an image
      * that does not exist is reported.
      */
+    /**
+     * {@code a=c}: compose a rectangle of one frame onto another. The pixels are
+     * the UI's to touch, so the model records the request; a frame or an image
+     * that is not there is {@code ENOENT}, a rectangle that leaves the image is
+     * {@code EINVAL}, as the protocol says.
+     */
+    private void composeFrames(Result out, Map<String, String> kv, boolean quiet) {
+        String who = ident(kv);
+        Image img = byIdent(kv);
+        if (img == null) {
+            if (!quiet) out.responses.add(who + ";ENOENT");
+            return;
+        }
+        int known = 1 + img.frames.size();
+        int src = parse(kv.get("r"), 0);   // the frame read from
+        int dst = parse(kv.get("c"), 0);   // the frame written to
+        if (src < 1 || src > known || dst < 1 || dst > known) {
+            if (!quiet) out.responses.add(who + ";ENOENT");
+            return;
+        }
+        int w = parse(kv.get("w"), img.width);
+        int h = parse(kv.get("h"), img.height);
+        int sx = parse(kv.get("X"), 0), sy = parse(kv.get("Y"), 0);
+        int dx = parse(kv.get("x"), 0), dy = parse(kv.get("y"), 0);
+        if (w < 1 || h < 1 || sx < 0 || sy < 0 || dx < 0 || dy < 0
+                || sx + w > img.width || dx + w > img.width
+                || sy + h > img.height || dy + h > img.height) {
+            if (!quiet) out.responses.add(who + ";EINVAL:compose");
+            return;
+        }
+        img.composes.add(new Composed(src, dst, w, h, sx, sy, dx, dy, "1".equals(kv.get("C"))));
+        out.changed = true;
+        if (!quiet) out.responses.add(who + ";OK");
+    }
+
     private void animateControl(Result out, Map<String, String> kv, boolean quiet) {
         String who = ident(kv);
         Image img = byIdent(kv);
@@ -627,12 +708,27 @@ public final class KittyImages {
     private static String featureKeys(String e, Map<String, String> kv) {
         boolean tx = "tTqf".contains(e);
         boolean place = e.equals("T") || e.equals("p");
-        if (!tx && !place && !e.equals("d") && !e.equals("a")) return null;
+        if (!tx && !place && !e.equals("d") && !e.equals("a") && !e.equals("c")) return null;
         StringBuilder b = new StringBuilder();
+        if (e.equals("c")) {
+            // composing a rectangle of one frame onto another: the rectangle, the
+            // two frames it joins and the overwrite mode
+            echo(b, kv, "r", "0", null);
+            echo(b, kv, "c", "0", null);
+            echo(b, kv, "w", "0", null);
+            echo(b, kv, "h", "0", null);
+            echo(b, kv, "X", "0", null);
+            echo(b, kv, "Y", "0", null);
+            echo(b, kv, "x", "0", null);
+            echo(b, kv, "y", "0", null);
+            echo(b, kv, "C", "0", v -> v.equals("1"));
+        }
         if (tx) {
             echo(b, kv, "t", "d", v -> v.length() == 1 && "dfts".indexOf(v.charAt(0)) >= 0);
             echo(b, kv, "o", "0", v -> v.equals("z"));
             echo(b, kv, "f", "32", v -> v.equals("24") || v.equals("32") || v.equals("100"));
+            echo(b, kv, "O", "0", null); // a window into the file: offset and size
+            echo(b, kv, "S", "0", null);
             echo(b, kv, "s", "0", null);
             echo(b, kv, "v", "0", null);
         }
@@ -645,6 +741,7 @@ public final class KittyImages {
             echo(b, kv, "c", "0", null);
             echo(b, kv, "z", "0", null);
             echo(b, kv, "X", "0", v -> v.equals("1"));
+            echo(b, kv, "Y", "0", null); // the canvas colour a frame starts from
         }
         if (place) {
             echo(b, kv, "X", "0", null); // the cell offsets the placement takes
