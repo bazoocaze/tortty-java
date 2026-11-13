@@ -256,12 +256,13 @@ public final class Gate {
 
     /**
      * The tab strip wears the terminal palette (`B61`): the selected card is
-     * the 10% lift, the rest is the background, the labels are light, and no
-     * content border frames the page. Painted through the app's own recipe,
-     * so a key that stops being honoured fails here.
+     * the background leaned toward the palette's green, the rest is the
+     * background, the labels are light, and no content border frames the
+     * page. Painted through the app's own recipe, so a key that stops being
+     * honoured fails here.
      */
     private static void theTabStripWearsTheTheme() {
-        Chrome.tabChrome(0x000000, 0xD6D6D6);
+        Chrome.tabChrome(0x000000, 0xD6D6D6, 0x00FF00);
         javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
         Chrome.chromePane(p, 0x000000);
         p.addTab("alpha", new javax.swing.JLabel());
@@ -274,8 +275,8 @@ public final class Gate {
         g.dispose();
         save("tabs", img);
         java.awt.Rectangle sel = p.getBoundsAt(0);
-        eq("the selected card is the lift",
-                img.getRGB(sel.x + 4, sel.y + 4) & 0xFFFFFF, 0x151515);
+        eq("the selected card leans green",
+                img.getRGB(sel.x + 4, sel.y + 4) & 0xFFFFFF, 0x005900);
         java.awt.Rectangle other = p.getBoundsAt(1);
         eq("the other card is the background",
                 img.getRGB(other.x + 4, other.y + 4) & 0xFFFFFF, 0x000000);

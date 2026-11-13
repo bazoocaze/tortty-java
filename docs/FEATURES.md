@@ -230,10 +230,10 @@ Features implemented in the Java version of TorTTY.
   shake does not wobble it (`B25`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column wears the
-  terminal's palette — `background`/`foreground`, the card in front a 10% lift
-  with a `palette[12]` mark — and its text, like the tab strip's, runs half
+  terminal's palette — `background`/`foreground`, the selected card leaned toward the palette's green,
+  still marked with a `palette[12]` bar — and its text, like the tab strip's, runs half
   again the LaF's size; the geometry follows the fonts. The tab strip wears the
-  palette too — selected card a 10% lift, no content border (`B61`) — while the
+  palette too — the selected card leaned toward the palette's green, no content border (`B61`) — while the
   popup, the dialogs and the divider keep the desktop's. The column takes no grid
   rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are

@@ -1028,3 +1028,21 @@ hand — one indirection instead of the toolkit's own delivery.
 
 **Result.** `selftest` passes 1164 checks, `render-check` 38/38; `L21` leaves
 `LIMITATIONS.md`.
+
+## 2026-11-12 — selected cards lean green
+
+**Context.** The selected workspace and the selected tab were a grey 10%
+lift — too quiet to read as selected at a glance.
+
+**Activities.**
+
+- `ui/Chrome.selectedCard`: one recipe for both — the background a third of
+  the way toward the palette's green (`palette[2]`, so `OSC 4` re-themes the
+  selection live), dark on a dark theme and tinted on a light one. The column
+  and the strip share it; the blue mark stays.
+- `render/Gate.java`: the strip case expects the green card; a light-theme
+  reload keeps working off the same recipe.
+
+**Result.** `selftest` passes 1164 checks, `render-check` 38/38; live in Xvfb
+the front workspace row and the front tab wear `#004800` on the default
+theme, legible under the light labels.

@@ -726,7 +726,7 @@ public final class Main {
 
         /** Keys and every living strip; new strips dress themselves at birth. */
         private void syncTabChrome() {
-            Chrome.tabChrome(theme.bg, theme.fg);
+            Chrome.tabChrome(theme.bg, theme.fg, theme.palette[2]);
             for (Workspace w : workspaces) Chrome.chromePane(w.pane, theme.bg);
         }
 
@@ -894,7 +894,7 @@ public final class Main {
                 Color bg = new Color(theme.bg);
                 Color fg = new Color(theme.fg);
                 Color muted = Chrome.mix(fg, bg, 0.45f);
-                Color chip = Chrome.mix(bg, fg, 0.10f);
+                Color chip = Chrome.selectedCard(theme.bg, theme.palette[2]);
                 g.setColor(bg);
                 g.fillRect(0, 0, getWidth(), getHeight());
 

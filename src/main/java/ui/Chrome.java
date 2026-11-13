@@ -30,12 +30,28 @@ public final class Chrome {
         return f.deriveFont(f.getSize2D() * SCALE);
     }
 
+    /**
+     * The selected card — workspace or tab: the background leaned a third of
+     * the way toward the palette's green, dark on a dark theme and tinted on
+     * a light one. The grey 10% lift it replaces was too quiet to read as
+     * selected.
+     */
     /** One channel-wise blend: {@code t} of the way from {@code a} to {@code b}. */
     public static Color mix(Color a, Color b, float t) {
         return new Color(
                 Math.round(a.getRed() + (b.getRed() - a.getRed()) * t),
                 Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * t),
                 Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
+    }
+
+    /**
+     * The selected card — workspace or tab: the background leaned a third of
+     * the way toward the palette's green, dark on a dark theme and tinted on
+     * a light one. The grey 10% lift it replaces was too quiet to read as
+     * selected.
+     */
+    public static Color selectedCard(int bg, int green) {
+        return mix(new Color(bg), new Color(green), 0.35f);
     }
 
     /**
@@ -63,9 +79,9 @@ public final class Chrome {
      * The `TabbedPane.*` half of the chrome: the keys a pane reads when its
      * UI installs.
      */
-    public static void tabChrome(int bg, int fg) {
+    public static void tabChrome(int bg, int fg, int green) {
         Color b = new Color(bg), f = new Color(fg);
-        Color chip = mix(b, f, 0.10f); // the selected card, as in the column
+        Color chip = selectedCard(bg, green); // the selected card, as in the column
         UIManager.put("TabbedPane.background", b);
         UIManager.put("TabbedPane.foreground", f);
         UIManager.put("TabbedPane.tabAreaBackground", b);
