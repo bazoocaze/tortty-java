@@ -143,13 +143,19 @@ def main():
             apc(out, b"a=p,i=8,p=7,c=%d,r=%d" % (cols // 2, rows // 2))
             print("moved the same p=7 below, at half the size: one placement, not two")
         elif mode == "under":
-            apc(out, b"a=T,f=100,i=9,c=%d,r=%d,z=-1;%s" % (cols, rows, b64))
-            time.sleep(0.3)
+            # pin the row first: the image lands where the cursor is, and the
+            # words have to land on the same cells, not wherever the prompt was
             out.write(b"\x1b[1;1H")
+            out.flush()
+            # C=1 keeps the cursor put, so the text goes on top of the picture
+            apc(out, b"a=T,f=100,i=9,c=%d,r=%d,z=-1,C=1;%s" % (cols, rows, b64))
+            time.sleep(0.3)
             out.write(b"TEXT OVER THE PICTURE\r\n")
             out.write(b"second line, also on top\r\n")
             out.flush()
             print("the words above the picture are readable: z=-1 is under the text")
+            print("a cell with a background of its own covers it — try "
+                  "printf '\\e[44m  blue  \\e[0m' over the picture")
         else:
             sys.exit(__doc__)
 
