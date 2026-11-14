@@ -16,6 +16,9 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - Build: `mvn package`; run: `./run.sh` (zsh).
 - Do not kill processes by name (`pkill`); use PID file `/tmp/tortty-java.pid`.
 - Visual tests in Xvfb `:99`, not on the owner's screen.
+- Load and stress tests are bounded: a few seconds per run, a unique marker per run,
+  and the cleanup kills those children by exact cmdline and PID — never leave a
+  flooding child (a loop of `echo`, `yes`, `cat`) behind.
 - Benchmark: font 17, follow the protocol in `docs/BENCHMARKS.md`.
 - Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
 - Commits: conventional commits, maximum of 3 lines.

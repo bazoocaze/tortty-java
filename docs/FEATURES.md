@@ -165,7 +165,11 @@ Features implemented in the Java version of TorTTY.
 ## PTY
 
 - Spawn via pty4j, with `TERM=xterm-256color` and `COLORTERM=truecolor`.
-- Reader thread with chunk queue and exit watcher.
+- Reader thread with a **bounded inbox** per tab and an exit watcher: the reader
+  stops once a tab's inbox passes 256 KB, so a child that floods fills the pty and
+  blocks on `write` — the backpressure a real terminal gives — instead of growing
+  a queue until the JVM dies; the event loop feeds at most 4 ms per slice, so a
+  click, a repaint or the way out is never behind megabytes of output (`L23`).
 - Resize via `TIOCSWINSZ`/`setWinSize`.
 - Configurable shell (config `shell`, `--cmd`) or `$SHELL`/`/bin/sh`.
 
@@ -444,6 +448,11 @@ what the hot reload watches.
   not support reporting screen sizes in pixels"; `icat --print-window-size`
   prints the real size now. `pty/PtyChecks` reads the struct back from a real
   child.
+- Leaving is bounded (`L23`): every way out sets the flag the drain reads, so a
+  flooded child stops being fed at once; the frame is `DO_NOTHING_ON_CLOSE`, so
+  `windowClosing` owns the exit and the farewell (`B48`) still runs instead of a
+  toolkit `System.exit` cutting it short; a watchdog halts the JVM after 3 s if
+  the event loop is wedged, so `kill -TERM` ends the process even then.
 - Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
   so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,

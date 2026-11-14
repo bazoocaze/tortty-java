@@ -1130,6 +1130,22 @@ A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
 
+## 2026-11-13 — the app leaves when asked, even under a flood
+
+**Context.** The close button sometimes did nothing and `SIGTERM` was ignored,
+while `SIGHUP` worked. Reproduced 8/8: a child that floods (a shell loop, a `cat`
+of a big file) starved the event loop — one `invokeLater` per 64 KB chunk, no
+bound — so the exit request queued behind megabytes and never ran.
+
+**Activities.** One coalesced inbox per tab (256 KB cap) drained in 4 ms slices,
+the reader stopping at the cap so the child blocks in `write`; `requestQuit()`
+sets the flag from any thread and arms a 3 s watchdog; `SIGTERM`/`SIGUSR1` are
+registered apart; `DO_NOTHING_ON_CLOSE` gives the exit back to `windowClosing`.
+
+**Result.** `SIGTERM` and the close button under a flood: 3/3 each, both with the
+farewell in the log. `selftest` 1247, `render-check` 38/38. `L23` records the
+trade-off.
+
 ## 2026-11-13 — the under-text band stops costing anything
 
 **Context.** `z<0` places a picture under the glyphs, and the band is drawn row

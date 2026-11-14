@@ -73,6 +73,17 @@ public final class Main {
         boolean badge;
         /** Set when the tab is gone for good, so a watcher does not close it twice. */
         boolean closed;
+        /**
+         * The child's chunks waiting for the event loop. One {@code Runnable}
+         * drains them all, so a shell printing a screenful a millisecond cannot
+         * bury every other event the loop has to deliver — a click, a repaint or
+         * the request to leave (`L23`). Bytes, not chunks, are the unit that
+         * matters: the reader stops reading past {@link App#INBOX_MAX}.
+         */
+        final java.util.ArrayDeque<byte[]> inbox = new java.util.ArrayDeque<>();
+        int inboxBytes;
+        /** True while a drain of this inbox is queued on the event loop. */
+        boolean drainPosted;
 
         Tab(Term term, TermPanel panel) {
             this.term = term;
@@ -171,6 +182,19 @@ public final class Main {
          * (`B48`). Only touched on the event loop, read by the readers.
          */
         private volatile boolean draining;
+        /**
+         * Set the moment a way out is asked for — the close button, `SIGTERM`,
+         * the socket, `--quit-after`. The drain of a flooded child stops instead
+         * of working through its backlog, so the exit is not queued behind
+         * megabytes of output (`L23`).
+         */
+        private volatile boolean quitting;
+        /** Most bytes waiting per tab before the reader stops reading (backpressure). */
+        private static final int INBOX_MAX = 256 * 1024;
+        /** How long one drain may hold the event loop before it yields. */
+        private static final long DRAIN_BUDGET_MS = 4;
+        /** Grace for the exit to finish before the watchdog halts the process. */
+        private static final long QUIT_WATCHDOG_MS = 3000;
         /** The content photographed before the exit, written by the hook. */
         private volatile java.util.List<Snapshots.Snap> exitSnaps;
         private boolean debugResizing;
@@ -204,7 +228,11 @@ public final class Main {
                     ? new Session() : Session.load();
 
             frame = new JFrame("tortty-java");
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            // the close button is ours, not the toolkit's: `EXIT_ON_CLOSE` calls
+            // `System.exit` on its own, which leaves before `windowClosing` gets
+            // to drain the children (`B48`) — and, with a flooded event loop,
+            // after the click has waited for megabytes of output (`L23`)
+            frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
             sideW = session.sideW;
             cardLayout = new CardLayout();
             host = new JPanel(cardLayout);
@@ -273,7 +301,7 @@ public final class Main {
                     forEachTab(t -> t.panel.requestFullRepaint());
                 }
                 @Override public void windowClosing(java.awt.event.WindowEvent e) {
-                    quitNow("window close");
+                    requestQuit("window close");
                 }
             });
 
@@ -314,7 +342,8 @@ public final class Main {
             // exit as the close button, so the state and the snapshots are written
             if (o.quitAfter != null) {
                 int secs = Math.max(0, o.quitAfter);
-                javax.swing.Timer qt = new javax.swing.Timer(secs * 1000, e -> quitNow("quit-after " + secs + "s"));
+                javax.swing.Timer qt = new javax.swing.Timer(secs * 1000,
+                        e -> requestQuit("quit-after " + secs + "s"));
                 qt.setRepeats(false);
                 qt.start();
             }
@@ -1274,10 +1303,80 @@ public final class Main {
                 // and would never run an `invokeLater`: the reader feeds the grid
                 // itself, which is what puts the child's last words in the
                 // picture (`B48`)
-                if (draining) feedChunk(t, chunk, false);
-                else SwingUtilities.invokeLater(() -> feedChunk(t, chunk, true));
+                if (draining) { feedChunk(t, chunk, false); return; }
+                offer(t, chunk);
             });
             wireRest(t);
+        }
+
+        /**
+         * Puts a chunk in the tab's inbox and makes sure one drain is queued. The
+         * reader stops once the inbox is past {@link #INBOX_MAX}, so a child that
+         * writes faster than the grid can take it fills the pty and blocks on
+         * `write` — the backpressure a real terminal gives — instead of growing a
+         * queue until the JVM dies (`L23`).
+         */
+        private void offer(Tab t, byte[] chunk) {
+            synchronized (t.inbox) {
+                while (t.inboxBytes >= INBOX_MAX && !quitting && !t.closed) {
+                    try {
+                        t.inbox.wait(50); // the drain signals, or we look again
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                if (quitting || t.closed) return;
+                t.inbox.addLast(chunk);
+                t.inboxBytes += chunk.length;
+                if (t.drainPosted) return;
+                t.drainPosted = true;
+            }
+            SwingUtilities.invokeLater(() -> drain(t));
+        }
+
+        /**
+         * Feeds what is in the inbox, for at most {@link #DRAIN_BUDGET_MS}, so the
+         * loop still delivers clicks, repaints and the way out. Yields and comes
+         * back when the budget is spent; a quitting app throws the backlog away
+         * rather than feed it (`L23`).
+         */
+        private void drain(Tab t) {
+            long deadline = System.nanoTime() + DRAIN_BUDGET_MS * 1_000_000L;
+            while (true) {
+                byte[] chunk;
+                synchronized (t.inbox) {
+                    chunk = quitting ? null : t.inbox.pollFirst();
+                    if (chunk == null) {
+                        t.inbox.clear();
+                        t.inboxBytes = 0;
+                        t.drainPosted = false;
+                        t.inbox.notifyAll();          // the reader may resume
+                        return;
+                    }
+                    t.inboxBytes -= chunk.length;
+                    if (t.inboxBytes < INBOX_MAX / 2) t.inbox.notifyAll();
+                }
+                feedChunk(t, chunk, true);
+                if (System.nanoTime() >= deadline) {
+                    yieldDrain(t);
+                    return;
+                }
+            }
+        }
+
+        /** Puts the drain back on the queue after it spent its budget. */
+        private void yieldDrain(Tab t) {
+            synchronized (t.inbox) {
+                if (t.inbox.isEmpty() || quitting) {
+                    t.inbox.clear();
+                    t.inboxBytes = 0;
+                    t.drainPosted = false;
+                    t.inbox.notifyAll();
+                    return;
+                }
+            }
+            SwingUtilities.invokeLater(() -> drain(t));
         }
 
         /** One chunk of the child, on the event loop (or on the reader, draining). */
@@ -1730,7 +1829,7 @@ public final class Main {
                     return m;
                 }
                 @Override public void quit() {
-                    SwingUtilities.invokeLater(() -> quitNow("quit over the socket"));
+                    requestQuit("quit over the socket");
                 }
             });
             server.setOnError(msg -> SwingUtilities.invokeLater(
@@ -1938,16 +2037,50 @@ public final class Main {
          * tab is the event loop's business, not a signal's.
          */
         private void installSignals() {
+            // separate, so a `USR1` this platform will not take cannot cost the
+            // `TERM` handler as well
             try {
                 sun.misc.Signal.handle(new sun.misc.Signal("USR1"),
                         sig -> SwingUtilities.invokeLater(this::dump));
-                sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> SwingUtilities.invokeLater(() -> {
-                    dump();
-                    quitNow("SIGTERM");
-                }));
             } catch (Throwable e) {
-                System.err.println("tortty-java: signals: " + e);
+                System.err.println("tortty-java: SIGUSR1: " + e);
             }
+            try {
+                sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> {
+                    // the dump goes first: it reads the tabs, which the exit is
+                    // about to close. Both are queued, so the order holds.
+                    SwingUtilities.invokeLater(this::dump);
+                    requestQuit("SIGTERM");
+                });
+            } catch (Throwable e) {
+                System.err.println("tortty-java: SIGTERM: " + e);
+            }
+        }
+
+        /**
+         * The way out, asked for from any thread: set the flag the drain reads
+         * (so a flooded child stops being fed at once instead of holding the
+         * event loop for megabytes), post the exit to the event loop, and arm a
+         * watchdog. `kill -TERM` has to end the process even if the loop is
+         * wedged in a paint or a feed — a terminal that survives a signal is
+         * worse than one that loses its last snapshot (`L23`).
+         */
+        private void requestQuit(String why) {
+            if (quitting) return;
+            quitting = true;
+            SwingUtilities.invokeLater(() -> quitNow(why));
+            Thread w = new Thread(() -> {
+                long deadline = System.currentTimeMillis() + QUIT_WATCHDOG_MS;
+                while (System.currentTimeMillis() < deadline) {
+                    try { Thread.sleep(50); } catch (InterruptedException e) { return; }
+                }
+                debug.Log.ln("quit watchdog: " + why + " did not finish; halting");
+                System.err.println("tortty-java: " + why + " did not finish in "
+                        + QUIT_WATCHDOG_MS + " ms; halting");
+                Runtime.getRuntime().halt(1);
+            }, "quit-watchdog");
+            w.setDaemon(true);
+            w.start();
         }
 
         /**
@@ -1958,6 +2091,7 @@ public final class Main {
          * and `--quit-after` all end here, so no path can skip the picture.
          */
         private void quitNow(String why) {
+            quitting = true;
             debug.Log.ln("quit: " + why);
             exitSnaps = lastWords();
             forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
