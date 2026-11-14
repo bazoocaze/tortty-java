@@ -74,8 +74,21 @@ Features implemented in the Java version of TorTTY.
   **unsigned** (`icat` numbers an animation around 2^32, `I=4281793601`), kept as
   the same 32 bits and echoed back in the decimal the client sent. The image
   follows the scroll into the history, is pruned with it, and `ED 3` clears it.
-  See `L16` for what is out.
-- kitty animation (`a=f`/`a=a`, the half of `L16` that is in): every frame after
+- Unicode placeholders (`U=1`, the last gap of the kitty port): the picture is placed
+  **nowhere** — the text grid is the placement. A cell holding `U+10EEEE` shows
+  its own slice of the picture, cut into the `c`x`r` grid the client named; the
+  image id rides in the cell's foreground colour, the placement id in its
+  underline colour, and the row and column in combining diacritics (the
+  protocol's own number-to-diacritic list, not arithmetic — combining marks of
+  class 230, so no renderer fuses them), the third diacritic carrying the top
+  byte of an id that does not fit 24 bits. A cell that leaves a diacritic out
+  inherits it from the placeholder to its left, and only from a neighbour with
+  the same two colours. Such a "virtual" placement takes no row, never moves the
+  cursor and is never drawn by itself; a cell naming an image nobody sent is
+  blank — no box, no glyph. The cells therefore scroll, reflow and can be
+  overwritten like any other text, which is what makes image previews work
+  inside `vim`/`tmux` and `kitten icat --unicode-placeholder`.
+- kitty animation (`a=f`/`a=a`): every frame after
   the root hangs on the image the client names — by `i=` or by `I=`, which is
   what `icat` uses when an image has more than one frame — and is composed onto
   the frame in `c=` (alpha blend by default, `X=1` overwrites; no `c=` starts
@@ -238,10 +251,11 @@ Features implemented in the Java version of TorTTY.
   columns; `RIS` restarts the pattern.
 - `BEL` is a visual or audible bell, chosen by the config; `OSC 9`/`777` raises a
   window notice (8 s) — see [`Toast`](#toast-b38).
-- `ligatures` off/standard/all (`B27`): on, each run of same-style cells is shaped
-  by Java2D (`TextLayout`, the font's own `liga`/kern), so a font with ligatures
-  joins `->`, `!=`, `=>`. Runs are broken at the cursor and the selection, and off
-  is one glyph per cell. See `L18`.
+- `ligatures` off/standard/all (`B27`): on, **every** run of same-style cells —
+  a run of one cell included — is shaped by Java2D (`TextLayout`, the font's own
+  `liga`/`kern`), so a font with ligatures joins `->`, `!=`, `=>`. Runs are
+  broken at the cursor and the selection, and off is one glyph per cell. See
+  `L18` for what Java2D cannot do.
 - Configurable mono font; default DejaVu Sans Mono 17 pt; per-glyph fallback to
   CJK and symbol fonts. Colour emoji is not rendered by Java2D (see `L13`).
 - Bold and italic come from the family's **own** faces, never from Java2D's
@@ -457,6 +471,10 @@ what the hot reload watches.
   16 ms against 220 ms with the window waiting for the work); a watchdog halts
   the JVM after 3 s if the event loop is wedged, so `kill -TERM` ends the
   process even then.
+  A child that ignores `SIGTERM` gets `SIGKILL` after a second of grace, and
+  pty4j's `raise` is a **group** kill — measured: a shell that ignores
+  `TERM`/`HUP` and the `sleep` it forked go together, so a closed tab leaves
+  nothing running.
 - Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
   so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,
@@ -500,4 +518,4 @@ what the hot reload watches.
 ## Limitations
 
 See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
-`L16`, `L18`, `L22`).
+`L18`, `L22`, `L23`, `L24`).

@@ -173,9 +173,17 @@ public final class KittyImages {
         public final int z;
         /** {@code x}/{@code y}/{@code w}/{@code h}: the part of the image shown. */
         public final int sx, sy, sw, sh;
+        /**
+         * {@code U=1}: a **virtual** placement — a prototype for Unicode
+         * placeholder cells ({@link Placeholder}). It has no cell of its own, is
+         * never drawn by itself, and never moves the cursor; {@code cols} and
+         * {@code rows} are the grid the picture is cut into.
+         */
+        public final boolean placeholder;
 
         Placement(int imageId, int pid, int col, int line, int cols, int rows,
-                  int dx, int dy, int z, int sx, int sy, int sw, int sh) {
+                  int dx, int dy, int z, int sx, int sy, int sw, int sh,
+                  boolean placeholder) {
             this.imageId = imageId;
             this.pid = pid;
             this.col = col;
@@ -189,7 +197,21 @@ public final class KittyImages {
             this.sy = sy;
             this.sw = sw;
             this.sh = sh;
+            this.placeholder = placeholder;
         }
+    }
+
+    /**
+     * The virtual placement ({@code U=1}) a placeholder cell asks for: the one
+     * whose image is {@code imageId} and whose placement id is {@code pid} — or,
+     * when the cell names no placement ({@code pid == 0}), any virtual placement
+     * of that image, which is what the protocol allows.
+     */
+    public Placement placeholder(int imageId, int pid) {
+        for (Placement p : placements) {
+            if (p.placeholder && p.imageId == imageId && (pid == 0 || p.pid == pid)) return p;
+        }
+        return null;
     }
 
     /** What the {@link Term} must do after an APC. */
@@ -448,7 +470,7 @@ public final class KittyImages {
                     return;
                 }
                 out.lines = place(img, kv, cx, cy, cellW, cellH);
-                out.moveCursor = !"1".equals(kv.get("C"));
+                out.moveCursor = out.lines > 0 && !"1".equals(kv.get("C"));
                 out.changed = true;
                 if (!quiet) out.responses.add(ident(kv) + pid(kv) + ";OK");
             }
@@ -584,7 +606,7 @@ public final class KittyImages {
         out.changed = true;
         if ("T".equals(kv.get("a"))) {
             out.lines = place(img, kv, cx, cy, cellW, cellH);
-            out.moveCursor = !"1".equals(kv.get("C"));
+            out.moveCursor = out.lines > 0 && !"1".equals(kv.get("C"));
         }
         if (!quiet) {
             // an image sent as a number is answered with that number, not with
@@ -913,13 +935,17 @@ public final class KittyImages {
                 ? Math.max(1, parse(kv.get("r"), 1))
                 : Math.max(1, (sh + chh - 1) / chh);
         int pid = parseIdent(kv.get("p"));
+        // `U=1`: the placement is a prototype for Unicode placeholder cells, so it
+        // has no cell of its own (the last `L16` gap, now closed). The `c`/`r` above are the size of the
+        // grid the picture is cut into.
+        boolean placeholder = "1".equals(kv.get("U"));
         // the same (image, placement id) twice replaces the first, which is how a
         // client moves or resizes a placement without a flicker
         if (pid != 0) placements.removeIf(q -> q.imageId == img.id && q.pid == pid);
         placements.add(new Placement(img.id, pid, cx, cy, cols, rows,
                 parse(kv.get("X"), 0), parse(kv.get("Y"), 0), parse(kv.get("z"), 0),
-                sx, sy, sw, sh));
-        return rows;
+                sx, sy, sw, sh, placeholder));
+        return placeholder ? 0 : rows;
     }
 
     private static boolean quiet(Map<String, String> kv) {

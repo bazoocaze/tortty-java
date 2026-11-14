@@ -72,6 +72,8 @@ public final class Gate {
         stillScreenIsStable();
         cursorIsDrawn();
         ligatureStaysInItsCells();
+        aPlaceholderShowsItsSlice();
+        aOneCellRunIsShaped();
         boldIsARealFace();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
@@ -184,6 +186,62 @@ public final class Gate {
         eq("and stops at the cell it does not own", outside, 0);
         eq("the cell after the run is background", img.getRGB(cw * 2 + cw / 2, ch / 2) & 0xFFFFFF, BG);
         save("ligature", img);
+    }
+
+    /**
+     * `L18`: with ligatures on, **every** plain run is shaped, a run of one cell
+     * included — the gate that used to send a single cell down the old
+     * glyph-per-cell path is gone. What that buys is a real shaping pass for the
+     * cell; what it must not cost is the glyph leaving its own cell.
+     */
+    private static void aOneCellRunIsShaped() {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        TermPanel p = panel(t);
+        p.setLigatures(true);
+        // the background makes the run exactly one cell long
+        feed(t, E + "[0m" + E + "[2J" + E + "[H" + E + "[41m" + "A" + E + "[0m");
+        t.cursorVisible = false;
+        int[] buf = paint(p, t);
+        Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
+        is("the single cell is shaped and paints ink", s.ink(0, 0) > 120);
+        eq("and the cell after it is untouched", s.ink(1, 0), 0);
+    }
+
+    /**
+     * `U=1`: the picture is placed nowhere — the placeholder cells *are*
+     * the placement, and each shows its own slice of the image cut into the grid
+     * it named. A placeholder whose image nobody sent paints nothing: no glyph,
+     * no box, no smudge.
+     */
+    private static void aPlaceholderShowsItsSlice() {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        TermPanel p = panel(t);
+        // 2x2: a red column and a blue one, so a slice says which half it took
+        byte[] px = {(byte) 0xFF, 0, 0, 0, 0, (byte) 0xFF,
+                (byte) 0xFF, 0, 0, 0, 0, (byte) 0xFF};
+        String b64 = java.util.Base64.getEncoder().encodeToString(px);
+        String ph = new String(Character.toChars(term.Placeholder.CHAR));
+        // `a=T` + `U=1`: it is placed nowhere, the cells below are the placement
+        feed(t, E + "[0m" + E + "[2J" + E + "[H"
+                + E + "_Ga=T,f=24,s=2,v=2,i=9,U=1,c=2,r=1;" + b64 + E + "\\"
+                + E + "[38;2;0;0;9m"
+                + ph + "\u0305\u0305" + ph + "\u0305\u030D"
+                + E + "[0m");
+        t.cursorVisible = false;
+        int[] buf = paint(p, t);
+        Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
+        eq("the left cell shows the left slice", s.rgb(s.index(0, 0)), 0xFF0000);
+        eq("the right cell shows the right slice", s.rgb(s.index(1, 0)), 0x0000FF);
+        eq("the row under them is the background", s.rgb(s.index(0, 1)), BG);
+
+        // the same cell, but it names an image that was never sent
+        feed(t, E + "[0m" + E + "[3;1H" + E + "[38;2;0;0;99m" + ph);
+        int[] buf2 = paint(p, t);
+        Shot s2 = new Shot(image(buf2, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
+        eq("a placeholder with no image paints nothing at all", s2.ink(0, 2), 0);
+        save("placeholder", s2.img);
     }
 
     /**

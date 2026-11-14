@@ -214,6 +214,9 @@ public final class ChildPty {
                 try { Thread.sleep(100); } catch (InterruptedException e) { return; }
             }
             if (p.isAlive()) {
+                // pty4j's `raise` is a **group** kill, which is what takes the
+                // programs the child started with it (`L24`) — measured: a shell
+                // that ignores `TERM`/`HUP` and the `sleep` it forked both went
                 try { p.destroyForcibly(); } catch (Exception ignored) { }
             }
         }, "pty-kill");

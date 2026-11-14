@@ -1130,6 +1130,30 @@ A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
 
+## 2026-11-13 — `U=1`: the picture lives in the text grid (`L16` closed)
+
+**Context.** The last gap of `L16` was the Unicode placeholder: `kitten icat
+--unicode-placeholder`, `vim` and `tmux` draw a picture by writing `U+10EEEE`
+cells, and this terminal showed a box instead. The Rust core already has the
+decoder (`crates/core/src/placeholder.rs`), so the port had a reference.
+
+**Activities.** `term/Placeholder` carries the protocol's 297-entry
+number-to-diacritic list (ported, not hand-typed), the spec's three inheritance
+rules and the cell-to-picture fractions. `U=1` makes a **virtual** placement —
+no row, no cursor move, never painted by itself — found by the image id in the
+cell's foreground colour and the placement id in its underline colour; the panel
+draws each cell's slice instead of a glyph, crop included, and a cell naming an
+image nobody sent stays blank. `L18`: every plain run is shaped now, a run of one
+cell too. `L24`: the "grandchildren left behind" claim was **wrong** — measured
+with a probe, pty4j's `raise` is a group kill — so the group-kill code was
+dropped and the behaviour pinned by a `PtyChecks` test instead.
+
+**Result.** `selftest` 1287, `render-check` 44/44 (the tiles take the right
+slices; a placeholder without an image paints nothing). Live in Xvfb:
+`tools/imgtest.py placeholder` puts the picture in a 10x5 block of cells, red and
+green on top, blue and yellow below, and the text after it flows on. `L16` comes
+out of `LIMITATIONS`, `L24` keeps only the hidden-window lag.
+
 ## 2026-11-13 — the app leaves when asked, even under a flood
 
 **Context.** The close button sometimes did nothing and `SIGTERM` was ignored,

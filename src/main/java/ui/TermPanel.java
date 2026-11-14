@@ -5,6 +5,7 @@ import term.Color;
 import term.Theme;
 import term.WcWidth;
 import term.KittyImages;
+import term.Placeholder;
 import render.FrameGate;
 import prof.Prof;
 import pty.ChildPty;
@@ -592,8 +593,13 @@ public final class TermPanel extends JPanel implements KeyListener {
                 }
             }
             int x = 0;
+            // the placeholder to the left, when it had the same two colours: the
+            // only neighbour a placeholder cell may inherit from
+            Placeholder.Where phPrev = null;
+            int phPrevId = 0, phPrevPid = 0;
             while (x < cols) {
                 int i = off + x;
+                boolean ph = cps[i] == Placeholder.CHAR;
                 boolean sel = isSelected(x, y);
                 boolean hitSel = x >= findSelFrom && x < findSelTo;
                 int f = fg[i], b = bg[i], a = attr[i];
@@ -609,9 +615,11 @@ public final class TermPanel extends JPanel implements KeyListener {
                 int run = x + 1;
                 // the cursor is its own run with ligatures on: a `->` under the
                 // block cursor would otherwise be shaped and then painted over
-                if (ligatures && term.viewOff() == 0 && y == term.cy && x == term.cx) run = x + 1;
-                else while (run < cols) {
+                if (ph || (ligatures && term.viewOff() == 0 && y == term.cy && x == term.cx)) {
+                    run = x + 1;
+                } else while (run < cols) {
                     int j = off + run;
+                    if (cps[j] == Placeholder.CHAR) break; // a tile is not a glyph
                     boolean jsel = isSelected(run, y);
                     boolean jhit = run >= findSelFrom && run < findSelTo;
                     if (fg[j] != f || bg[j] != b || attr[j] != a
@@ -626,9 +634,24 @@ public final class TermPanel extends JPanel implements KeyListener {
                     g2.setColor(color(rb));
                     g2.fillRect(xPx, yPx, runW, cellH);
                 }
-                g2.setColor(color(rf));
-                g2.setFont(font);
-                drawCells(g2, cps, cls, off + x, run - x, xPx, baseline, font, a);
+                if (ph) {
+                    // a placeholder cell shows its slice of a virtual placement;
+                    // no glyph is drawn, and a cell whose image is gone is blank
+                    int id = Placeholder.ink(f), pid = Placeholder.ink(uColor);
+                    Placeholder.Where prev =
+                            phPrev != null && phPrevId == id && phPrevPid == pid ? phPrev : null;
+                    Placeholder.Where where =
+                            Placeholder.decode(marksOf(cls[i]), prev);
+                    phPrev = where;
+                    phPrevId = id;
+                    phPrevPid = pid;
+                    paintPlaceholder(g2, where, id, pid, xPx, yPx, cellW, cellH);
+                } else {
+                    phPrev = null;
+                    g2.setColor(color(rf));
+                    g2.setFont(font);
+                    drawCells(g2, cps, cls, off + x, run - x, xPx, baseline, font, a);
+                }
                 if (uStyle != 0) {
                     drawUnderline(g2, xPx, yPx, runW, cellH, uStyle,
                             color(theme.resolve(uColor, rf)));
@@ -842,7 +865,8 @@ public final class TermPanel extends JPanel implements KeyListener {
      * selection (`B27`).
      */
     private void drawTextRun(Graphics2D g2, char[] b, int n, int x, int baseline, Font font) {
-        if (!ligatures || n < 2) {
+        if (!ligatures) {
+            // off: one glyph per cell, the historical draw (`L18`)
             g2.drawChars(b, 0, n, x, baseline);
             return;
         }
@@ -1225,7 +1249,8 @@ public final class TermPanel extends JPanel implements KeyListener {
         java.awt.Shape old = clipTo(g2, pad, pad, cols * cw, rows * chh);
         Object oldInterp = bilinear(g2);
         for (KittyImages.Placement p : imgs) {
-            if (p.z >= 0) paintOne(g2, p, pad, cols, rows, cw, chh);
+            // `U=1` has no cell of its own: the placeholder cells draw it
+            if (p.z >= 0 && !p.placeholder) paintOne(g2, p, pad, cols, rows, cw, chh);
         }
         if (oldInterp != null) {
             g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
@@ -1245,7 +1270,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         java.awt.Shape old = clipTo(g2, pad, yPx, cols * cw, chh);
         Object oldInterp = bilinear(g2);
         for (KittyImages.Placement p : imgs) {
-            if (p.z < 0) paintOne(g2, p, pad, cols, rows, cw, chh);
+            if (p.z < 0 && !p.placeholder) paintOne(g2, p, pad, cols, rows, cw, chh);
         }
         if (oldInterp != null) {
             g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
@@ -1268,6 +1293,44 @@ public final class TermPanel extends JPanel implements KeyListener {
         int x0 = pad + p.col * cw + p.dx, y0 = pad + y * chh + p.dy;
         g2.drawImage(bi, x0, y0, x0 + p.cols * cw, y0 + p.rows * chh,
                 p.sx, p.sy, p.sx + sw, p.sy + sh, null);
+    }
+
+    /**
+     * The combining marks of a cell's cluster: everything after the base
+     * character, which for a placeholder is the row/column/top-byte encoding.
+     */
+    private static String marksOf(String cluster) {
+        if (cluster == null) return null;
+        int first = cluster.codePointAt(0);
+        return cluster.substring(Character.charCount(first));
+    }
+
+    /**
+     * One cell of a virtual placement ({@code U=1}): the slice of the picture the
+     * placeholder names, scaled into the cell. Neither `z` nor the cursor is
+     * involved — the cell is the position, so the picture scrolls and reflows
+     * with the text.
+     */
+    private void paintPlaceholder(Graphics2D g2, Placeholder.Where where, int id, int pid,
+                                  int xPx, int yPx, int cw, int chh) {
+        KittyImages.Placement vp = term.images.placeholder(id, pid);
+        if (vp == null) return;
+        KittyImages.Image img = term.images.image(vp.imageId);
+        if (img == null) return;
+        java.awt.image.BufferedImage bi = frameOf(img);
+        if (bi == null) return;
+        // the placement's crop, cut into the c×r grid the placeholders form
+        int sw = Math.min(vp.sw, bi.getWidth() - vp.sx), sh = Math.min(vp.sh, bi.getHeight() - vp.sy);
+        if (vp.sx < 0 || vp.sy < 0 || sw <= 0 || sh <= 0) return;
+        double[] uv = Placeholder.uv(where, vp.cols, vp.rows);
+        int sx0 = vp.sx + (int) Math.round(uv[0] * sw), sy0 = vp.sy + (int) Math.round(uv[1] * sh);
+        int sx1 = vp.sx + (int) Math.round(uv[2] * sw), sy1 = vp.sy + (int) Math.round(uv[3] * sh);
+        if (sx1 <= sx0 || sy1 <= sy0) return;
+        Object oldInterp = bilinear(g2);
+        g2.drawImage(bi, xPx, yPx, xPx + cw, yPx + chh, sx0, sy0, sx1, sy1, null);
+        if (oldInterp != null) {
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, oldInterp);
+        }
     }
 
     /** Sets bilinear scaling for the images and hands back what was there. */

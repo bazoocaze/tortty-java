@@ -78,6 +78,7 @@ public final class GraphicsChecks {
         deletingKeepsTheDataUnlessItIsCapital(c);
         theDeleteFallsSelectWhatTheSpecSays(c);
         deletingFramesStopsTheAnimation(c);
+        aVirtualPlacementIsNotPlaced(c);
         stackingFollowsTheZIndex(c);
         aPlacementCanBeNamed(c);
         aPlacementShowsPartOfTheImage(c);
@@ -258,6 +259,36 @@ public final class GraphicsChecks {
     }
 
     // ---------------------------------------------------------------- animation
+
+    /**
+     * `U=1`: the placement is a prototype for Unicode placeholder cells.
+     * It takes no row and moves no cursor, and it is found by the image id the
+     * cell's colour carries — by the placement id too when the cell names one.
+     */
+    private static void aVirtualPlacementIsNotPlaced(Check c) {
+        Term t = new Term(20, 5);
+        int cx = t.cx, cy = t.cy;
+        c.eq("the frame is accepted", reply(t, apc("a=T,f=24,s=2,v=2,i=9,U=1,c=2,r=1", PX2)),
+                E + "_Gi=9;OK" + E + "\\");
+        c.eq("it is on file, as a prototype", t.images.placements().size(), 1);
+        term.KittyImages.Placement vp = t.images.placements().get(0);
+        c.is("and it says it is virtual", vp.placeholder);
+        c.eq("its grid is the one it named", new int[] {vp.cols, vp.rows}, new int[] {2, 1});
+        c.eq("the cursor stays where it was", new int[] {t.cx, t.cy}, new int[] {cx, cy});
+        c.is("a cell finds it by image id", t.images.placeholder(9, 0) != null);
+        c.is("an unknown image finds nothing", t.images.placeholder(8, 0) == null);
+        // a placeholder cell may also name the placement, and then only that one
+        reply(t, apc("a=p,i=9,U=1,p=7,c=2,r=1"));
+        c.is("a named prototype is found by its id", t.images.placeholder(9, 7) != null);
+        c.is("and the other id still finds the first", t.images.placeholder(9, 0) != null);
+        c.is("a placement id nobody has finds nothing", t.images.placeholder(9, 11) == null);
+        // without `U`, the very same frame is a placement like any other
+        Term plain = new Term(20, 5);
+        reply(plain, apc("a=T,f=24,s=2,v=2,i=9,c=2,r=1", PX2));
+        term.KittyImages.Placement real = plain.images.placements().get(0);
+        c.is("a placement without U is not virtual", !real.placeholder);
+        c.is("and no cell would find it", plain.images.placeholder(9, 0) == null);
+    }
 
     /** {@code a=f} hangs the frames on an image that exists, and says so when it does not. */
     private static void framesArriveAndNeedAnImage(Check c) {

@@ -13,6 +13,8 @@ Run it inside the terminal (it puts the tty in raw mode, and restores it):
   tools/imgtest.py crop       x,y,w,h: only the red quadrant is shown
   tools/imgtest.py named      p=: one placement, then the same pair again moved
   tools/imgtest.py under      z=-1: the picture behind the words written over it
+  tools/imgtest.py placeholder U=1: the picture drawn *through* the text grid,
+                              one U+10EEEE cell at a time (L16)
 
 The image is a 4-color checker so the placement, the scaling and the clipping
 are visible at a glance. Replies are printed as `reply: ...`; a silent terminal
@@ -156,6 +158,28 @@ def main():
             print("the words above the picture are readable: z=-1 is under the text")
             print("a cell with a background of its own covers it — try "
                   "printf '\\e[44m  blue  \\e[0m' over the picture")
+        elif mode == "placeholder":
+            # `U=1`: placed nowhere — the U+10EEEE cells *are* the placement, and
+            # each shows its own slice of the picture cut into a 10x5 grid. The
+            # image id rides in the foreground colour (true colour 0;0;9 = 9) and
+            # the row and column in combining diacritics.
+            pcols, prows = 10, 5
+            apc(out, b"a=T,f=100,i=9,U=1,c=%d,r=%d;%s" % (pcols, prows, b64))
+            out.write(b"\r\n")
+            out.flush()
+            # the protocol's own number -> diacritic list, first ten
+            marks = "\u0305\u030D\u030E\u0310\u0312\u033D\u033E\u033F\u0346\u034A"
+            ph = "\U0010EEEE"
+            out.write(b"\x1b[38;2;0;0;9m")
+            for r in range(prows):
+                for c in range(pcols):
+                    out.write((ph + marks[r] + marks[c]).encode())
+                out.write(b"\r\n")
+            out.write(b"\x1b[0m")
+            out.flush()
+            print("the picture comes through %d x %d placeholder cells" % (pcols, prows))
+            print("the cells are text: they scroll, and writing over them takes "
+                  "the picture away")
         else:
             sys.exit(__doc__)
 

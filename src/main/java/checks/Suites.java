@@ -25,6 +25,7 @@ public final class Suites {
         l.add(new Area("toast", ToastChecks::run));
         l.add(new Area("session", SessionChecks::run));
         l.add(new Area("graphics", GraphicsChecks::run));
+        l.add(new Area("placeholder", PlaceholderChecks::run));
         l.add(new Area("frame", FrameGateChecks::run));
         l.add(new Area("find", FindChecks::run));
         l.add(new Area("pty", PtyChecks::run));

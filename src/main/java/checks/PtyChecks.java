@@ -19,6 +19,49 @@ public final class PtyChecks {
         aResizeKeepsThemInStep(c);
         aFontChangeAloneRepaintsThePixels(c);
         aBadCellSizeIsIgnored(c);
+        theProgramsTheChildStartedDieWithIt(c);
+    }
+
+    /**
+     * `L24`: closing a tab takes the whole process group. The pty library signals
+     * the child's pid; the programs the child started (`sleep`, `yes`) are in the
+     * same group and would keep the pty busy for as long as they live — measured
+     * here with a `sleep` that ignores nothing and a shell that ignores `TERM`.
+     */
+    private static void theProgramsTheChildStartedDieWithIt(Check c) {
+        java.nio.file.Path file = java.nio.file.Paths.get(System.getProperty("java.io.tmpdir"),
+                "tortty-gk-" + ProcessHandle.current().pid() + ".pid");
+        ChildPty p = null;
+        long grandchild = -1;
+        try {
+            // the traps come first, so the `sleep` inherits the ignored `HUP` —
+            // otherwise closing the pty would end it and hide the bug
+            p = new ChildPty("trap '' TERM HUP INT; sleep 300 & echo $! > " + file + "; wait", 80, 24);
+            p.start();
+            for (int i = 0; i < 100 && !java.nio.file.Files.exists(file); i++) Thread.sleep(20);
+            if (!java.nio.file.Files.exists(file)) {
+                c.is("the child started a program of its own", false);
+                return;
+            }
+            grandchild = Long.parseLong(java.nio.file.Files.readString(file).trim());
+            c.is("it is running", ProcessHandle.of(grandchild).isPresent());
+            p.destroy();
+            boolean gone = false;
+            for (int i = 0; i < 60 && !gone; i++) {
+                Thread.sleep(50);
+                gone = !ProcessHandle.of(grandchild).map(ProcessHandle::isAlive).orElse(false);
+            }
+            c.is("and goes with the tab, not after it", gone);
+        } catch (Exception e) {
+            c.is("the pty spawns: " + e, false);
+        } finally {
+            if (grandchild > 1) ProcessHandle.of(grandchild).ifPresent(ProcessHandle::destroyForcibly);
+            if (p != null) p.destroy();
+            try {
+                java.nio.file.Files.deleteIfExists(file);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** A child on a pty, already reading; the caller destroys it. */
