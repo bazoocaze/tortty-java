@@ -2092,6 +2092,17 @@ public final class Main {
          */
         private void quitNow(String why) {
             quitting = true;
+            // The window goes first. Everything below is the farewell — hang the
+            // children up, wait for them, photograph the tabs, write the state —
+            // and none of it is anything the eye needs: hiding here turns the
+            // click into an exit as fast as the event loop allows instead of a
+            // window that sits there for another 200 ms (`L23`). Dialogs the
+            // frame owns (a rename, a config error) go with it.
+            try {
+                for (java.awt.Window w : frame.getOwnedWindows()) w.setVisible(false);
+                frame.setVisible(false);
+            } catch (Exception ignored) {
+            }
             debug.Log.ln("quit: " + why);
             exitSnaps = lastWords();
             forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });

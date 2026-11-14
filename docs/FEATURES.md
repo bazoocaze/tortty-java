@@ -451,8 +451,12 @@ what the hot reload watches.
 - Leaving is bounded (`L23`): every way out sets the flag the drain reads, so a
   flooded child stops being fed at once; the frame is `DO_NOTHING_ON_CLOSE`, so
   `windowClosing` owns the exit and the farewell (`B48`) still runs instead of a
-  toolkit `System.exit` cutting it short; a watchdog halts the JVM after 3 s if
-  the event loop is wedged, so `kill -TERM` ends the process even then.
+  toolkit `System.exit` cutting it short; the window is hidden **before** that
+  farewell, so the click reads as gone in ~16 ms while hanging up, waiting for
+  the children, photographing and writing the state happen behind it (measured:
+  16 ms against 220 ms with the window waiting for the work); a watchdog halts
+  the JVM after 3 s if the event loop is wedged, so `kill -TERM` ends the
+  process even then.
 - Args: `--config`, `--debug-socket` (`auto` = `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`,
   so two runs never share a path), `--debug-log`, `--dump-to`, `--no-vsync`,
   `--prof`, `--font-size`, `--font-family`, `--scrollback`, `--dpi`, `--cmd`,

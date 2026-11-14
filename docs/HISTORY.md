@@ -1146,6 +1146,12 @@ registered apart; `DO_NOTHING_ON_CLOSE` gives the exit back to `windowClosing`.
 farewell in the log. `selftest` 1247, `render-check` 38/38. `L23` records the
 trade-off.
 
+**Then the delay.** The exit was correct but visible: measured click to window
+gone, 8 ms to decide and then 220 ms (`restore_state content`) of farewell behind
+a window that only left with the process — 650 ms when a child ignores `SIGTERM`.
+Hiding the window at the start of `quitNow` puts the picture at **16 ms** and the
+same work behind it (`L24`).
+
 ## 2026-11-13 — the under-text band stops costing anything
 
 **Context.** `z<0` places a picture under the glyphs, and the band is drawn row
