@@ -288,25 +288,26 @@ Features implemented in the Java version of TorTTY.
   shake does not wobble it (`B25`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column wears the
-  terminal's palette — `background`/`foreground`, the selected card leaned toward the palette's green,
-  still marked with a `palette[12]` bar — and its text, like the tab strip's, is
-  **15 points at the desktop's dpi**, the same scale the grid uses; the geometry
-  follows the fonts, and the
-  column's width is never narrower than its caption needs. The tab strip wears the
-  palette too — the selected card leaned toward the palette's green, no content border (`B61`).
-  So does the **context menu**: black page, light ink, one hairline border and a
-  flat selection fill instead of Metal's bevel, and a single grey rule where the
-  LaF drew a white highlight over a blue shadow (no `PopupMenuSeparator.*` key
-  reaches that one, so the line is painted). The hover tooltip over the column
-  keeps the desktop's colours — light blue is what a tooltip is here — but its
-  text runs **one point under the chrome**, derived from the same `PT`, and its
-  HTML `<b>`/`<i>` (name, shortcuts) is structure, so it stays. The chrome's text is **plain** —
-  Metal's `Dialog bold 12` was never a decision — and a dialog (`JOptionPane`, the
-  rename) keeps the desktop's colours on purpose, being the desktop's business
-  more than the grid's, but takes the chrome's font: the 12 px it fell back to
-  read at half the size of everything beside it. The divider keeps the desktop's
-  colours. The column takes no grid
-  rows — only columns, and the width is dragged and remembered — while the tabs
+  terminal's palette — `background`/`foreground`, the selected card leaned
+  toward the palette's green and marked with a `palette[12]` bar — and its text,
+  like the tab strip's, is **15 points at the desktop's dpi**, the same scale the
+  grid uses, and **plain**: Metal's `Dialog bold 12` was never a decision here.
+  The caption over the column and the `F2 rename` hint under it run two points
+  down. The geometry follows the fonts — a row is a font height, not a constant —
+  and the column's width is never narrower than its caption needs. The tab strip
+  wears the palette too — the selected card leaned toward the palette's green, no
+  content border (`B61`) — and so does the **context menu**: black page, light
+  ink, one hairline border, a flat selection fill instead of Metal's bevel, and a
+  single grey rule where the LaF drew a white highlight over a blue shadow (no
+  `PopupMenuSeparator.*` key reaches that one, so the line is painted). The hover
+  tooltip over the column keeps the desktop's colours — light blue is what a
+  tooltip is here — but its text runs **one point under the chrome**, derived
+  from the same point size, and its HTML `<b>`/`<i>` (name, shortcuts) is
+  structure, so it stays. A dialog (`JOptionPane`, the rename) also keeps the
+  desktop's colours, being the desktop's business more than the grid's, but takes
+  the chrome's font: the 12 px it fell back to read at half the size of
+  everything beside it. The divider keeps the desktop's colours. The column takes
+  no grid rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are
   spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the
   column: a row shows the name, or, when never renamed, the title of the tab
@@ -321,8 +322,9 @@ Features implemented in the Java version of TorTTY.
   keyboard — or opening one that lands on a card out of sight — scrolls the least
   it takes to show that card, so a workspace past the bottom of the window is
   still reachable with the mouse. The column takes no keyboard focus: a click on
-  it leaves the keys in the terminal and only the rename dialog takes them. A workspace whose last shell dies is closed, promoting the
-  first parked one; the last one closes the app.
+  it leaves the keys in the terminal and only the rename dialog takes them. A
+  workspace whose last shell dies is closed, promoting the first parked one; the
+  last one closes the app.
 - A file dropped on the window becomes its **path**, quoted for the shell and
   written into the child like a paste (bracketed when the app asked for it,
   `B33`). The quoting is ours because the path is not: a name with a space, a
