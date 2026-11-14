@@ -117,3 +117,32 @@ this cost **+0.61 ms**; with `Graphics.clipRect`, which intersects in place, the
 band disappears into the noise. A full-screen picture therefore costs about one
 `drawImage` per visible row of itself, and nothing measurable when none is
 placed.
+
+## Backpressure and the doom-fire number (2026-11-14)
+
+`L23` made the pty reader stop past a bounded inbox, and that changes what
+`generator fps` means: the child is now throttled to what the grid can take,
+which is the point, but the handoff costs throughput. Measured on demand, 1200
+frames, 61x18, font 17, `--no-vsync`, schedutil, Xvfb `:99`, median of 3:
+
+| inbox | drain slice | fps | MB/s |
+|---|---|---|---|
+| 256 KB | 4 ms (as shipped by `L23`) | 130 | 5.6 |
+| 256 KB | 64 ms | 283 | 12.2 |
+| 256 KB | none (1000 ms) | 265 | 11.4 |
+| 256 KB | 4/32 ms (deep) | 250 | 10.8 |
+| 2 MB | 4/32 ms (deep) | **489** | **21.0** |
+| 2 MB | none | 791 | 34.0 |
+| 4 MB | 4/32 ms (deep) | 405 | 17.4 |
+
+Rust under the same condition, same day: **965.6 fps / 41.5 MB/s** (draw 4.09
+ms/call), so the machine is where it was and the gap is ours. Two effects, in
+order of size: the **depth** of the inbox (the reader is woken once per drain
+slice, and a shallow buffer means many wakes) and the **slice** (a 4 ms slice on
+a deep inbox pays an event-loop round trip for every 4 ms of work).
+
+The shipped compromise is 2 MB with a 4 ms slice, 32 ms while the inbox is deep:
+**461–533 fps, median 489 / ~21 MB/s** at 61x18 (median of 3) and **353–367 fps /
+~20 MB/s** at 70x21 (the pre-`L23` table says 691 and 563). The readable paint rate is ~60/s in both, so
+the window does not get smoother by chasing the number — closing the rest of the
+gap means reading more per wake and doing the handoff off the event loop.

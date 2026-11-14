@@ -1130,6 +1130,24 @@ A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
 
+## 2026-11-14 — the price of the bounded inbox, measured (`L23`)
+
+**Context.** A doom-fire run on demand read **130 fps** where the last recorded
+table says 691. Rust, same condition, same day: 965.6. So the machine was not
+the story, and the suspicion fell on `L23`'s backpressure.
+
+**Activities.** Swept the two knobs one at a time — inbox depth, and the drain
+slice — and measured each. 256 KB with no slice at all gives 265; 256 KB with a
+64 ms slice 283; 2 MB with the adaptive slice 462; 2 MB with no backpressure at
+all 791. Two effects: the **depth** (the reader is woken once per slice, so a
+shallow buffer means many wakes) and the **slice** (a 4 ms slice on a deep inbox
+spends the round trip out of `invokeLater` for every 4 ms of work).
+
+**Result.** The inbox goes to 2 MB and the slice adapts (4 ms, 32 ms while deep):
+**median 489 fps / ~21 MB/s** at 61x18 (461–533), **353–367 / ~20 MB/s** at 70x21, with the
+visible paint rate ~60/s in both, and the exit under a flood still 425 ms. The
+remaining gap to 791 is the handoff and is written down in `BENCHMARKS`.
+
 ## 2026-11-13 — through `tmux`, and out the door with more of the screen (`B62`, `L23`, `L24`)
 
 **Context.** The kitty port was complete except for one thing nobody had written

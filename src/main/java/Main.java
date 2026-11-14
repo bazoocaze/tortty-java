@@ -190,9 +190,18 @@ public final class Main {
          */
         private volatile boolean quitting;
         /** Most bytes waiting per tab before the reader stops reading (backpressure). */
-        private static final int INBOX_MAX = 256 * 1024;
+        private static final int INBOX_MAX = 2 * 1024 * 1024;
         /** How long one drain may hold the event loop before it yields. */
         private static final long DRAIN_BUDGET_MS = 4;
+        /**
+         * The same, while the inbox is deep: a child that writes faster than the
+         * grid can take it is waiting on us, and paying an event-loop round trip
+         * every 4 ms costs it most of its throughput — measured `doomfire` 130
+         * fps against 265 with no yielding at all and 791 with no backpressure.
+         * A deep inbox therefore drains in longer slices, which is still far
+         * shorter than a person notices (`L23`).
+         */
+        private static final long DRAIN_DEEP_MS = 32;
         /** Grace for the exit to finish before the watchdog halts the process. */
         private static final long QUIT_WATCHDOG_MS = 3000;
         /** How long the exit may spend feeding what was already read (`L23`). */
@@ -1352,7 +1361,7 @@ public final class Main {
          * rather than feed it (`L23`).
          */
         private void drain(Tab t) {
-            long deadline = System.nanoTime() + DRAIN_BUDGET_MS * 1_000_000L;
+            long deadline = System.nanoTime() + slice(t) * 1_000_000L;
             while (true) {
                 byte[] chunk;
                 synchronized (t.inbox) {
@@ -1401,6 +1410,13 @@ public final class Main {
                     feedChunk(t, chunk, true);
                 }
             });
+        }
+
+        /** How long this drain may run before it has to let the loop breathe. */
+        private static long slice(Tab t) {
+            synchronized (t.inbox) {
+                return t.inboxBytes >= INBOX_MAX / 2 ? DRAIN_DEEP_MS : DRAIN_BUDGET_MS;
+            }
         }
 
         /** Puts the drain back on the queue after it spent its budget. */

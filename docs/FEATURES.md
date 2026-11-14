@@ -190,10 +190,12 @@ Features implemented in the Java version of TorTTY.
 
 - Spawn via pty4j, with `TERM=xterm-256color` and `COLORTERM=truecolor`.
 - Reader thread with a **bounded inbox** per tab and an exit watcher: the reader
-  stops once a tab's inbox passes 256 KB, so a child that floods fills the pty and
+  stops once a tab's inbox passes 2 MB, so a child that floods fills the pty and
   blocks on `write` — the backpressure a real terminal gives — instead of growing
-  a queue until the JVM dies; the event loop feeds at most 4 ms per slice, so a
-  click, a repaint or the way out is never behind megabytes of output (`L23`).
+  a queue until the JVM dies; the event loop feeds in 4 ms slices, 32 ms while
+  the inbox is deep (the round trip out of `invokeLater` costs the child more
+  than the slice itself — see `BENCHMARKS`), so a click, a repaint or the way out
+  is never behind megabytes of output (`L23`).
 - Resize via `TIOCSWINSZ`/`setWinSize`.
 - Configurable shell (config `shell`, `--cmd`) or `$SHELL`/`/bin/sh`.
 
