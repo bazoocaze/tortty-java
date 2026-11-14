@@ -49,6 +49,16 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.13.0</version>
+        <configuration>
+          <!-- Every lint on, except `serial`: the Swing subclasses and the two
+               point exceptions have no serialVersionUID and never will. The
+               build shows the warnings; `tools/quality-check.sh` is what makes
+               them fatal (not -Werror, which would also fail on the
+               `sun.misc.Signal` proprietary-API note that no flag silences). -->
+          <compilerArgs>
+            <arg>-Xlint:all,-serial</arg>
+          </compilerArgs>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

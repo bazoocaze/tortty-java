@@ -1,0 +1,23 @@
+# The shape of the sources, so every editor agrees without a formatter.
+#
+# The style is kept by hand: four spaces, no tabs, UTF-8, a final newline, and
+# an aim of 100 columns for code. The column count is a hint only — the dense
+# state handling in `Term` and the tables in the checks run past it on purpose —
+# and nothing fails a build over it.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+# Prose wraps in paragraphs, not at a column; the docs carry no trailing spaces
+# to trim (centred blocks and tables do line up by column instead).
+[*.md]
+max_line_length = off
+trim_trailing_whitespace = false

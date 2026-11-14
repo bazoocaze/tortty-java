@@ -142,8 +142,8 @@ public final class ChildPty {
         if (cols <= 0 || rows <= 0) return;
         if (cols == this.cols && rows == this.rows) return;
         this.cols = cols; this.rows = rows;
-        proc.setWinSize(new WinSize(cols, rows, 0, 0));
-        // pty4j's WinSize has no pixel half, so it has just cleared what
+        proc.setWinSize(new WinSize(cols, rows));
+        // pty4j's WinSize is rows and columns only, so it has just cleared what
         // `setCellSize` wrote: the two go together, always in this order.
         applyPixels();
         System.out.flush();

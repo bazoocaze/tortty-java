@@ -1757,8 +1757,8 @@ public final class Main {
                 }
                 @Override public java.util.Map<String, Object> prof() {
                     com.google.gson.Gson g = new com.google.gson.Gson();
-                    java.util.Map<String, Object> m = g.fromJson(prof.Prof.jsonFields(), java.util.Map.class);
-                    return m;
+                    java.lang.reflect.Type t = new com.google.gson.reflect.TypeToken<java.util.Map<String, Object>>() {}.getType();
+                    return g.fromJson(prof.Prof.jsonFields(), t);
                 }
                 @Override public java.util.Map<String, Object> screen() {
                     java.util.List<String> lines = new java.util.ArrayList<>();

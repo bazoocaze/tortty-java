@@ -52,6 +52,10 @@ jar. After rebuilding (`mvn package`), run `./install.sh` again to refresh the
 installed copy. `./uninstall.sh` removes the command, the app copy, the menu
 entry and the desktop shortcut (user data under `~/.config/tortty-java` stays).
 
+Before committing, `tools/quality-check.sh` runs the gate: javac with every lint
+but `serial` enabled and every warning fatal, the build, the `--selftest` suite
+and the `render-check` (headless, ~12 s; `--fast` drops the render-check).
+
 ## Testing kitty images
 
 `tools/imgtest.py` sends a kitty graphics image to the terminal it runs in and

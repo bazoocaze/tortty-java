@@ -1251,3 +1251,24 @@ intersects in place, so a `Rectangle` save/restore does the same job. The whole
 image: the band is inside the noise. `selftest` 1247, `render-check` 38/38, and
 the live `under` demo still shows the words over the picture. Numbers in
 `BENCHMARKS.md`.
+
+## 2026-11-14 — a gate instead of a habit
+
+**Context.** The checkout had no formatter, no linter, no editor config and no
+CI: the style held because it was written that way, and `javac` was never asked
+for an opinion. The Rust version has `tools/quality-check.sh` in the hook and in
+CI; the Java one had nothing.
+
+**Activities.** `tools/quality-check.sh` runs the gate in one command — javac
+with `-Xlint:all,-serial` and every warning fatal, the shaded build, `--selftest`
+and `render-check` (`--fast` drops the last). `serial` stays off on purpose: no
+point or Swing class carries a `serialVersionUID`. Fatal warnings are counted in
+the script rather than by `-Werror`, which cannot separate the `sun.misc.Signal`
+proprietary-API note (no supported flag silences it). The pom now compiles with
+the same lint set so a plain `mvn package` shows what the gate would refuse.
+
+**Result.** The seven real warnings went: redundant `(int)` on `Math.round` of a
+`float` in `TermPanel`/`ToastLayer`, the deprecated four-argument `WinSize` in
+`ChildPty`, and the unchecked `Map.class` in the debug socket's `prof` (now a
+`TypeToken`). `.editorconfig` records the shape (four spaces, LF, 100-column
+aim). Gate in **12 s**, `selftest` 1314, `render-check` 46/46.

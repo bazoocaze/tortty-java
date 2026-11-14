@@ -251,8 +251,8 @@ public final class TermPanel extends JPanel implements KeyListener {
         // the child measures the window in pixels through TIOCGWINSZ, and a
         // font change is the only thing that moves a cell (`kitten icat`)
         if (pty != null) pty.setCellSize(cellW(), cellH());
-        setPreferredSize(new Dimension(term.cols * Math.max(1, (int) Math.round(cw)) + 2 * padding,
-                                      term.rows * Math.max(1, (int) Math.round(ch)) + 2 * padding));
+        setPreferredSize(new Dimension(term.cols * Math.max(1, Math.round(cw)) + 2 * padding,
+                                      term.rows * Math.max(1, Math.round(ch)) + 2 * padding));
     }
 
     private void initFallbacks(float fontPx, String[] avail) {
@@ -293,8 +293,8 @@ public final class TermPanel extends JPanel implements KeyListener {
         return found;
     }
 
-    public int cellW() { return Math.max(1, (int) Math.round(cw)); }
-    public int cellH() { return Math.max(1, (int) Math.round(ch)); }
+    public int cellW() { return Math.max(1, Math.round(cw)); }
+    public int cellH() { return Math.max(1, Math.round(ch)); }
     public int gridCols() { return Math.max(1, (getWidth() - 2 * padding) / cellW()); }
     public int gridRows() { return Math.max(1, (getHeight() - 2 * padding) / cellH()); }
     public float cwF() { return cw; }
@@ -513,7 +513,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
         final int cols = term.cols, rows = term.rows;
         final int cellW = cellW(), cellH = cellH();
-        final int baselineOffset = (int) Math.round(ascent);
+        final int baselineOffset = Math.round(ascent);
 
         if (full) {
             g2.setColor(color(theme.bg));

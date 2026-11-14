@@ -225,7 +225,7 @@ public final class ToastLayer extends JComponent {
 
         // box-shadow: 0 3px 10px rgba(0, 0, 0, 0.75), faked with alpha rings
         for (int i = 10; i >= 1; i--) {
-            g2.setColor(new Color(0, 0, 0, (int) Math.round(5 + 13 * (1 - i / 10f))));
+            g2.setColor(new Color(0, 0, 0, Math.round(5 + 13 * (1 - i / 10f))));
             g2.fillRoundRect(x - i, y + 3 - i, boxW + 2 * i, boxH + 2 * i,
                     RADIUS + 2 * i, RADIUS + 2 * i);
         }
