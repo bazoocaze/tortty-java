@@ -5,6 +5,7 @@ import term.Theme;
 import ui.Chrome;
 import ui.TermPanel;
 
+import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
@@ -78,6 +79,9 @@ public final class Gate {
         boldIsARealFace();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
+        thePopupWearsTheTheme();
+        theDialogsTakeTheChromesFont();
+        theToolTipRunsAPointUnderTheChrome();
         clicksBesideTheToastAreTheGrids();
 
         System.out.println(failures == 0
@@ -355,6 +359,7 @@ public final class Gate {
      * honoured fails here.
      */
     private static void theTabStripWearsTheTheme() {
+        Chrome.dpi(96f); // the picture must not depend on the machine's screen
         Chrome.tabChrome(0x000000, 0xD6D6D6, 0x00FF00);
         javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
         Chrome.chromePane(p, 0x000000);
@@ -380,6 +385,83 @@ public final class Gate {
                 img.getRGB(320, sel.y + sel.height + 1) & 0xFFFFFF, 0x000000);
         eq("the page is the background",
                 img.getRGB(320, 80) & 0xFFFFFF, 0x000000);
+    }
+
+    /**
+     * The context menu (`B21`'s popup) wears the terminal palette: black page,
+     * light ink, one hairline rule — and none of Metal's theme colours, which
+     * used to arrive as a white highlight over a blue shadow that no
+     * `PopupMenuSeparator.*` key could reach.
+     */
+    private static void thePopupWearsTheTheme() {
+        Chrome.dpi(96f);
+        Chrome.theme(0x000000, 0xD6D6D6, 0x00FF00);
+        javax.swing.JPopupMenu m = new javax.swing.JPopupMenu();
+        m.add(new javax.swing.JMenuItem("New workspace"));
+        m.add(new javax.swing.JMenuItem("Rename\u2026"));
+        m.add(Chrome.rule(0x000000, 0xD6D6D6));
+        m.add(new javax.swing.JMenuItem("Close workspace"));
+        Chrome.menuSized(m);
+        m.addNotify();
+        m.setSize(m.getPreferredSize());
+        m.doLayout();
+        BufferedImage img = new BufferedImage(m.getWidth(), m.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(new Color(0x303030)); // a frame, so a hole shows as a hole
+        g.fillRect(0, 0, img.getWidth(), img.getHeight());
+        m.paint(g);
+        g.dispose();
+        save("popup", img);
+        eq("the popup page is the background", img.getRGB(img.getWidth() / 2, 4) & 0xFFFFFF, 0x000000);
+        is("the labels are light ink", lit(img, new java.awt.Rectangle(0, 0, img.getWidth(), img.getHeight())) > 200);
+        int line = 0; // the hairline only: the frame's own edge is the same grey
+        for (int y = 2; y < img.getHeight() - 2; y++)
+            if ((img.getRGB(img.getWidth() / 2, y) & 0xFFFFFF) == 0x404040) line++;
+        eq("one rule, in the palette's grey", line, 1);
+        boolean noTheme = true; // Metal's separator blue and white must be gone
+        for (int y = 0; y < img.getHeight(); y++)
+            for (int x = 0; x < img.getWidth(); x++) {
+                int rgb = img.getRGB(x, y) & 0xFFFFFF;
+                if (rgb == 0xFFFFFF || rgb == 0x6382BF) noTheme = false;
+            }
+        is("no Metal colours in the popup", noTheme);
+    }
+
+    /**
+     * The dialogs keep the desktop's colours on purpose, but not its size: the
+     * rename put its text at Metal's 12 px next to a 20 px chrome. Plain, at
+     * the chrome's size, is all it takes.
+     */
+    private static void theDialogsTakeTheChromesFont() {
+        Chrome.dpi(96f);
+        Chrome.theme(0x000000, 0xD6D6D6, 0x00FF00);
+        Font want = Chrome.chromeFont("Label.font");
+        for (String key : new String[] {"OptionPane.messageFont", "OptionPane.buttonFont",
+                                       "Button.font", "TextField.font"}) {
+            Font got = javax.swing.UIManager.getFont(key);
+            eq("the dialog's " + key + " is plain", got.getStyle(), Font.PLAIN);
+            eq("the dialog's " + key + " is the chrome's size", Math.round(got.getSize2D()),
+                    Math.round(want.getSize2D()));
+        }
+    }
+
+    /**
+     * The hover tooltip is a footnote to the row under it: a point under the
+     * chrome, derived from {@link Chrome#PT} rather than spelled out, and in the
+     * desktop's own colours. Metal's 12 px beside a 20 px column was the size
+     * the derivation fixes.
+     */
+    private static void theToolTipRunsAPointUnderTheChrome() {
+        Chrome.dpi(96f);
+        Chrome.theme(0x000000, 0xD6D6D6, 0x00FF00);
+        Font tip = javax.swing.UIManager.getFont("ToolTip.font");
+        Font chrome = Chrome.chromeFont("Label.font");
+        float wantPx = (Chrome.PT - 1f) * 96f / 72f;
+        eq("the tooltip is plain", tip.getStyle(), Font.PLAIN);
+        is("the tooltip is the chrome a point down (" + wantPx + " px, got " + tip.getSize2D() + ")",
+                Math.abs(tip.getSize2D() - wantPx) < 0.01f);
+        is("the tooltip stays under the chrome", tip.getSize2D() < chrome.getSize2D());
+        is("and it is not the LaF's 12 px", tip.getSize2D() > 12f);
     }
 
     /** Pixels with every channel past the middle: the light ink on dark chrome. */

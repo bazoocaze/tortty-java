@@ -23,7 +23,7 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 |---|---|---|
 | `shell` | empty | initial program; empty = `$SHELL` (`--cmd` wins) |
 | `font_family` | `DejaVu Sans Mono` | monospaced family; unknown names fall back to `Monospaced` |
-| `font_size` | `17` | points (4..96) |
+| `font_size` | `17` | points (4..96), converted with the desktop's dpi — see below |
 | `cursor_shape` | `block` | `block`, `beam` or `underline`; DECSCUSR from the app wins |
 | `cursor_blink` | `off` | blinking cursor |
 | `scrollback` | `10000` | history lines (0..100000) |
@@ -33,13 +33,24 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 | `ligatures` | `off` | `off`, `standard` or `all` (`B27`); the join needs a font that carries the ligature (see `L18`) |
 | `debug_log` | empty | append-only debug log path (`B23`); empty = off. The `log` verb of the socket changes it at runtime |
 | `restore_state` | `layout` | what comes back on the next run (`B26`): `none` (one tab, a clean screen — nothing read or written), `layout` (the workspaces and tabs of the last run, in their order, the front where it was) or `content` (the layout **and** what the tabs had on screen and in the history — a photograph, not the process: the shell starts again in the same directory). **Content is opt-in**: with the default `layout` no `session-*.ans` is written (leftovers are deleted), so a run that only restores tabs is a run without this key — `state` on the socket reports the live value |
-| `foreground` | `#d6d6d6` | text colour; the workspace column's labels follow it too |
-| `background` | `#000000` | background colour; the workspace column and the tab strip follow it |
+| `foreground` | `#d6d6d6` | text colour; the workspace column's labels and the context menu follow it too |
+| `background` | `#000000` | background colour; the workspace column, the tab strip and the context menu follow it |
 | `cursor_color` | `#d6d6d6` | cursor colour |
 | `color0` … `color15` | xterm palette | ANSI palette; the 6×6 cube and greys are computed |
 
 Colours are `#rgb` or `#rrggbb`. Booleans accept `on/yes/true/1` and
 `off/no/false/0`.
+
+`font_size` is **points**, and the pixels come from the desktop's dots per inch:
+`gnome.Xft/DPI` (the `Xft.dpi` of `xrdb`, in 1024ths) when the toolkit answers
+it, then `Xft.dpi`, then 96 — the same scale the grid applies to everything else,
+and the same one the Rust version reaches through its window's scale factor.
+`--dpi N` overrides the detection, which is what an `Xvfb` session with no
+settings daemon needs. On a 130 dpi screen `font_size 14` draws in the same
+pixels as the Rust build's `14`, and the chrome's own text is 15 points of that
+same scale (`ui/Chrome`), not a hand-tuned multiple. The scaling is the app's
+own: leave `-Dsun.java2d.uiScale` alone (at 1), or the toolkit would scale the
+window on top of this and the cells would disagree with the glyphs.
 
 ## Editing it from the terminal
 

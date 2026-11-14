@@ -289,13 +289,23 @@ Features implemented in the Java version of TorTTY.
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column wears the
   terminal's palette — `background`/`foreground`, the selected card leaned toward the palette's green,
-  still marked with a `palette[12]` bar — and its text, like the tab strip's, runs
-  a bit over twice the LaF's size; the geometry follows the fonts, and the
+  still marked with a `palette[12]` bar — and its text, like the tab strip's, is
+  **15 points at the desktop's dpi**, the same scale the grid uses; the geometry
+  follows the fonts, and the
   column's width is never narrower than its caption needs. The tab strip wears the
-  palette too — the selected card leaned toward the palette's green, no content border (`B61`) — while the
-  popup, the dialogs and the divider keep the desktop's colours — the popup's
-  text, though, runs twice the LaF's size, because it is read while aiming at a
-  row. The column takes no grid
+  palette too — the selected card leaned toward the palette's green, no content border (`B61`).
+  So does the **context menu**: black page, light ink, one hairline border and a
+  flat selection fill instead of Metal's bevel, and a single grey rule where the
+  LaF drew a white highlight over a blue shadow (no `PopupMenuSeparator.*` key
+  reaches that one, so the line is painted). The hover tooltip over the column
+  keeps the desktop's colours — light blue is what a tooltip is here — but its
+  text runs **one point under the chrome**, derived from the same `PT`, and its
+  HTML `<b>`/`<i>` (name, shortcuts) is structure, so it stays. The chrome's text is **plain** —
+  Metal's `Dialog bold 12` was never a decision — and a dialog (`JOptionPane`, the
+  rename) keeps the desktop's colours on purpose, being the desktop's business
+  more than the grid's, but takes the chrome's font: the 12 px it fell back to
+  read at half the size of everything beside it. The divider keeps the desktop's
+  colours. The column takes no grid
   rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are
   spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the

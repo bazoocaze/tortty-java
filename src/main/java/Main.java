@@ -216,14 +216,27 @@ public final class Main {
 
         App(Cli.Opts o) { this.o = o; }
 
+        /**
+         * The desktop's dots per inch. The X11 toolkit answers the XSETTINGS
+         * value under `gnome.Xft/DPI`, in 1024ths; `Xft.dpi` is the name it
+         * carries in `xrdb`, not a property the JDK serves — asking for that
+         * (as this did) fell through to 96 and left every point 26% smaller on
+         * a 130 dpi screen. Both names are tried, then 96, as on a bare server.
+         */
+        private static float desktopDpi() {
+            Toolkit t = Toolkit.getDefaultToolkit();
+            Object v = t.getDesktopProperty("gnome.Xft/DPI");
+            if (v instanceof Number n && n.floatValue() > 0) return n.floatValue() / 1024f;
+            v = t.getDesktopProperty("Xft.dpi");
+            if (v instanceof Number n && n.floatValue() > 0) return n.floatValue();
+            return 96f;
+        }
+
         void start() {
             if (o.prof) Prof.set(true);
             dpi = o.dpi;
-            if (dpi <= 0) {
-                Object v = Toolkit.getDefaultToolkit().getDesktopProperty("Xft.dpi");
-                if (v instanceof Number) dpi = ((Number) v).floatValue();
-                else dpi = 96f;
-            }
+            if (dpi <= 0) dpi = desktopDpi();
+            Chrome.dpi(dpi);
             final java.nio.file.Path cfgPath = (o.configPath != null)
                     ? Paths.get(o.configPath) : Config.defaultPath();
             this.cfgPath = cfgPath;
@@ -264,7 +277,7 @@ public final class Main {
             });
             frame.setContentPane(split);
             paintChrome(cfg.theme().bg);
-            syncTabChrome(); // keys first: every strip dresses itself at birth
+            syncChrome(); // keys first: every strip dresses itself at birth
             // the notice belongs to the window, not to the tab in front: a
             // glass pane survives tab, workspace and pane switches, and an idle
             // one is invisible so it does not eat the grid's clicks
@@ -326,7 +339,7 @@ public final class Main {
                 o.applyTo(updated);
                 cfg = updated;
                 forEachTab(t -> applyLive(updated, t));
-                syncTabChrome(); // the keys, then every strip re-installs
+                syncChrome(); // the keys, then every strip re-installs
                 syncSide();
                 System.err.println("tortty-java: config reloaded (family=" + updated.fontFamily
                         + " size=" + updated.fontSize + " scrollback=" + updated.scrollback + ")");
@@ -776,8 +789,8 @@ public final class Main {
         }
 
         /** Keys and every living strip; new strips dress themselves at birth. */
-        private void syncTabChrome() {
-            Chrome.tabChrome(theme.bg, theme.fg, theme.palette[2]);
+        private void syncChrome() {
+            Chrome.theme(theme.bg, theme.fg, theme.palette[2]);
             for (Workspace w : workspaces) Chrome.chromePane(w.pane, theme.bg);
         }
 
@@ -794,9 +807,10 @@ public final class Main {
             private static final int TEXT_X = 9;
             private final Font base = Chrome.chromeFont("Label.font");
             private final Font bold = base.deriveFont(Font.BOLD);
-            private final Font tiny = base.deriveFont(Math.max(9f, base.getSize2D() - 2f));
-            // the geometry follows the fonts: the size is a scale factor, so a
-            // fixed row height would clip the text the moment it grew
+            private final Font tiny = Chrome.chromeFontSmall("Label.font");
+            // the geometry follows the fonts: the size is in points at the
+            // desktop's dpi, so a fixed row height would clip the text the
+            // moment the screen or the config grew
             private final int head;      // room for the caption
             private final int row;       // one workspace card
             private final int hint;      // the `F2 rename` line at the bottom
@@ -1051,7 +1065,7 @@ public final class Main {
             close.addActionListener(e -> { closeWorkspace(i); focusTerminal(); });
             m.add(neu);
             m.add(ren);
-            m.addSeparator();
+            m.add(Chrome.rule(theme.bg, theme.fg));
             m.add(close);
             Chrome.menuSized(m);
             return m;

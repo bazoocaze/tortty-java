@@ -1272,3 +1272,48 @@ the same lint set so a plain `mvn package` shows what the gate would refuse.
 `ChildPty`, and the unchecked `Map.class` in the debug socket's `prof` (now a
 `TypeToken`). `.editorconfig` records the shape (four spaces, LF, 100-column
 aim). Gate in **12 s**, `selftest` 1314, `render-check` 46/46.
+
+## 2026-11-14 — the desktop's dpi, finally read
+
+**Context.** `font_size` is points, but the app asked the toolkit for `Xft.dpi`
+and got `null`: that is the name the value carries in `xrdb`, not a property the
+JDK serves, so every point was measured at the 96 dpi fallback. On the owner's
+130 dpi screen the grid came out 26% small, and the hole was patched by eye —
+`font_size` 14 → 17, chrome `×1.5 → ×2.25`, menu `×2` — three arbitrary numbers
+that were really one missing readout.
+
+**Activities.** `desktopDpi()` reads `gnome.Xft/DPI` (1024ths, 133120 on this
+screen) and falls back to `Xft.dpi`, then 96; `--dpi` still wins. `Chrome` lost
+both factors: the column, the tabs and the menu are now **15 points at that same
+dpi** (through `Chrome.dpi`), the caption and the `F2 rename` hint two points
+down, so chrome and grid speak one unit.
+
+**Result.** Same config, same desktop: `--font-size 14 --dpi 130` gives a
+15×29 cell — the Rust build's `14` exactly (its `96/72 × scale_factor` is the
+same 130/96). The old `17` now measures 19×36. Chrome kept its pixels (15 pt at
+130 dpi ≈ the 2.25 it replaced), so only the grid moved. `selftest` 1314,
+`render-check` 46/46, the column and the menu checked on `Xvfb :99`.
+
+## 2026-11-14 — the chrome stops shouting Metal
+
+**Context.** With the dpi read (`font_size` now means the Rust build's points) the
+chrome's sizes were honest, but its *surface* was still the LaF's: the context
+menu arrived light grey with a bevel and a white-over-blue separator, the rename
+dialog came out at Metal's 12 px, and every chrome label wore Metal's `Dialog
+bold 12` — a bold nobody chose.
+
+**Activities.** `Chrome.theme()` now dresses the three surfaces in one call: the
+tab strip (`B61`), the popup (`PopupMenu.*`, `MenuItem.*`, an empty item border
+for air, and `Chrome.rule()` — a painted hairline, because Metal's separator
+ignores its `PopupMenuSeparator.*` keys, measured) and the dialogs' fonts
+(`OptionPane.messageFont`/`buttonFont`, `Button.font`, `TextField.font`).
+`sized()` derives `Font.PLAIN`, so the chrome is regular at 15 points; the
+dialogs keep the desktop's colours on purpose. The hover tooltip over the column
+takes the chrome's point size **minus one** (`PT_TIP = PT - 1f`), so moving `PT`
+moves it; its light blue stays, because colour was not why it read foreign — the
+12 px was (27.08 → 25.28 px at 130 dpi, against 12 px before).
+
+**Result.** Popup, column and tabs are one dark surface with light ink; the
+rename reads at the chrome's size instead of half of it. `render-check` grew the
+popup and dialog-font cases (58 checks), `selftest` 1314, both green; the popup
+and the dialog were checked on `Xvfb :99` at `--dpi 130`.
