@@ -213,6 +213,20 @@ public final class Toast {
     /** Nothing on screen and nothing waiting. */
     public boolean idle(long now) { return visible(now) == null; }
 
+    /**
+     * True once the box has finished sliding in and is sitting still. The paint
+     * loop only needs to run while something moves: the reveal and the hide
+     * animation, 220 ms each (`B38`), not the eight seconds in between — a
+     * notice that keeps the glass pane repainting at 60 fps makes the grid
+     * under it slower for as long as it is up.
+     */
+    public boolean settled(long now) {
+        return current != null && hidingAt == 0 && now >= revealAt + ANIM_MS && now < until;
+    }
+
+    /** When this notice is due to leave, for the one-shot that wakes the animation. */
+    public long expiresAt() { return until; }
+
     public int queued() { return queue.size(); }
 
     public void clear() {

@@ -333,6 +333,11 @@ place a launch from a desktop icon can show anything.
   tab, workspace or pane switch. An idle pane is invisible, so it does not eat
   the grid's clicks, and a live one marks only the strip the box can occupy, so
   the grid underneath is not repainted sixty times a second.
+- The 60 Hz paint loop runs **only while the box moves** — the 220 ms in, the
+  220 ms out — and a one-shot wakes it at the deadline. A notice that kept
+  ticking over a still picture cost **27% of a core** for as long as it was up
+  (measured: the socket's security warning, 10 s), which showed up as a slower
+  grid under a `doomfire` run; settled, it is ~1%.
 - **Severity** decides the colours and the time: `ok` dark green for 3 s, `warn`
   amber and `err` dark red for 10 s (python's ratios). Title plus an optional
   detail line that wraps to three lines, so an error message fits.

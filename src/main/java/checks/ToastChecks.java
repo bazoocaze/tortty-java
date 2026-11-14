@@ -23,9 +23,47 @@ public final class ToastChecks {
 
     public static void run(Check c) {
         model(c);
+        theLoopStopsWhileTheBoxDoesNot(c);
         contrast(c);
         resolved(c);
         pixels(c);
+    }
+
+    /**
+     * {@code B38}, measured on the owner's desktop: a notice left the grid slower
+     * for as long as it was up. The paint loop only has work during the two
+     * 220 ms slides, so the model has to say when the box is sitting still — the
+     * layer stops ticking there and waits for a one-shot at the deadline.
+     */
+    private static void theLoopStopsWhileTheBoxDoesNot(Check c) {
+        Toast t = new Toast();
+        c.is("nothing up, nothing settled", !t.settled(1000));
+        t.show(new Toast.Msg("Compiling", "twelve files", Toast.Sev.OK), 1000);
+        c.is("while it slides in there is work", !t.settled(1000));
+        c.is("and in the middle too", !t.settled(1100));
+        c.is("at the end of the slide it is still moving", !t.settled(1219));
+        c.is("220 ms in, it sits still", t.settled(1220));
+        c.is("and later", t.settled(2500));
+        c.eq("the one-shot is told the deadline", t.expiresAt(), 4000L);
+        c.is("at the deadline the slide-out starts", !t.settled(4000));
+        c.is("which is not still", !t.settled(4100));
+
+        // a notice arriving while one is up waits its turn: the deadline is the
+        // first one's, and the swap happens in place, with no new slide — so the
+        // box is still and the loop may stop again right after the swap
+        Toast q = new Toast();
+        q.show(new Toast.Msg("one", "", Toast.Sev.OK), 0);
+        q.show(new Toast.Msg("two", "", Toast.Sev.OK), 1000);
+        c.is("a second notice in the same box is still", q.settled(1300));
+        c.eq("the deadline is still the first one's", q.expiresAt(), 3000L);
+        Toast.Shown swap = q.visible(3100);      // the loop looks before it asks
+        c.eq("the swap happens at the deadline", swap.title(), "two");
+        c.is("and in place: the box is still", q.settled(3100));
+        c.eq("the second notice gets its own time", q.expiresAt(), 6000L);
+
+        // a click starts the slide out, so the loop has work again
+        c.is("dismissed, it is moving", q.dismiss(1400) && !q.settled(1400));
+        c.is("and settles out of sight", q.idle(1400 + Toast.ANIM_MS));
     }
 
     // ------------------------------------------------------------- the model

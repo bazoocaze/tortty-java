@@ -48,6 +48,13 @@ public final class ToastLayer extends JComponent {
     /** The theme in effect on the front tab: the box takes its colours from it (`B40`). */
     private final Supplier<term.Theme> themes;
     private final Timer tick;
+    /**
+     * The one-shot that wakes the loop when the notice is due. Without it the
+     * tick would have to keep running for the whole eight seconds just to notice
+     * the deadline, repainting a still box sixty times a second and making the
+     * grid under it slower.
+     */
+    private final Timer expiry;
     private Runnable onErrorClick = () -> { };
     /** Where the last paint put the box; a click elsewhere is not ours. */
     private Rectangle box;
@@ -62,6 +69,8 @@ public final class ToastLayer extends JComponent {
         });
         tick = new Timer(16, e -> step());
         tick.setRepeats(true);
+        expiry = new Timer(1000, e -> wake());
+        expiry.setRepeats(false);
     }
 
     /** python: a click on an error opens the configuration — that is the fix. */
@@ -75,19 +84,42 @@ public final class ToastLayer extends JComponent {
     public void show(Toast model, Toast.Msg m) {
         model.show(m);
         if (!isVisible()) setVisible(true);
+        expiry.stop();
         if (!tick.isRunning()) tick.start();
         repaintBand();
     }
 
     private void step() {
-        if (toast.visible(System.currentTimeMillis()) == null) {
+        long now = System.currentTimeMillis();
+        if (toast.visible(now) == null) {
             tick.stop();
+            expiry.stop();
             box = null;
             repaintBand();
             setVisible(false);
             return;
         }
         repaintBand();
+        if (toast.settled(now)) {
+            // the box has stopped moving: stop painting it and wait for the
+            // deadline instead of ticking sixty times a second over a still
+            // picture (`B38`)
+            tick.stop();
+            expiring(toast.expiresAt() - now);
+        }
+    }
+
+    /** Wakes the loop when the notice is due, so the hide slide can start. */
+    private void wake() {
+        if (toast.settled(System.currentTimeMillis())) return;   // still up: wait again
+        if (!tick.isRunning()) tick.start();
+        step();
+    }
+
+    private void expiring(long millis) {
+        if (millis <= 0) return;                                 // the loop will see it
+        expiry.setInitialDelay((int) Math.min(Integer.MAX_VALUE, millis));
+        expiry.restart();
     }
 
     /**
@@ -130,7 +162,9 @@ public final class ToastLayer extends JComponent {
         debug.Log.ln("toast click: " + s.sev().label + (error ? " -> open the config" : ""));
         toast.dismiss(now);
         if (error) onErrorClick.run();
-        repaint();
+        expiry.stop();
+        if (!tick.isRunning()) tick.start();     // the hide slide needs the clock
+        repaintBand();
     }
 
     @Override protected void paintComponent(Graphics g) {

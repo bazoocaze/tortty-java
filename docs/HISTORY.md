@@ -1130,6 +1130,23 @@ A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
 
+## 2026-11-14 — the toast stops painting a still picture (`B38`)
+
+**Context.** The owner, watching `doomfire` on the desktop, noticed the grid was
+a little slower while a notice was up, and that clicking it sped things up. That
+is the toast's 60 Hz tick: it ran for the whole life of the notice, repainting a
+band over a box that had stopped moving 220 ms in.
+
+**Activities.** `Toast.settled(now)` and `expiresAt()` say when the box sits
+still and when it is due; `ToastLayer` stops the tick there and arms a one-shot
+for the deadline, which restarts the loop for the hide slide. A click, a new
+notice and the in-place swap all re-arm it.
+
+**Result.** Measured on the desktop with the debug socket on (whose security
+warning is a 10 s toast), idle grid: **27% of a core to 1%** (`/proc` deltas, 3
+runs each). `selftest` 1314 (16 new toast checks over the model: settle after the
+slide, still during a swap, moving again on a click), `render-check` 46/46.
+
 ## 2026-11-14 — the price of the bounded inbox, measured (`L23`)
 
 **Context.** A doom-fire run on demand read **130 fps** where the last recorded
