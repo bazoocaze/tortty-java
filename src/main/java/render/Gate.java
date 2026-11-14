@@ -73,6 +73,7 @@ public final class Gate {
         cursorIsDrawn();
         ligatureStaysInItsCells();
         aPlaceholderShowsItsSlice();
+        aWrappedImageStillPaints();
         aOneCellRunIsShaped();
         boldIsARealFace();
         theSearchIsPainted();
@@ -186,6 +187,40 @@ public final class Gate {
         eq("and stops at the cell it does not own", outside, 0);
         eq("the cell after the run is background", img.getRGB(cw * 2 + cw / 2, ch / 2) & 0xFFFFFF, BG);
         save("ligature", img);
+    }
+
+    /**
+     * `B62`: the same picture, but handed over inside the wrapper a multiplexer
+     * uses — `DCS tmux;` with every `ESC` doubled. The grid must not be able to
+     * tell the difference.
+     */
+    private static void aWrappedImageStillPaints() {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        TermPanel p = panel(t);
+        byte[] px = {(byte) 0xFF, 0, 0, 0, 0, (byte) 0xFF,
+                (byte) 0xFF, 0, 0, 0, 0, (byte) 0xFF};
+        String b64 = java.util.Base64.getEncoder().encodeToString(px);
+        String inner = E + "_Ga=T,f=24,s=2,v=2,i=9,c=2,r=1;" + b64 + E + "\\";
+        String wrapped = E + "Ptmux;" + inner.replace(E, E + E) + E + "\\";
+        String first = E + "[0m" + E + "[2J" + E + "[H";
+        feed(t, first + wrapped);
+        t.cursorVisible = false;
+        int[] buf = paint(p, t);
+
+        // the reference is the same picture written the direct way: the grid
+        // must not be able to tell the two apart, pixel for pixel
+        Term plain = new Term(COLS, ROWS);
+        plain.setTheme(theme());
+        TermPanel q = panel(plain);
+        feed(plain, first + inner);
+        plain.cursorVisible = false;
+        int[] ref = paint(q, plain);
+        int diff = 0;
+        for (int i = 0; i < Math.min(buf.length, ref.length); i++) if (buf[i] != ref[i]) diff++;
+        eq("the grid cannot tell the wrapper from the direct write", diff, 0);
+        Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
+        is("and there is a picture there", s.ink(0, 0) > 100);
     }
 
     /**

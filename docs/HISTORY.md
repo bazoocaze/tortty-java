@@ -1130,6 +1130,31 @@ A cell whose background is not the theme's still covers a `z<0` picture — the
 protocol only does that past half of `INT32_MIN`; matching it would mean
 splitting every row into background, picture and glyphs.
 
+## 2026-11-13 — through `tmux`, and out the door with more of the screen (`B62`, `L23`, `L24`)
+
+**Context.** The kitty port was complete except for one thing nobody had written
+down: a multiplexer wraps a sequence in a `DCS` that opens with `tmux;`, with
+every `ESC` doubled, and this terminal dropped the whole `DCS` in one line — so
+`icat --passthrough tmux` and `bicat` drew nothing. Measured with a probe: the
+same APC direct gives one image, wrapped gives none.
+
+**Activities.** `Term` keeps a `DCS` body now (bounded by `MAX_APC`), undoubles
+the `ESC`s as it reads, and queues a `tmux;` payload to be parsed after the
+current chunk, once — re-entering the parser mid-byte would leave the state and
+the parameters half-applied. Anything else in a `DCS` is still dropped, and a
+nested wrapper is not followed. The answer goes back plain. On the way out, the
+exit feeds what was already read for at most 100 ms before the drain throws the
+rest away, and the watchdog — which `halt`s without hooks — photographs the tabs
+and clears the pid file itself. A signal that skipped the farewell now hangs the
+children up and waits only while one is alive, instead of sleeping 200 ms blind.
+
+**Result.** `selftest` 1298 (8 new graphics checks: direct vs wrapped, the
+reply, a nested wrapper, an unknown `DCS`, a truncated inner sequence, and a
+wrapper split across two writes), `render-check` 46/46 (the wrapped picture is
+pixel-identical to the direct one). Live in Xvfb: `tools/imgtest.py tmux` paints
+the checker through the wrapper, quadrants at the expected cells. The flood exit
+holds its bound (~430 ms, unchanged), and `SIGTERM` still writes the session.
+
 ## 2026-11-13 — `U=1`: the picture lives in the text grid (`L16` closed)
 
 **Context.** The last gap of `L16` was the Unicode placeholder: `kitten icat

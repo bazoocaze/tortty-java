@@ -85,6 +85,64 @@ public final class GraphicsChecks {
         aNegativeZGoesUnderTheText(c);
         aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
+        aMultiplexerWrapperIsUnwrapped(c);
+    }
+
+    /**
+     * {@code B62}: a multiplexer hands a sequence to the terminal wrapped in a
+     * `DCS` that opens with {@code tmux;}, with every `ESC` of the inner sequence
+     * doubled. Unwrapping it is the difference between a picture and nothing.
+     */
+    private static void aMultiplexerWrapperIsUnwrapped(Check c) {
+        Term t = new Term(40, 10);
+        String plain = apc("a=T,f=24,s=2,v=1,i=11", PX2) + apc("a=T,f=24,s=2,v=1,i=12", PX2);
+        Check.feed(t, plain);
+        int both = t.images.imageCount();
+        c.is("two plain APCs make two images", both == 2);
+
+        Term w = new Term(40, 10);
+        // each image on its own, the way a client wraps one sequence at a time
+        String wrapped = wrap(apc("a=T,f=24,s=2,v=1,i=11", PX2)) + wrap(apc("a=T,f=24,s=2,v=1,i=12", PX2));
+        Check.feed(w, wrapped);
+        c.is("both arrive through the wrapper", w.images.imageCount() == 2);
+        c.is("and take their cells like a plain one", w.images.placements().size() == 2);
+
+        // the reply: the wrapper is addressed to the multiplexer, and there is
+        // none left here, so the answer goes back the way a direct one would
+        Term r = new Term(20, 5);
+        c.eq("a query through the wrapper is answered plainly", reply(r, wrap(apc("a=q,i=1,f=24,s=1,v=1"))),
+                E + "_Gi=1;OK" + E + "\\");
+
+        // a wrapper inside a wrapper is not followed
+        Term n = new Term(20, 5);
+        Check.feed(n, wrap(wrap(apc("a=T,f=24,s=2,v=1,i=13", PX2))));
+        c.is("a nested wrapper draws nothing", n.images.imageCount() == 0);
+
+        // another DCS is still skipped whole, and nothing of it leaks
+        Term d = new Term(20, 5);
+        Check.feed(d, E + "P1$r0m" + E + "\\" + "ok");
+        c.is("an unknown DCS is still swallowed", d.images.imageCount() == 0);
+        c.eq("and the text after it lands", d.lineString(0).strip(), "ok");
+
+        // the wrapper is whole but the sequence inside it is not: nothing to
+        // draw, and the text that came after the wrapper still lands
+        Term u = new Term(20, 5);
+        Check.feed(u, E + "Ptmux;" + E + E + "_Ga=T,f=24,s=2,v=1,i=14;AAAA" + E + "\\" + "af");
+        c.is("a wrapper round a truncated sequence draws nothing", u.images.imageCount() == 0);
+        c.eq("and the text after the wrapper still lands", u.lineString(0).strip(), "af");
+
+        // it is a DCS like any other: it can come in pieces across two writes
+        Term x = new Term(20, 5);
+        String whole = wrap(apc("a=T,f=24,s=2,v=1,i=15", PX2));
+        Check.feed(x, whole.substring(0, whole.length() / 2));
+        c.is("half a wrapper is not an image yet", x.images.imageCount() == 0);
+        Check.feed(x, whole.substring(whole.length() / 2));
+        c.is("the other half completes it", x.images.imageCount() == 1);
+    }
+
+    /** The same sequence, as a multiplexer would hand it over. */
+    private static String wrap(String seq) {
+        return E + "Ptmux;" + seq.replace(E, E + E) + E + "\\";
     }
 
     private static void byFileReadsAndKeepsTheFile(Check c) {

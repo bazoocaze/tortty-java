@@ -47,8 +47,15 @@ Features implemented in the Java version of TorTTY.
 - Reflow on resize: soft-wrapped paragraphs (history included) are joined and
   rewrapped at the new width, preserving colours/attributes/underline/links and
   not splitting a wide pair.
-- DCS/PM/SOS are consumed and discarded; APC carries the kitty graphics
-  protocol (see below).
+- APC carries the kitty graphics protocol (see below); PM and SOS are consumed
+  and discarded. A DCS is read only to see whether a multiplexer wrapped
+  something for us: one that opens with `tmux;` carries an inner sequence with
+  every `ESC` doubled (`ESC P tmux; ESC ESC _ G ... ESC ESC \ ESC \`), and
+  unwrapping it — undoubling the `ESC`s, then parsing the payload as if the child
+  had written it directly, once, no nesting — is how a picture survives inside
+  `tmux` (`B62`). Any other DCS is dropped as before, and the answer goes back
+  plain: the wrapper is addressed to the multiplexer, and we are the end of the
+  chain.
 - kitty keyboard protocol: `CSI > u` push, `CSI < u` pop, `CSI = u` set/OR/AND
   NOT, and `CSI ? u` query the flags. Flags 1 (disambiguate), 2 (event types,
   press/repeat/release), 4 (alternate keys for the ASCII letters), 8 (all keys
@@ -74,6 +81,10 @@ Features implemented in the Java version of TorTTY.
   **unsigned** (`icat` numbers an animation around 2^32, `I=4281793601`), kept as
   the same 32 bits and echoed back in the decimal the client sent. The image
   follows the scroll into the history, is pruned with it, and `ED 3` clears it.
+- Through a multiplexer (`B62`): `kitten icat --passthrough tmux`, `bicat` and an
+  editor inside `tmux` wrap each sequence in `DCS tmux;` with the `ESC`s doubled;
+  the picture, the frames and the replies all survive it, and the cells land
+  where a direct transmission would have put them.
 - Unicode placeholders (`U=1`, the last gap of the kitty port): the picture is placed
   **nowhere** — the text grid is the placement. A cell holding `U+10EEEE` shows
   its own slice of the picture, cut into the `c`x`r` grid the client named; the

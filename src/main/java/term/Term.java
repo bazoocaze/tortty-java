@@ -192,7 +192,7 @@ public final class Term {
 
     // parser
     private static final int GROUND = 0, ESC = 1, CSI = 2, OSC = 3, ESC_ONE = 4, OSC_ST = 5, APC = 6,
-            APC_ST = 7, SKIP = 8, SKIP_ST = 9;
+            APC_ST = 7, SKIP = 8, SKIP_ST = 9, DCS = 10, DCS_ST = 11;
     private int state = GROUND;
     private int charsetTarget = 0;
     private final byte[] csiBuf = new byte[256];
@@ -1094,6 +1094,20 @@ public final class Term {
                     if (b == 0x1b) state = SKIP_ST;
                 }
                 case SKIP_ST -> state = (b == '\\') ? GROUND : SKIP;
+                case DCS -> {
+                    if (b == 0x1b) state = DCS_ST;
+                    else dcsByte(b);
+                }
+                case DCS_ST -> {
+                    // `ESC ESC` inside a multiplexer's wrapper is one literal ESC
+                    // and `ESC \\` is the end of the string (`B62`)
+                    if (b == '\\') dcsEnd();
+                    else {
+                        dcsByte(0x1b);
+                        if (b != 0x1b) dcsByte(b);
+                        state = DCS;
+                    }
+                }
                 case ESC_ONE -> {
                     // charset designators & friends: swallow one byte
                     if (charsetTarget == 0) {
@@ -1106,6 +1120,22 @@ public final class Term {
             }
         }
         if (prof.Prof.on()) prof.Prof.addParse(System.nanoTime() - t0, len);
+        // a multiplexer's payload is parsed as if the child had written it here,
+        // once this chunk is done: re-entering the parser mid-byte would leave
+        // the state and the parameters of the outer sequence half-applied (`B62`)
+        while (pendingLen > 0) {
+            byte[] inner = pending;
+            int n = pendingLen;
+            pending = new byte[0];
+            pendingLen = 0;
+            int was = inPending;
+            inPending = 1;
+            try {
+                feed(inner, 0, n);
+            } finally {
+                inPending = was;
+            }
+        }
     }
 
 
@@ -1377,13 +1407,52 @@ public final class Term {
             case '>' -> { keypadApp = false; state = GROUND; } // DECKPNM
             case 'n', 'o' -> state = GROUND; // SS2/SS3
             case 'H' -> { if (cx >= 0 && cx < cols) tabStops[cx] = true; state = GROUND; } // HTS
-            case 'P', 'X', '^' -> state = SKIP; // DCS/PM/SOS consume until ST
+            // a DCS is read, not skipped: a multiplexer wraps what the child
+            // wants behind it inside one (`B62`), and everything else is still
+            // ours to ignore
+            case 'P' -> { state = DCS; dcsBuf.setLength(0); dcsOverflow = false; }
+            case 'X', '^' -> state = SKIP; // PM/SOS consume until ST
             case '_' -> { state = APC; apcBuf.setLength(0); } // APC: kitty graphics
             case '\\' -> state = GROUND; // ST
             default -> state = GROUND;
         }
     }
 
+
+    /**
+     * The body of a `DCS` (`B62`). A multiplexer wraps a sequence for the
+     * terminal behind one: {@code ESC P tmux; ... ESC \\}, with every {@code ESC}
+     * of the inner sequence doubled so the multiplexer's own parser leaves it
+     * alone. That is how {@code kitten icat --passthrough tmux} and an editor
+     * inside {@code tmux} send a picture. Nothing else in a `DCS` is of use to
+     * us, so anything that does not open with {@code tmux;} is dropped as before.
+     */
+    private final StringBuilder dcsBuf = new StringBuilder();
+    private boolean dcsOverflow = false;
+    /** An unwrapped payload, waiting for the end of the chunk that carried it. */
+    private byte[] pending = new byte[0];
+    private int pendingLen = 0;
+    private int inPending = 0;
+
+    private void dcsByte(int b) {
+        if (dcsBuf.length() < KittyImages.MAX_APC + 1) dcsBuf.append((char) b);
+        else dcsOverflow = true;
+    }
+
+    private void dcsEnd() {
+        state = GROUND;
+        boolean over = dcsOverflow, inner = inPending > 0;
+        String body = dcsBuf.toString();
+        dcsBuf.setLength(0);
+        dcsOverflow = false;
+        if (over || inner || !body.startsWith("tmux;")) return; // too big, nested, or not ours
+        byte[] b = body.substring(5).getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        byte[] grown = new byte[pendingLen + b.length];
+        System.arraycopy(pending, 0, grown, 0, pendingLen);
+        System.arraycopy(b, 0, grown, pendingLen, b.length);
+        pending = grown;
+        pendingLen = grown.length;
+    }
 
     private final StringBuilder oscBuf = new StringBuilder();
 

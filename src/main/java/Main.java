@@ -195,6 +195,8 @@ public final class Main {
         private static final long DRAIN_BUDGET_MS = 4;
         /** Grace for the exit to finish before the watchdog halts the process. */
         private static final long QUIT_WATCHDOG_MS = 3000;
+        /** How long the exit may spend feeding what was already read (`L23`). */
+        private static final long EXIT_DRAIN_MS = 100;
         /** The content photographed before the exit, written by the hook. */
         private volatile java.util.List<Snapshots.Snap> exitSnaps;
         private boolean debugResizing;
@@ -627,7 +629,15 @@ public final class Main {
                 // that path still gets a blind drain here
                 java.util.List<Snapshots.Snap> snaps = exitSnaps;
                 if (snaps == null) {
-                    try { Thread.sleep(200); } catch (InterruptedException ignored) { }
+                    // a signal that skipped the farewell: hang the children up and
+                    // wait only while one is still alive, so a child that goes at
+                    // once costs nothing and one that lingers still gets its last
+                    // line into the picture (`L24`)
+                    forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
+                    long deadline = System.currentTimeMillis() + 250;
+                    while (System.currentTimeMillis() < deadline && anyChildAlive()) {
+                        try { Thread.sleep(10); } catch (InterruptedException ignored) { break; }
+                    }
                     try {
                         snaps = sessionSnapshots();
                     } catch (Exception e) {
@@ -1365,6 +1375,34 @@ public final class Main {
             }
         }
 
+        /**
+         * The bytes that were already read and waiting when the exit was asked
+         * for. The drain throws a backlog away once {@link #quitting} is set, and
+         * the farewell only sees what the children write after the hangup, so
+         * without this the restored picture would be missing the screens that
+         * were on their way — a middle of a build, the tail of a `cat`. Bounded by
+         * {@link #EXIT_DRAIN_MS} in total, and the rest is dropped (`L23`).
+         */
+        private void flushInboxes() {
+            long deadline = System.nanoTime() + EXIT_DRAIN_MS * 1_000_000L;
+            forEachTab(t -> {
+                while (System.nanoTime() < deadline) {
+                    byte[] chunk;
+                    synchronized (t.inbox) {
+                        chunk = t.inbox.pollFirst();
+                        if (chunk == null) {
+                            t.inboxBytes = 0;
+                            t.inbox.notifyAll();      // the reader may resume, if any
+                            return;
+                        }
+                        t.inboxBytes -= chunk.length;
+                        t.inbox.notifyAll();
+                    }
+                    feedChunk(t, chunk, true);
+                }
+            });
+        }
+
         /** Puts the drain back on the queue after it spent its budget. */
         private void yieldDrain(Tab t) {
             synchronized (t.inbox) {
@@ -2077,6 +2115,15 @@ public final class Main {
                 debug.Log.ln("quit watchdog: " + why + " did not finish; halting");
                 System.err.println("tortty-java: " + why + " did not finish in "
                         + QUIT_WATCHDOG_MS + " ms; halting");
+                // `halt` runs no hooks, so nothing would be written and the pid
+                // file would outlive us: take the picture from here instead, with
+                // no drain at all — the loop is wedged, there is nobody to wait
+                // for (`L23`)
+                if (exitSnaps == null) {
+                    try { exitSnaps = sessionSnapshots(); } catch (Throwable ignored) { }
+                }
+                try { saveSession(); } catch (Throwable ignored) { }
+                try { Files.deleteIfExists(Paths.get("/tmp/tortty-java.pid")); } catch (Exception ignored) {}
                 Runtime.getRuntime().halt(1);
             }, "quit-watchdog");
             w.setDaemon(true);
@@ -2104,6 +2151,7 @@ public final class Main {
             } catch (Exception ignored) {
             }
             debug.Log.ln("quit: " + why);
+            flushInboxes();
             exitSnaps = lastWords();
             forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
             System.exit(0);

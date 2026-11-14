@@ -13,6 +13,8 @@ Run it inside the terminal (it puts the tty in raw mode, and restores it):
   tools/imgtest.py crop       x,y,w,h: only the red quadrant is shown
   tools/imgtest.py named      p=: one placement, then the same pair again moved
   tools/imgtest.py under      z=-1: the picture behind the words written over it
+  tools/imgtest.py tmux       B62: the same picture inside a `DCS tmux;` wrapper,
+                              every ESC doubled, the way a multiplexer passes it
   tools/imgtest.py placeholder U=1: the picture drawn *through* the text grid,
                               one U+10EEEE cell at a time (L16)
 
@@ -158,6 +160,19 @@ def main():
             print("the words above the picture are readable: z=-1 is under the text")
             print("a cell with a background of its own covers it — try "
                   "printf '\\e[44m  blue  \\e[0m' over the picture")
+        elif mode == "tmux":
+            # `B62`: what a multiplexer hands the terminal. The inner sequence has
+            # every ESC doubled so the multiplexer's own parser leaves it alone.
+            def wrapped(seq):
+                return b"\x1bPtmux;" + seq.replace(b"\x1b", b"\x1b\x1b") + b"\x1b\\"
+            out.write(wrapped(b"\x1b_Ga=T,f=100,i=10,c=%d,r=%d;%s\x1b\\"
+                              % (cols, rows, b64)))
+            out.flush()
+            time.sleep(0.3)
+            out.write(b"\r\n")
+            out.write(wrapped(b"\x1b_Ga=q,i=0,f=100,t=d;\x1b\\"))
+            out.flush()
+            print("the picture above arrived inside a DCS tmux; wrapper")
         elif mode == "placeholder":
             # `U=1`: placed nowhere — the U+10EEEE cells *are* the placement, and
             # each shows its own slice of the picture cut into a 10x5 grid. The
