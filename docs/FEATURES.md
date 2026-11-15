@@ -265,6 +265,14 @@ Features implemented in the Java version of TorTTY.
   is never behind megabytes of output (`L23`).
 - Resize via `TIOCSWINSZ`/`setWinSize`.
 - Configurable shell (config `shell`, `--cmd`) or `$SHELL`/`/bin/sh`.
+- The process is **`tortty-java`** in the process table, not `java`: `ps`,
+  `top`, `pidof` and `killall` read the **leader** thread's `comm`, which a JVM
+  leaves as the binary it ran, and Java's `main()` does not run on that thread at
+  all — so the name is written through procfs (`/proc/self/comm`) and the calling
+  thread renamed with `prctl`; the installed launcher also sets `argv[0]` with
+  `exec -a`, which is what `ps -f` and `htop` show. The application entry carries
+  `StartupWMClass=Main`, so the panel groups the window (`WM_CLASS` comes from the
+  main class of a Swing app) instead of showing a second icon.
 
 ## UI / input
 

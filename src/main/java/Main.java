@@ -9,6 +9,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import pty.ProcName;
 import ui.Chrome;
 import ui.Toast;
 import javax.swing.JMenuItem;
@@ -53,6 +54,9 @@ public final class Main {
         if (o.selftest) {
             System.exit(checks.Suites.run(System.out) == 0 ? 0 : 1);
         }
+        // the process table says `java` for anything a JVM runs; ask the kernel
+        // for our own name so `ps`, `top` and the pid file agree (`ProcName`)
+        ProcName.set(ProcName.NAME);
         // PID file (DEBUG rules: kill only by our own PID).
         try { Files.writeString(Paths.get("/tmp/tortty-java.pid"), Long.toString(ProcessHandle.current().pid())); } catch (IOException ignored) {}
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

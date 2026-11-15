@@ -37,13 +37,16 @@ BUILD="$(cd "$SCRIPT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo unkn
 printf '%s\n%s\n' "$BUILD" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$APP_DIR/BUILD"
 
 cat > "$APP_DIR/tortty-java" <<EOF
-#!/bin/sh
+#!/bin/bash
 # tortty-java — installed copy (commit $BUILD); runs without the checkout.
 HERE=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)
 # ChildPty uses \$SHELL when --cmd is not passed; the child is zsh.
 export SHELL="\$(command -v zsh)"
 # XRender on real X11 is orders of magnitude slower in this environment's Java2D.
-exec java -Xms1024m -Xmx1024m -Dsun.java2d.xrender=false -jar "\$HERE/tortty-java.jar" "\$@"
+# exec -a names the process: argv[0] is what 'ps -f' and htop show, and the jar
+# asks the kernel for the name it shows as 'ps' (pty/ProcName). Without it every
+# window in the process table is just 'java'.
+exec -a tortty-java java -Xms1024m -Xmx1024m -Dsun.java2d.xrender=false -jar "\$HERE/tortty-java.jar" "\$@"
 EOF
 chmod 755 "$APP_DIR/tortty-java"
 
@@ -66,6 +69,10 @@ TryExec=$APP_DIR/tortty-java
 Icon=utilities-terminal
 Terminal=false
 StartupNotify=true
+# A SWING window is classed after its main class, so the window manager sees
+# 'Main'; matching it here is what makes the panel group the window under this
+# entry (and show its name) instead of inventing a second icon.
+StartupWMClass=Main
 Categories=System;TerminalEmulator;
 Keywords=terminal;shell;console;java;
 EOF

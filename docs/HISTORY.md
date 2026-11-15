@@ -1552,3 +1552,31 @@ and finds colour across its two cells. `selftest` 1471 checks, `render-check` 65
 `L13` now records only the fonts with no bitmaps to read (`sbix`, `COLR`) and the
 class-based contextual substitutions, which are not read.
 
+## 2026-11-15 — the process stops calling itself java
+
+**Context.** Three names disagreed: `ps` said `java`, `ps -f` said
+`java -Xms… -jar …/tortty-java.jar`, and the window manager said `Main` (a Swing
+window is classed after its main class) with no `StartupWMClass` in the entry, so
+the panel could not even tie the window to its shortcut.
+
+**Activities.** `pty/ProcName` writes the name the kernel keeps. The obvious call
+is `prctl(PR_SET_NAME)`, and it is not enough: `ps` reads the **leader** thread's
+`comm`, and Java's `main()` runs on a HotSpot thread of its own — measured, the
+`prctl` renamed the main thread (`/proc/thread-self/comm` said `tortty-probe`)
+while `/proc/<pid>/comm` still said `java`. So the leader is renamed through
+procfs (`/proc/self/comm`, writable) and the calling thread with `prctl`, for
+`ps -L`. The installed launcher gained `exec -a tortty-java` (and `#!/bin/bash`,
+since `dash` has no `-a`), which fixes `argv[0]` — `ps -f` and `htop`. The
+application entry gained `StartupWMClass=Main`, which is the supported way to tie
+a window to its desktop entry.
+
+**Result.** A running window reports `comm` `tortty-java`, `cmdline`
+`tortty-java -Xms1024m …`, `ps` `tortty-java`, `pidof tortty-java` finds it,
+`pgrep -c tortty-java` matches exactly one, and `ps -L` shows the leader and the
+main thread under that name with `GC`/`G1`/`Marker` untouched (the name is per
+thread, and the JVM's workers are older than the call). `pty` gained
+`theProcessWearsItsOwnName`, which renames the selftest's own process, reads it
+back from the kernel and restores it; `selftest` 1477 checks. One caution for the
+future: `pkill tortty-java` now matches, and would take every window with it —
+the rule stays "kill by the pid file, never by name".
+

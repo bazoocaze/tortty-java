@@ -1,6 +1,7 @@
 package checks;
 
 import pty.ChildPty;
+import pty.ProcName;
 
 /**
  * The window size the child reads through `TIOCGWINSZ`, which is how a client
@@ -21,6 +22,7 @@ public final class PtyChecks {
         aBadCellSizeIsIgnored(c);
         theProgramsTheChildStartedDieWithIt(c);
         theTitleFollowsWhatRunsInFront(c);
+        theProcessWearsItsOwnName(c);
     }
 
     /**
@@ -161,6 +163,24 @@ public final class PtyChecks {
         } finally {
             if (p != null) p.destroy();
         }
+    }
+
+    /**
+     * The process table names the terminal, not the launcher: `ps`, `top` and
+     * `pidof` read the **leader** thread's `comm`, which a JVM leaves as `java`.
+     * The check renames this very process and puts the name back, so it asserts
+     * the kernel took it — not that the string was accepted.
+     */
+    private static void theProcessWearsItsOwnName(Check c) {
+        String before = ProcName.get();
+        if (before == null) return;                       // no /proc: nothing to read
+        boolean set = ProcName.set("tortty-probe");
+        if (!set) return;                                 // not Linux, or no permission
+        c.eq("the process table says the name we asked for", ProcName.get(), "tortty-probe");
+        c.is("and the name is short enough for the kernel", "tortty-probe".length() <= 15);
+        ProcName.set(before);
+        c.eq("the name goes back", ProcName.get(), before);
+        c.is("the application's own name fits", ProcName.NAME.length() <= 15);
     }
 
     private static void aBadCellSizeIsIgnored(Check c) {
