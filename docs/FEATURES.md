@@ -15,7 +15,13 @@ Features implemented in the Java version of TorTTY.
 - Attributes: bold, faint, italic, underline, blink, inverse, strike.
 - DEC graphics G0/G1 (`ESC(0`, `ESC)0`) for mc box-drawing.
 - OSC 0/2 (title), 4 (palette query/set), 7 (cwd and title fallback), 8
-  (per-cell link), 9/777 (notifications; the `9;4` progress form is ignored),
+  (per-cell link), 9/777 (notifications) and `9;4` (the mintty/ConEmu progress
+  form: a two-pixel bar on the bottom of the tab label and of the workspace
+  card, still in the shade of the state — green working, red error, yellow
+  waiting, and the indeterminate one as a translucent band of the full width,
+  filled in **pixels** so 37% of a 20-cell tab is 7.4 cells of ink; `0` takes it
+  away, and an unknown state is swallowed rather than toasted, because a
+  program that repeats the report every second would pin a notification),
   10/11/12 (foreground/background/cursor query/set), and 104/110/111/112
   (palette/colour resets).
 - xterm window ops (`CSI t`): `14`/`16` report the text area and the cell in

@@ -75,6 +75,8 @@ public final class Main {
         /** Notifications already seen: what is newer is a badge. */
         long ackedNotifs;
         boolean badge;
+        /** The progress report the chrome has already drawn (`OSC 9;4`). */
+        long progressSeen;
         /** Set when the tab is gone for good, so a watcher does not close it twice. */
         boolean closed;
         /**
@@ -540,7 +542,7 @@ public final class Main {
             Workspace w = new Workspace();
             w.card = "ws" + (++nextCard);
             w.pane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-            Chrome.chromePane(w.pane, theme.bg);
+            Chrome.chromePane(w.pane, theme.bg, i -> progressInk(w.tabs, i));
             w.pane.setFocusable(false);
             w.pane.addChangeListener(e -> tabSelected(w));
             bindTabBar(w);
@@ -816,7 +818,9 @@ public final class Main {
         /** Keys and every living strip; new strips dress themselves at birth. */
         private void syncChrome() {
             Chrome.theme(theme.bg, theme.fg, theme.palette[2]);
-            for (Workspace w : workspaces) Chrome.chromePane(w.pane, theme.bg);
+            for (Workspace w : workspaces) {
+                Chrome.chromePane(w.pane, theme.bg, i -> progressInk(w.tabs, i));
+            }
         }
 
 
@@ -1049,6 +1053,19 @@ public final class Main {
                     g.setColor(sel ? fg : muted);
                     g.drawString(label, labelX, y + rowBase);
 
+                    // the card wears the progress of its own active tab, as in
+                    // the Rust sidebar: the workspace's signal, one bar per card
+                    if (!w.tabs.isEmpty()) {
+                        Chrome.Bar bar = progressInk(w.tabs, w.active);
+                        if (bar != null) {
+                            int bw = Math.round(getWidth() * Math.max(0f, Math.min(1f, bar.frac())));
+                            if (bw > 0) {
+                                g.setColor(new Color((bar.argb() & 0xFFFFFF) | (Math.round(
+                                        Math.max(0f, Math.min(1f, bar.alpha())) * 255) << 24), true));
+                                g.fillRect(0, y + row - Chrome.BAR_H, bw, Chrome.BAR_H);
+                            }
+                        }
+                    }
                     if (w.alert()) {
                         g.setColor(new Color(theme.palette[3]));
                         g.fillOval(getWidth() - 18, y + (row - 8) / 2, 8, 8);
@@ -1284,6 +1301,24 @@ public final class Main {
             }
         }
 
+        /**
+         * The bar of a tab (`OSC 9;4`): green while it works, red on error,
+         * yellow when it waits, and the indeterminate one as a translucent band
+         * of the full width. A tab whose program says nothing gets no bar.
+         */
+        private Chrome.Bar progressInk(java.util.List<Tab> tabs, int i) {
+            if (i < 0 || i >= tabs.size()) return null;
+            Term term = tabs.get(i).term;
+            if (!term.hasProgress()) return null;
+            float frac = term.progressPct < 0 ? 1f : term.progressPct / 100f;
+            return switch (term.progressState) {
+                case 2 -> new Chrome.Bar(theme.palette[1], 1f, frac);
+                case 4 -> new Chrome.Bar(theme.palette[3], 1f, frac);
+                case 3 -> new Chrome.Bar(theme.palette[6], 0.35f, 1f);
+                default -> new Chrome.Bar(theme.palette[2], 1f, frac);
+            };
+        }
+
         private void updateTitles(Workspace w) {
             for (int i = 0; i < w.tabs.size() && i < w.pane.getTabCount(); i++) {
                 String label = w.tabs.get(i).label();
@@ -1513,6 +1548,15 @@ public final class Main {
                     if (w != null) updateTitles(w);
                     syncSide();
                 }
+                // a progress report is chrome, not the grid: the tab label and
+                // the card the workspace wears have to be redrawn, and only when
+                // the numbers actually moved
+                if (term.progressSeq != t.progressSeen) {
+                    t.progressSeen = term.progressSeq;
+                    Workspace owner = workspaceOf(t);
+                    if (owner != null) owner.pane.repaint();
+                    syncSide();
+                }
                 if (term.sync) {
                     t.syncTimer.restart();
                 } else {
@@ -1699,6 +1743,10 @@ public final class Main {
                     m.put("title", term.windowTitle());
                     m.put("cwd", term.cwd);
                     m.put("alt", term.alt);
+                    // what the program last said about itself (`OSC 9;4`), or
+                    // nothing: the chrome draws a bar while this is not null
+                    m.put("progress", term.hasProgress()
+                            ? new int[] {term.progressState, term.progressPct} : null);
                     m.put("history", term.historySize());
                     m.put("view", term.viewOff());
                     m.put("bells", term.bells);

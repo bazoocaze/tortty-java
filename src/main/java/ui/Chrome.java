@@ -191,7 +191,41 @@ public final class Chrome {
      * chrome that did not follow `background`/`foreground`. This class and the
      * `TabbedPane.*` keys are all it takes; the divider keeps the desktop's.
      */
+    /**
+     * The ink of a progress bar (`OSC 9;4`): the colour, its alpha and the share
+     * of the width to fill. The chrome only draws what it is given — the palette
+     * and the theme belong to the app, not to the look.
+     */
+    public record Bar(int argb, float alpha, float frac) {}
+
     private static final class TabChrome extends javax.swing.plaf.metal.MetalTabbedPaneUI {
+        /** Where the bar of each tab comes from: null when nothing reports. */
+        private java.util.function.IntFunction<Bar> progress;
+
+        /**
+         * The bar of one tab goes on with its background, inside the chip: after
+         * the strip is painted a repaint of the label alone would leave the bar's
+         * rows behind, and Metal's own border is drawn over the last two rows of
+         * the tab anyway, so the bar sits just above them.
+         */
+        @Override protected void paintTabBackground(java.awt.Graphics g, int tabPlacement,
+                int tabIndex, int x, int y, int w, int h, boolean isSelected) {
+            super.paintTabBackground(g, tabPlacement, tabIndex, x, y, w, h, isSelected);
+            if (progress == null) return;
+            Bar b = progress.apply(tabIndex);
+            if (b == null) return;
+            int filled = Math.round(w * Math.max(0f, Math.min(1f, b.frac())));
+            if (filled <= 2 || h <= BAR_H + 3) return;
+            java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+            try {
+                g2.setColor(new Color((b.argb() & 0xFFFFFF) | (Math.round(
+                        Math.max(0f, Math.min(1f, b.alpha())) * 255) << 24), true));
+                g2.fillRect(x + 1, y + h - BAR_H - 3, filled - 2, BAR_H);
+            } finally {
+                g2.dispose();
+            }
+        }
+
         // the content border is a light frame around the page: the keys
         // below darken everything but one white edge, which comes from the
         // theme instead, so the four edges go quiet here
@@ -221,9 +255,23 @@ public final class Chrome {
         UIManager.put("TabbedPane.focus", f);
     }
 
+    /** How tall the progress bar is: two pixels, as in the Rust renderer. */
+    public static final int BAR_H = 2;
+
     /** Dresses one strip: our UI, our size, our background, opaque. */
     public static void chromePane(JTabbedPane pane, int bg) {
-        pane.setUI(new TabChrome()); // installs from the keys above, again on reload
+        chromePane(pane, bg, null);
+    }
+
+    /**
+     * The same, with the progress bars of the tabs: {@code bars} answers one
+     * {@link Bar} per tab index, or {@code null} for a tab with nothing to show.
+     */
+    public static void chromePane(JTabbedPane pane, int bg,
+            java.util.function.IntFunction<Bar> bars) {
+        TabChrome ui = new TabChrome();
+        ui.progress = bars;
+        pane.setUI(ui); // installs from the keys above, again on reload
         pane.setFont(chromeFont("TabbedPane.font"));
         pane.setBackground(new Color(bg));
         pane.setOpaque(true); // the area past the last tab is ours, not the parent's

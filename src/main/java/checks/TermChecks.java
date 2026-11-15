@@ -33,6 +33,7 @@ public final class TermChecks {
         originAndWrap(c);
         tabStops(c);
         osc52(c);
+        theProgramReportsItsProgress(c);
         logicalLines(c);
         resizing(c);
         theReaderKeepsHisPlace(c);
@@ -427,6 +428,56 @@ public final class TermChecks {
      * no reply is what a client reads as "not supported", and letting a program
      * in the terminal read the clipboard is a leak.
      */
+    /**
+     * `OSC 9;4` (mintty/ConEmu): the program says how far it got. It is a
+     * **state**, not a sentence, so it must never become a notification — a
+     * program that repeats it every second would pin the toast forever.
+     */
+    private static void theProgramReportsItsProgress(Check c) {
+        Term t = new Term(20, 3);
+        c.is("nothing is on show at first", !t.hasProgress());
+        Check.feed(t, E + "]9;4;1;37" + E + "\\");
+        c.is("a normal report is on show", t.hasProgress());
+        c.eq("with the state it names", t.progressState, 1);
+        c.eq("and the fraction", t.progressPct, 37);
+        c.eq("and it is not a notification", t.notifs, 0L);
+        c.eq("the chrome is told once", t.progressSeq, 1L);
+
+        // the same numbers again is not news: no repaint for a 1 Hz repeater
+        Check.feed(t, E + "]9;4;1;37" + E + "\\");
+        c.eq("a repeat does not ask for a repaint", t.progressSeq, 1L);
+        Check.feed(t, E + "]9;4;1;38" + E + "\\");
+        c.eq("a new fraction does", t.progressSeq, 2L);
+
+        // the indeterminate state carries no measure
+        Check.feed(t, E + "]9;4;3" + E + "\\");
+        c.eq("indeterminate is its own state", t.progressState, 3);
+        c.eq("and it has no fraction", t.progressPct, -1);
+        Check.feed(t, E + "]9;4;2;50" + E + "\\");
+        c.eq("an error keeps its own state", t.progressState, 2);
+        Check.feed(t, E + "]9;4;4;80" + E + "\\");
+        c.eq("so does waiting", t.progressState, 4);
+
+        // `0` clears it, and what is over 100 is a full bar
+        Check.feed(t, E + "]9;4;1;150" + E + "\\");
+        c.eq("a fraction past the end is clamped", t.progressPct, 100);
+        Check.feed(t, E + "]9;4;0" + E + "\\");
+        c.is("zero takes the bar away", !t.hasProgress());
+        c.eq("and the fraction with it", t.progressPct, -1);
+
+        // junk is this form and nothing else: swallowed, never toasted
+        long seq = t.progressSeq, notifs = t.notifs;
+        for (String junk : new String[] {"9;4;x", "9;4;1;2;3", "9;4;", "9;4;7", "9;4;-1"}) {
+            Check.feed(t, E + "]" + junk + E + "\\");
+            c.eq("junk leaves the bar alone: " + junk, t.progressSeq, seq);
+            c.eq("and raises no notification: " + junk, t.notifs, notifs);
+        }
+
+        // and the plain text form is still a notification
+        Check.feed(t, E + "]9;a long job finished" + E + "\\");
+        c.eq("a message is still a message", t.notifs, notifs + 1);
+    }
+
     /**
      * `L13`: an emoji sequence is **one cluster**, so the renderer gets the whole
      * thing in one cell and can draw the picture the font composes instead of the

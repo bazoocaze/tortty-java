@@ -74,6 +74,16 @@ public final class Term {
     // attention: BEL and OSC 9/777 notifications
     public long bells, bellSeq;
     public long notifs, notifSeq;
+    /**
+     * Progress the program reports about itself (`OSC 9;4`, the mintty/ConEmu
+     * form): the state and, when the state has one, the fraction. `0` clears it,
+     * so {@code progressState} is 0 when there is nothing to draw.
+     */
+    public int progressState;
+    /** `0..100`, or -1 for a state that has no measure. */
+    public int progressPct = -1;
+    /** Bumped whenever the progress above changes, so the chrome can repaint. */
+    public long progressSeq;
     public String notifText = "";
 
     /**
@@ -1786,8 +1796,14 @@ public final class Term {
             }
         } else if (s.startsWith("9;")) {
             String arg = s.substring(2);
-            // 9;4;state[;progress] is the progress form, not a notification.
-            if (!arg.startsWith("4;")) notify(arg);
+            // 9;4;state[;progress] is the progress form, not a notification: a
+            // program that repeats it every second would otherwise pin the toast
+            // and the badge forever, and `4;3` is a state, not a sentence
+            if (arg.startsWith("4;")) {
+                oscProgress(arg.substring(2));
+            } else {
+                notify(arg);
+            }
         } else if (s.startsWith("777;")) {
             String[] p = s.split(";", 4);
             if (p.length >= 2 && "notify".equals(p[1])) {
@@ -1798,6 +1814,46 @@ public final class Term {
             }
         }
         state = GROUND;
+    }
+
+    /**
+     * `OSC 9;4;state[;pct]`: 0 clears, 1 normal, 2 error, 3 indeterminate,
+     * 4 warning/paused. Digits only, and a state we do not know is still this
+     * form — swallowed, never a toast.
+     */
+    private void oscProgress(String arg) {
+        String[] p = arg.split(";", -1);
+        if (p.length < 1 || p.length > 2) return;
+        int[] num = new int[p.length];
+        for (int i = 0; i < p.length; i++) {
+            if (p[i].isEmpty()) return;
+            int v = 0;
+            for (int k = 0; k < p[i].length(); k++) {
+                char c = p[i].charAt(k);
+                if (c < '0' || c > '9') return;
+                v = Math.min(255, v * 10 + (c - '0'));
+            }
+            num[i] = v;
+        }
+        int state = num[0];
+        int pct = p.length > 1 ? Math.min(100, num[1]) : -1;
+        if (state == 0) {
+            setProgress(0, -1);
+        } else if (state < 5) {
+            setProgress(state, pct);
+        }
+    }
+
+    private void setProgress(int state, int pct) {
+        if (state == progressState && pct == progressPct) return;
+        progressState = state;
+        progressPct = pct;
+        progressSeq++;
+    }
+
+    /** `true` when a report is on show: the tab label and the card draw a bar. */
+    public boolean hasProgress() {
+        return progressState != 0;
     }
 
     private static String utf8(String s) {

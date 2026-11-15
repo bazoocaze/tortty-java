@@ -80,6 +80,7 @@ public final class Gate {
         boldIsARealFace();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
+        theProgressBarFollowsTheReport();
         thePopupWearsTheTheme();
         theDialogsTakeTheChromesFont();
         theToolTipRunsAPointUnderTheChrome();
@@ -419,6 +420,103 @@ public final class Gate {
                 img.getRGB(320, sel.y + sel.height + 1) & 0xFFFFFF, 0x000000);
         eq("the page is the background",
                 img.getRGB(320, 80) & 0xFFFFFF, 0x000000);
+    }
+
+    /**
+     * `OSC 9;4`: the tab label wears a two-pixel bar of its own, filled by the
+     * fraction the program reported, in the shade of its state — green while it
+     * works, red on an error, yellow when it waits, and the indeterminate one as
+     * a translucent band of the whole width. Each case is compared against the
+     * same strip drawn with no report, so the geometry is not assumed.
+     */
+    private static void theProgressBarFollowsTheReport() {
+        Chrome.dpi(96f);
+        Chrome.tabChrome(0x000000, 0xD6D6D6, 0x00FF00);
+        int[][] reports = {{1, 37}, {2, 50}, {3, -1}, {4, 80}};
+        int[] shades = {0x00FF00, 0xCC0000, 0x33CCFF, 0xCCCC00};
+        BufferedImage plain = strip(null);
+        java.awt.Rectangle r = plainTabBounds();
+        for (int k = 0; k < reports.length; k++) {
+            int state = reports[k][0], pct = reports[k][1];
+            float frac = pct < 0 ? 1f : pct / 100f;
+            Chrome.Bar bar = switch (state) {
+                case 2 -> new Chrome.Bar(shades[1], 1f, frac);
+                case 4 -> new Chrome.Bar(shades[3], 1f, frac);
+                case 3 -> new Chrome.Bar(shades[2], 0.35f, 1f);
+                default -> new Chrome.Bar(shades[0], 1f, frac);
+            };
+            BufferedImage img = strip(bar);
+            save("progress", img);
+            // where the bar went, found by comparing with the same strip drawn
+            // with no report: the geometry is the chrome's business, not ours
+            int maxX = -1, rows = 0;
+            int sample = 0;
+            for (int y = r.y + r.height - 10; y < r.y + r.height; y++) {
+                boolean row = false;
+                for (int x = r.x; x < r.x + r.width; x++) {
+                    if (img.getRGB(x, y) == plain.getRGB(x, y)) continue;
+                    row = true;
+                    maxX = Math.max(maxX, x);
+                    sample = img.getRGB(x, y);
+                }
+                if (row) rows++;
+            }
+            is("state " + state + " draws a bar in the label", maxX >= 0);
+            is("the bar is flat, two rows tall at most", rows <= 3);
+            if (state == 3) {
+                is("the indeterminate band runs the whole width", maxX >= r.x + r.width - 4);
+            } else {
+                int want = Math.round(r.width * pct / 100f);
+                is("the fill reaches the reported share", Math.abs((maxX - r.x + 1) - want) <= 3);
+            }
+            is("the bar is the shade of its state", state == 3 || near(sample, shades[k]));
+            is("the tab beside it has no bar",
+                    img.getRGB(r.x + r.width + 30, r.y + r.height - 5)
+                            == plain.getRGB(r.x + r.width + 30, r.y + r.height - 5));
+        }
+    }
+
+    private static java.awt.Rectangle plainTabBounds() {
+        javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
+        Chrome.chromePane(p, 0x000000, null);
+        p.addTab("alpha", new javax.swing.JLabel());
+        p.addTab("beta", new javax.swing.JLabel());
+        p.setSize(640, 90);
+        p.doLayout();
+        return p.getBoundsAt(0);
+    }
+
+    /** The two-tab strip painted headless, with the bar the test asks for. */
+    private static BufferedImage strip(Chrome.Bar bar) {
+        javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
+        Chrome.chromePane(p, 0x000000, n -> n == 0 ? bar : null);
+        p.addTab("alpha", new javax.swing.JLabel());
+        p.addTab("beta", new javax.swing.JLabel());
+        p.setSize(640, 90);
+        p.doLayout();
+        BufferedImage img = new BufferedImage(640, 90, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        p.paint(g);
+        g.dispose();
+        return img;
+    }
+
+    private static java.awt.Rectangle tabBounds(BufferedImage img) {
+        javax.swing.JTabbedPane p = new javax.swing.JTabbedPane();
+        Chrome.chromePane(p, 0x000000, null);
+        p.addTab("alpha", new javax.swing.JLabel());
+        p.addTab("beta", new javax.swing.JLabel());
+        p.setSize(640, 90);
+        p.doLayout();
+        return p.getBoundsAt(0);
+    }
+
+    /** Whether two colours are the same ink, allowing for the alpha blend. */
+    private static boolean near(int got, int want) {
+        int dr = Math.abs(((got >> 16) & 0xFF) - ((want >> 16) & 0xFF));
+        int dg = Math.abs(((got >> 8) & 0xFF) - ((want >> 8) & 0xFF));
+        int db = Math.abs((got & 0xFF) - (want & 0xFF));
+        return dr + dg + db < 90;
     }
 
     /**

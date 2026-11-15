@@ -1580,3 +1580,30 @@ back from the kernel and restores it; `selftest` 1477 checks. One caution for th
 future: `pkill tortty-java` now matches, and would take every window with it —
 the rule stays "kill by the pid file, never by name".
 
+## 2026-11-15 — the program says how far it got
+
+**Context.** `OSC 9;4` — the mintty/ConEmu progress form that `pip`, `cargo`,
+`node` and `gh` emit — was named in the parser only to be thrown away, so a long
+install looked dead. The Rust version draws a 2 px bar on the tab label and on
+the workspace card.
+
+**Activities.** `Term` keeps the report (`progressState`, `progressPct`, and a
+sequence so the chrome knows it moved): `9;4;state[;pct]`, digits only, `0`
+clears, a state we do not know is this form and never a toast. `Chrome.Bar`
+carries the ink (colour, alpha, filled share) so the look stays free of the
+palette; `TabChrome` paints it in `paintTabBackground`, inside the chip and just
+above Metal's own border — after the strip is painted, a repaint of the label
+alone would leave the bar's rows behind. The sidebar card draws the bar of **its
+own active tab**, as the Rust sidebar does, and only a change in the report
+repaints the strip (`feedChunk` compares the sequence), so a 1 Hz repeater costs
+nothing.
+
+**Result.** Live at 130 dpi: green at 37%, red at 80%, the indeterminate band
+across the full label, and `0` clearing it; the second workspace's card shows
+yellow at 60% while its tab does the same. `term` gained
+`theProgramReportsItsProgress` (states, clamp at 100, clear, junk swallowed, a
+repeater not asking for a repaint, and a plain `OSC 9` still a notification) and
+the gate gained `theProgressBarFollowsTheReport`, which compares each state
+against the same strip drawn with no report — the bar's rows and share are found
+by difference, not assumed. `selftest` 1503 checks, `render-check` 85.
+
