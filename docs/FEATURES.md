@@ -155,6 +155,11 @@ Features implemented in the Java version of TorTTY.
   nothing downstream learns a new format. It lands on the cursor's cell, takes
   the rows it covers, the cursor ends below it, and iTerm2 has no reply channel,
   so nothing is answered.
+- The alternate screen is its own place (`B69`): what `mc`, `vim`, `less` and
+  `top` draw, clear and scroll up there is theirs, so they cannot erase the
+  pictures of the screen they cover — and the pictures are exactly as they were
+  when the app leaves. `ED 3` up there is a `clear` and takes everything with it,
+  the pictures waiting beside the alt screen included.
 - A picture lives in its cells (`B68`): `EL`, `ED`, `ECH`, `ICH` and `DCH`
   erase cells, so they take the picture covering them — `clear` no longer leaves
   the last `chafa` behind, and a full-screen app that paints over without the

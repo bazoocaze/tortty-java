@@ -1478,3 +1478,24 @@ the reader to the live screen before and now keeps them 70 rows back. Five check
 wipe inside a window, a wipe outside, and `RIS`); `selftest` 1432 checks,
 `render-check` green.
 
+## 2026-11-14 — the alternate screen has its own pictures
+
+**Context.** Reported: `chafa` draws a picture, `mc` opens over it (correct — it
+does not come through) and when `mc` closes the picture is **gone**. Registered as
+`B69`.
+
+**Activities.** `KittyImages` kept one placement list, so the `mc` screen's erase
+and scroll acted on the primary screen's placements — and `B68`, which made an
+erase take the picture with the cells, made it visible on every repaint. The list
+is now put aside while an app holds the alternate screen (`enterAlt`/`leaveAlt`,
+called from `Term`'s own), the image data stays shared as it was, and `clear()`
+(`ED 3`) drops the saved list too, so an app that clears up there takes everything
+with it, exactly as the Rust core does (`Graphics::enter_alt`/`leave_alt`).
+
+**Result.** Live with the real `mc` on `Xvfb :98`: before, quitting `mc` left
+`placements=0` and a blank screen (728 white pixels); after, the picture is back —
+`placements=1` and the same 50 813 red pixels it was drawn with. `less` round trips
+the same way. New `graphics` check `theAlternateScreenHasItsOwnPictures` (the
+primary picture hidden, the alt one its own, the primary's back on leaving, and
+`ED 3` up there taking both); `selftest` 1439 checks, `render-check` green.
+

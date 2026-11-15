@@ -105,6 +105,7 @@ public final class GraphicsChecks {
         aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
         erasingTheCellsTakesThePictureWithThem(c);
+        theAlternateScreenHasItsOwnPictures(c);
         anItermPictureLandsWhereTheCursorWas(c);
         anItermSizeInPxAndPercentResolves(c);
         anItermPictureWithoutInlineIsRefused(c);
@@ -943,6 +944,37 @@ public final class GraphicsChecks {
         c.eq("the picture rode up", t.images.placements().size(), 1);
         Check.feed(t, E + "[H" + E + "[2J");
         c.eq("a screen clear leaves what went to the history", t.images.placements().size(), 1);
+    }
+
+    /**
+     * `B69`: the alternate screen is its own place. Reported with `chafa` and `mc`
+     * — the picture was hidden by `mc` (correct, it does not come through) and was
+     * **gone** when `mc` closed, because one placement list served both screens and
+     * `mc`'s repaints erased the primary's. What the app draws up there stays up
+     * there, and the pictures it covered come back when it leaves.
+     */
+    private static void theAlternateScreenHasItsOwnPictures(Check c) {
+        Term t = new Term(20, 6);
+        t.setCellSize(8, 16);
+        String pic = apc("a=T,f=24,s=1,v=6,i=5", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                13, 14, 15, 16, 17, 18});
+        Check.feed(t, E + "[1;1H");
+        Check.feed(t, pic);
+        c.eq("the primary screen has its picture", t.images.placements().size(), 1);
+        Check.feed(t, E + "[?1049h" + E + "[H" + E + "[2J");
+        c.eq("the alt screen starts empty, clear and all", t.images.placements().size(), 0);
+        Check.feed(t, pic);
+        c.eq("and the alt one is its own", t.images.placements().size(), 1);
+        Check.feed(t, E + "[?1049l");
+        c.eq("leaving brings the primary's back", t.images.placements().size(), 1);
+        c.eq("in the line it was drawn on", t.images.placements().get(0).line, 0);
+
+        // `ED 3` up there is a clear: nothing survives it, saved pictures included
+        Check.feed(t, E + "[?1049h" + E + "[3J");
+        c.eq("the app's clear empties its own screen", t.images.placements().size(), 0);
+        Check.feed(t, E + "[?1049l");
+        c.eq("and the picture the app cleared does not come back",
+                t.images.placements().size(), 0);
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {

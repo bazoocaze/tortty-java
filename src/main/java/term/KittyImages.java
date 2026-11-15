@@ -420,6 +420,13 @@ public final class KittyImages {
 
     private final Map<Integer, Image> images = new LinkedHashMap<>();
     private final List<Placement> placements = new ArrayList<>();
+    /**
+     * The primary screen's placements while an app holds the alternate screen
+     * ({@code B69}): the alt screen is its own place, so what it draws, clears and
+     * scrolls is its own, and the pictures it covered are back when it leaves. The
+     * image data stays shared — only the placements are put aside.
+     */
+    private List<Placement> saved;
     private int nextId = 1;
     private long generation;
     /** Chunks of a transmission in progress ({@code m=1}). */
@@ -434,6 +441,21 @@ public final class KittyImages {
     private Map<String, String> bufKv;
 
     public List<Placement> placements() { return placements; }
+
+    /** The app is taking the alternate screen: its pictures wait beside it. */
+    public void enterAlt() {
+        if (saved != null) return;
+        saved = new ArrayList<>(placements);
+        placements.clear();
+    }
+
+    /** The app left the alternate screen: the pictures of the screen come back. */
+    public void leaveAlt() {
+        if (saved == null) return;
+        placements.clear();
+        placements.addAll(saved);
+        saved = null;
+    }
 
     /**
      * Placements in the order they paint: {@code z=} first, then the lower image
@@ -460,10 +482,11 @@ public final class KittyImages {
         return n;
     }
 
-    /** {@code ED 3}: no image survives. */
+    /** {@code ED 3}: no image survives — not even the ones waiting beside an app. */
     public void clear() {
         images.clear();
         placements.clear();
+        saved = null;
         buf = null;
         bufKv = null;
     }

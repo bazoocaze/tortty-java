@@ -2588,6 +2588,9 @@ public final class Term {
         // The primary's flags are kept aside so the marker written before the app
         // took over stays out of the photograph (`B64`)
         mainChrome = rowChrome;
+        // and its pictures too: an app that takes the alternate screen must not
+        // erase the pictures of the screen it covers (`B69`)
+        images.enterAlt();
         mainX = cx; mainY = cy;
         mainOrigin = origin; mainAutowrap = autowrap;
         int n = cols * rows;
@@ -2612,6 +2615,7 @@ public final class Term {
         ul = mainUl; ulColor = mainUlColor; link = mainLink;
         rowWrapped = mainWrapped;
         rowChrome = mainChrome;
+        images.leaveAlt();
         cx = mainX; cy = mainY;
         origin = mainOrigin; autowrap = mainAutowrap;
         mainCp = null; mainCluster = null;
