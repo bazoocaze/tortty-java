@@ -74,6 +74,8 @@ public final class Term {
     // attention: BEL and OSC 9/777 notifications
     public long bells, bellSeq;
     public long notifs, notifSeq;
+    /** `OSC 133` prompt marks: where each prompt and command starts (`B39`). */
+    public final Marks marks = new Marks();
     /**
      * Progress the program reports about itself (`OSC 9;4`, the mintty/ConEmu
      * form): the state and, when the state has one, the fraction. `0` clears it,
@@ -408,6 +410,8 @@ public final class Term {
         images.clear();
         // a full reset is a `clear` too: xterm drops the saved lines with it
         hist.clear(); totalLines = 0;
+        // a fresh shell has nothing of the old one: its marks go too
+        marks.clear();
         viewOff = 0; layoutGen++;
         // a `RIS` empties the history and ends the window without a close, so it
         // is the wipe branch of `viewAfterOutput` that has to rescue the reader
@@ -1525,6 +1529,9 @@ public final class Term {
                     // what was pinned to the row that just left dies with it
                     images.dropAbove(-hist.size());
                 }
+                // and so does a prompt mark: a navigation that landed there would
+                // be a jump into nothing (`B39`)
+                if (evicted > 0 || histCap == 0) marks.prune(absFirst());
                 if (histCap > 0) {
                     hist.addLast(new Row(t, cl, f, b, a, l, u, uc, rowWrapped[top + r],
                             rowChrome[top + r]));
@@ -1804,6 +1811,8 @@ public final class Term {
             } else {
                 notify(arg);
             }
+        } else if (s.startsWith("133;") || s.equals("133")) {
+            oscPrompt(s.length() > 4 ? s.substring(4) : "");
         } else if (s.startsWith("777;")) {
             String[] p = s.split(";", 4);
             if (p.length >= 2 && "notify".equals(p[1])) {
@@ -1854,6 +1863,47 @@ public final class Term {
     /** `true` when a report is on show: the tab label and the card draw a bar. */
     public boolean hasProgress() {
         return progressState != 0;
+    }
+
+    /**
+     * `OSC 133;A` … `133;D[;status]`: the shell saying where the prompt starts,
+     * where the command starts, where the output starts and how it ended. The
+     * mark lands on the **absolute** line of the cursor, so scrolling and output
+     * do not move it (`term.Marks`).
+     */
+    private void oscPrompt(String arg) {
+        int sep = arg.indexOf(';');
+        String kind = sep < 0 ? arg : arg.substring(0, sep);
+        Marks.Kind k = switch (kind) {
+            case "A" -> Marks.Kind.PROMPT_START;
+            case "B" -> Marks.Kind.COMMAND_START;
+            case "C" -> Marks.Kind.OUTPUT_START;
+            case "D" -> Marks.Kind.COMMAND_END;
+            default -> null;
+        };
+        if (k == null) return;
+        Integer status = null;
+        if (k == Marks.Kind.COMMAND_END) {
+            String rest = sep < 0 ? "" : arg.substring(sep + 1);
+            int end = rest.indexOf(';');
+            String num = (end < 0 ? rest : rest.substring(0, end)).trim();
+            try {
+                if (!num.isEmpty()) status = Integer.parseInt(num);
+            } catch (NumberFormatException ignored) {
+                // a status that is not a number travels as "no status"
+            }
+        }
+        marks.push(new Marks.Mark(totalLines + cy, k, status), absFirst());
+    }
+
+    /** The first absolute line the buffer still holds. */
+    public long absFirst() {
+        return totalLines - hist.size();
+    }
+
+    /** Previous/next prompt start, as an absolute line (`B39`). */
+    public Long promptLine(long from, boolean back) {
+        return back ? marks.promptBefore(from) : marks.promptAfter(from);
     }
 
     private static String utf8(String s) {

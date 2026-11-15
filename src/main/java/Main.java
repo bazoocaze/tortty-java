@@ -1684,6 +1684,10 @@ public final class Main {
                 // the config file in the editor, as the Rust `P33` does; taken
                 // before encoding so an editor never sees the chord
                 case KeyEvent.VK_F2 -> openConfig();
+                // walk the `OSC 133` prompt marks (`B39`): the previous/next
+                // prompt goes to the first row, and at the ends nothing moves
+                case KeyEvent.VK_UP -> promptJump(activeTab(), true);
+                case KeyEvent.VK_DOWN -> promptJump(activeTab(), false);
                 default -> {
                     if (!digit) return false;
                     selectWorkspace(kc - KeyEvent.VK_1);
@@ -1736,6 +1740,25 @@ public final class Main {
             String cwd = t.pty != null ? t.pty.cwd() : null;
             if (cwd == null || cwd.isEmpty()) cwd = t.term.cwd;
             return (cwd == null || cwd.isEmpty()) ? null : cwd;
+        }
+
+        /**
+         * `Ctrl+Shift+Up`/`Down`: the previous/next prompt lands on the first grid
+         * row. Walking up looks strictly above the first row in sight and walking
+         * down looks from that row on, so the prompt already at the top is not
+         * "the next one"; at the ends nothing happens at all — a key that does
+         * something invisible reads as a key that did nothing.
+         */
+        private void promptJump(Tab t, boolean back) {
+            if (t == null) return;
+            long top = t.term.absoluteLine(0);
+            Long line = t.term.promptLine(back ? top - 1 : top, back);
+            if (line == null) return;
+            int off = (int) Math.max(0, Math.min(t.term.historySize(),
+                    t.term.totalLines() - line));
+            if (off == t.term.viewOff()) return;
+            t.term.scrollView(off - t.term.viewOff());
+            t.panel.requestFullRepaint();
         }
 
         private void selectTab(int index) {

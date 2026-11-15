@@ -1654,3 +1654,27 @@ every row, a right-to-left drag being the same rectangle, a flow span running to
 the end of its middle rows, only its ends bounded, and a wrapped paragraph joined
 in a flow but cut per row in a block. `selftest` 1518 checks.
 
+## 2026-11-15 — the shell says where the prompt is
+
+**Context.** `OSC 133` was in the parser's list only to be thrown away, so the
+scrollback was a wall of lines: with a `pi` session or a long build on screen,
+getting back to the prompt that started it meant wheeling and guessing.
+
+**Activities.** `term.Marks` is the Rust `prompt.rs` ported: four kinds (`A`, `B`,
+`C`, `D;status`) kept on **absolute** lines, an identical mark on the same line
+ignored (a prompt redrawn after a resize is not news), a cap of 512 with the
+oldest dropped, marks below the surviving history pruned as the scrollback
+retires rows, and a `RIS` clearing the lot. `Term.oscPrompt` parses them and
+`Main.promptJump` does the navigation: walking up looks strictly above the first
+row in sight, walking down from it, the target lands on the first row and is
+clamped to the history — and when nothing would move, nothing happens.
+
+**Result.** Live on `Xvfb :98`, five prompts with eight lines of output each:
+`Ctrl+Shift+Up` walked `view` 4 → 13 → 22 with the first row reading `PROMPT-3`,
+`PROMPT-2`, `PROMPT-1` and stopping at the top; `Down` walked it back to live.
+`term` gained `theShellSaysWhereThePromptIs` (the four marks in order with the
+status, marks not moving when output scrolls, a repeated mark recorded once, an
+unknown kind and a crooked status ignored, prompt-to-prompt navigation skipping
+the marks that are not prompts, the ceiling, the prune, and a `RIS` clearing
+them). `selftest` 1538 checks.
+

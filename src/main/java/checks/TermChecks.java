@@ -35,6 +35,7 @@ public final class TermChecks {
         osc52(c);
         theProgramReportsItsProgress(c);
         aBlockSelectionKeepsItsColumns(c);
+        theShellSaysWhereThePromptIs(c);
         logicalLines(c);
         resizing(c);
         theReaderKeepsHisPlace(c);
@@ -429,6 +430,73 @@ public final class TermChecks {
      * no reply is what a client reads as "not supported", and letting a program
      * in the terminal read the clipboard is a leak.
      */
+    /**
+     * `B39`/`M-R`: `OSC 133` — the shell says where the prompt starts, where the
+     * command starts, where the output starts and how it ended. The marks live on
+     * **absolute** lines, so output scrolled afterwards does not move them.
+     */
+    private static void theShellSaysWhereThePromptIs(Check c) {
+        Term t = new Term(20, 4);
+        Check.feed(t, E + "]133;A" + E + "\\");
+        Check.feed(t, "$ " + E + "]133;B" + E + "\\");
+        Check.feed(t, "echo hi\r\n" + E + "]133;C" + E + "\\");
+        Check.feed(t, "hi\r\n" + E + "]133;D;0" + E + "\\");
+        java.util.List<term.Marks.Mark> m = t.marks.all();
+        c.eq("the four marks of one command are kept in order", m.size(), 4);
+        c.eq("the prompt starts where the shell said", m.get(0).kind(),
+                term.Marks.Kind.PROMPT_START);
+        c.eq("the command starts next", m.get(1).kind(), term.Marks.Kind.COMMAND_START);
+        c.eq("the output after it", m.get(2).kind(), term.Marks.Kind.OUTPUT_START);
+        c.eq("and the end carries the status", m.get(3).status(), 0);
+        long promptLine = m.get(0).line();
+        c.eq("the prompt mark sits on the line it was sent from", promptLine, 0L);
+        c.eq("and the end further down", m.get(3).line(), 2L);
+
+        // more output does not move a mark: the line under it moves instead
+        Check.feed(t, "a\r\nb\r\nc\r\nd\r\ne\r\n");
+        c.eq("the marks stay where they were", t.marks.all().get(0).line(), promptLine);
+
+        // a repeated mark is a shell repeating itself, not news
+        Term r = new Term(20, 4);
+        Check.feed(r, E + "]133;A" + E + "\\" + E + "]133;A" + E + "\\");
+        c.eq("a repeated mark is recorded once", r.marks.size(), 1);
+
+        // an unknown kind, and a status that is not a number, are ignored
+        Term u = new Term(20, 4);
+        Check.feed(u, E + "]133;Z" + E + "\\" + E + "]133;D;oops" + E + "\\");
+        c.eq("an unknown kind is not a mark", u.marks.size(), 1);
+        c.is("and a crooked status is no status", u.marks.all().get(0).status() == null);
+
+        // navigation: prompt to prompt, skipping the marks that are not prompts
+        Term n = new Term(20, 4);
+        for (int i = 0; i < 3; i++) {
+            Check.feed(n, "$ " + E + "]133;A" + E + "\\");
+            Check.feed(n, E + "]133;B" + E + "\\cmd\r\n");
+        }
+        long top = n.marks.all().get(0).line();
+        long mid = n.marks.all().get(2).line();
+        long last = n.marks.all().get(4).line();
+        c.eq("the previous prompt is the one above", n.promptLine(last, true), mid);
+        c.eq("then the first", n.promptLine(mid, true), top);
+        c.is("and nothing above the first", n.promptLine(top, true) == null);
+        c.eq("forward walks the other way", n.promptLine(top, false), mid);
+        c.is("past the last there is nothing", n.promptLine(last, false) == null);
+
+        // the ceiling, and the history dropping the oldest marks
+        Term cap = new Term(20, 4);
+        for (int i = 0; i < term.Marks.MARK_MAX + 10; i++) {
+            cap.marks.push(new term.Marks.Mark(i, term.Marks.Kind.PROMPT_START, null), 0);
+        }
+        c.eq("the list has a ceiling", cap.marks.size(), term.Marks.MARK_MAX);
+        c.eq("and the oldest went first", cap.marks.all().get(0).line(), 10L);
+        cap.marks.prune(20);
+        c.is("a mark below the history is dropped", cap.marks.all().get(0).line() >= 20);
+
+        // a fresh shell starts with no marks at all
+        Check.feed(n, E + "c");
+        c.is("a RIS clears them", n.marks.isEmpty());
+    }
+
     /**
      * `B5`: a **block** selection is a rectangle — the same columns on every row,
      * one line each, dragged from any corner — while a flow selection follows the
