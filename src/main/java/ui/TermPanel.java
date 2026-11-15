@@ -910,14 +910,32 @@ public final class TermPanel extends JPanel implements KeyListener {
      * selection (`B27`).
      */
     private void drawTextRun(Graphics2D g2, char[] b, int n, int x, int baseline, Font font) {
+        String s = visible(b, n, font);
         if (!ligatures) {
             // off: one glyph per cell, the historical draw (`L18`)
-            g2.drawChars(b, 0, n, x, baseline);
+            g2.drawString(s, x, baseline);
             return;
         }
-        java.awt.font.TextLayout tl = new java.awt.font.TextLayout(
-                new String(b, 0, n), font, g2.getFontRenderContext());
+        java.awt.font.TextLayout tl = new java.awt.font.TextLayout(s, font,
+                g2.getFontRenderContext());
         tl.draw(g2, x, baseline);
+    }
+
+    /**
+     * The run as the font can show it: a sequence the font does not compose keeps
+     * its joiners and its variation selector for the shaping engine, but a face
+     * that has no glyph for them would paint a box, so they are dropped — a keycap
+     * shows its digit instead of a digit and a tofu (`L13`).
+     */
+    private static String visible(char[] b, int n, Font font) {
+        StringBuilder out = new StringBuilder(n);
+        for (int i = 0; i < n; i++) {
+            char c = b[i];
+            boolean hidden = c == '\u200D' || c == '\uFE0E' || c == '\uFE0F' || c == '\u20E3';
+            if (hidden && !font.canDisplay(c)) continue;
+            out.append(c);
+        }
+        return out.toString();
     }
 
     private Font fontFor(int a) {
