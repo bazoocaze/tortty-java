@@ -1339,3 +1339,25 @@ the strip reads `tortty / castle3 / castle3` instead of `tortty-java` three time
 and a `cd /tmp && sleep 60` in a tab titles it `tmp`. `selftest` 1321 checks
 (+7: per-workspace round trip and clamping, the title order, the descendant walk),
 verified live on `Xvfb :98` with the owner's own saved session.
+
+## 2026-11-14 — the picture is what the tab was showing
+
+**Context.** `restore_state = content` photographed the primary screen only, so a
+tab that was up on the alt screen (`pi`, `mc`, `less`) came back as the prompt
+column behind it — the owner's `mc` tab restored as 40 rows of prompts, and a
+`less /etc/hosts` tab restored to the marker and a fresh prompt. `B64`.
+
+**Activities.** `Term.snapshot()` runs a third pass under the alt screen: the app's
+grid, emitted last so it is what the grid shows, with the primary screen above it
+in the history, and the CUP written at the app's cursor instead of being skipped.
+The decoration flags of the primary screen are stashed on the way into the alt
+screen (`mainChrome`, beside `mainCp`) and the app's rows start unflagged, so the
+marker stays out of the picture from either screen and no row of it is dropped —
+that missing pair of flags is also the likely source of the marker found inside
+`session-0-2.ans`.
+
+**Result.** A killed app that never leaves the alt screen now comes back as the
+screen it left (measured with a `printf '\e[?1049h…'` + `trap '' HUP TERM` tab:
+the photo carries both its lines, the restored tab shows them, the primary prompt
+is above in the history). Children that leave the alt screen when hung up are
+unchanged — the last words still win. `selftest` 1327 checks (+6), all green.

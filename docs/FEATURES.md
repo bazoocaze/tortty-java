@@ -486,10 +486,13 @@ what the hot reload watches.
   before the picture is taken (Rust `B48`): the last words — a `pi` leaving the
   alt screen with its resume hint, a `cargo` printing its final line — are in
   the snapshot instead of being cut by the hangup. A wide snapshot reflows in a narrow
-  window by the same code a live resize uses. What is in the picture is what the
-  terminal saw: a full-screen app's own buffer (`less`, `vim`, `pi`) never reaches
-  the byte stream, so it is not in the snapshot — the app is gone and only the
-  terminal's bytes are carried over.
+  window by the same code a live resize uses. The picture is what the tab was
+  **showing**: when the app owns the alt screen its grid is photographed too, at
+  the end of the stream with the primary screen kept above it in the history, and
+  the cursor is written where the app had it (`B64`). A child that leaves the alt
+  screen while it is hung up — `less`, `vim` and `pi` all do — is gone from the
+  picture by then, which is why the last words are drained first; one that never
+  lets go (killed, crashed, trapped) comes back as the screen it left.
 - The pty carries the window size in **pixels** (`L22`): the grid goes out as
   `TIOCSWINSZ` rows/columns as pty4j sends it, and the pixel half is written by
   `pty/WinPixels` through JNA on the master fd, `cols × cellW` by `rows × cellH`,

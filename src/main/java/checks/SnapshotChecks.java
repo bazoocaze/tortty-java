@@ -78,6 +78,11 @@ public final class SnapshotChecks {
                 allText(replay(snap, 20, 6)), allText(t));
     }
 
+    /**
+     * `B64`: the picture is what the tab was **showing**, so an app screen comes
+     * back too — with the primary one above it in the history, and the cursor
+     * where the app left it.
+     */
     private static void altScreen(Check c) {
         Term t = new Term(20, 6);
         Check.feed(t, "shell prompt\r\n");
@@ -85,8 +90,27 @@ public final class SnapshotChecks {
         Check.feed(t, "vim owns this");
         String text = new String(t.snapshot(), java.nio.charset.StandardCharsets.UTF_8);
         c.is("the primary screen is in the snapshot", text.contains("shell prompt"));
-        c.is("the app screen is not", !text.contains("vim owns this"));
-        c.is("and no CUP is written on the alt screen", !text.endsWith("H"));
+        c.is("so is the app screen", text.contains("vim owns this"));
+        c.is("and the app screen comes last", text.indexOf("vim owns this") > text.indexOf("shell prompt"));
+        c.is("the cursor is written where the app left it", text.endsWith(E + "[1;14H"));
+        // reopening the picture puts the app screen on the grid, primary above it
+        Term back = replay(t.snapshot(), 20, 6);
+        c.is("the app screen is on the grid again", back.screenText(0).startsWith("vim owns this"));
+        c.is("and the primary one is in the history", allText(back).contains("shell prompt"));
+
+        // the marker of the primary screen is decoration wherever the picture
+        // starts from, and no row of the app's screen is dropped for it
+        Term m = new Term(30, 6);
+        Check.feed(m, "prompt\r\n");
+        byte[] marker = (E + "[6;1H\r\n" + E + "[2m-- restored --" + E + "[0m\r\n")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        m.feedChrome(marker, 0, marker.length);
+        int markRow = m.rows - 2;
+        Check.feed(m, E + "[?1049h" + E + "[" + (markRow + 1) + ";1Happ line here");
+        String f = new String(m.snapshot(), java.nio.charset.StandardCharsets.UTF_8);
+        c.is("the marker stays decoration under the alt screen", !f.contains("restored"));
+        c.is("the app's row at the marker's place is content", f.contains("app line here"));
+        c.is("and the primary screen is still there", f.contains("prompt"));
     }
 
     private static void chrome(Check c) {

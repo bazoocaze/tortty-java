@@ -116,6 +116,8 @@ public final class Term {
     private byte[] mainAttr, mainUl;
     private int[] mainUlColor;
     private boolean[] mainWrapped;
+    /** The chrome flags of the primary screen while the app owns the alt one (`B64`). */
+    private boolean[] mainChrome;
     private int mainX, mainY;
     private boolean mainOrigin, mainAutowrap;
 
@@ -306,6 +308,7 @@ public final class Term {
         mainCp = null; mainCluster = null; mainFg = null; mainBg = null; mainLink = null; mainAttr = null;
         mainUl = null; mainUlColor = null;
         mainWrapped = null;
+        mainChrome = null;
         links.clear(); linkIndex.clear(); penLink = 0;
         images.clear();
         viewOff = 0; layoutGen++;
@@ -350,6 +353,7 @@ public final class Term {
             mainUlColor = copyGridInt(mainUlColor, oldCols, oldRows, nc, nr, DEFAULT);
             mainLink = copyGridInt(mainLink, oldCols, oldRows, nc, nr, 0);
             mainWrapped = copyBool(mainWrapped, oldRows, nr);
+            mainChrome = copyBool(mainChrome, oldRows, nr);
         }
         // History rows were captured at the old width; crop/pad them too so
         // the view can show them after a resize.
@@ -943,24 +947,32 @@ public final class Term {
      */
     public byte[] snapshot() {
         StringBuilder out = new StringBuilder(1 << 12);
-        // under the alt screen the primary screen is the stashed one: a
-        // photograph of vim is not what anybody wants back
+        // Under the alt screen the picture is the app's screen, with the primary
+        // one above it in the history: what the tab was showing is what comes
+        // back, and what was behind it is not lost (`B64`)
         boolean under = alt && mainCp != null;
-        int[] gcp = under ? mainCp : cp;
-        String[] gcl = under ? mainCluster : cluster;
-        int[] gfg = under ? mainFg : fg, gbg = under ? mainBg : bg;
-        byte[] ga = under ? mainAttr : attr, gu = under ? mainUl : ul;
-        int[] guc = under ? mainUlColor : ulColor, gl = under ? mainLink : link;
-        boolean[] gw = under ? mainWrapped : rowWrapped;
+        int passes = under ? 3 : 2;
 
         int penFg = Color.DEFAULT, penBg = Color.DEFAULT, penUc = Color.DEFAULT;
         byte penA = 0, penU = 0;
         int link = 0;
         boolean first = true, prevWrapped = false;
 
-        for (int pass = 0; pass < 2; pass++) {
+        for (int pass = 0; pass < passes; pass++) {
             int n = pass == 0 ? hist.size() : rows;
             java.util.Iterator<Row> it = pass == 0 ? hist.iterator() : null;
+            // pass 1 is the primary screen (the stashed one while the app is up,
+            // with its own decoration flags); pass 2 exists only under the alt
+            // screen and is the app's grid, every row of it content
+            boolean app = pass == 2;
+            boolean prim = under && !app;
+            int[] gcp = prim ? mainCp : cp;
+            String[] gcl = prim ? mainCluster : cluster;
+            int[] gfg = prim ? mainFg : fg, gbg = prim ? mainBg : bg;
+            byte[] ga = prim ? mainAttr : attr, gu = prim ? mainUl : ul;
+            int[] guc = prim ? mainUlColor : ulColor, gl = prim ? mainLink : this.link;
+            boolean[] gw = prim ? mainWrapped : rowWrapped;
+            boolean[] gch = prim ? mainChrome : rowChrome;
             for (int y = 0; y < n; y++) {
                 Row h = null;
                 int[] t; String[] cl; int[] f, b, uc, l; byte[] a, u;
@@ -981,7 +993,7 @@ public final class Term {
                     uc = java.util.Arrays.copyOfRange(guc, off, off + w);
                     l = java.util.Arrays.copyOfRange(gl, off, off + w);
                     wrapped = y < gw.length && gw[y];
-                    chrome = y < rowChrome.length && rowChrome[y];
+                    chrome = y < gch.length && gch[y];
                 }
                 if (chrome) continue;
                 if (!first && !prevWrapped) out.append("\r\n");
@@ -1020,10 +1032,9 @@ public final class Term {
         }
         if (link != 0) out.append("\u001b]8;;\u001b\\");
         if (penFg != Color.DEFAULT || penBg != Color.DEFAULT || penA != 0 || penU != 0) out.append("\u001b[0m");
-        // the alt screen's cursor belongs to the app: no CUP there
-        if (!alt) {
-            out.append("\u001b[").append(cy + 1).append(';').append(cx + 1).append('H');
-        }
+        // the last rows are the ones in front — the app's when it owns the
+        // screen — so the cursor goes where it was standing there
+        out.append("\u001b[").append(cy + 1).append(';').append(cx + 1).append('H');
         return out.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
@@ -2389,6 +2400,10 @@ public final class Term {
         mainFg = fg; mainBg = bg; mainAttr = attr;
         mainUl = ul; mainUlColor = ulColor; mainLink = link;
         mainWrapped = rowWrapped;
+        // the app's rows are its own: nothing on the alt screen is decoration.
+        // The primary's flags are kept aside so the marker written before the app
+        // took over stays out of the photograph (`B64`)
+        mainChrome = rowChrome;
         mainX = cx; mainY = cy;
         mainOrigin = origin; mainAutowrap = autowrap;
         int n = cols * rows;
@@ -2397,6 +2412,7 @@ public final class Term {
         ul = new byte[n]; ulColor = new int[n];
         java.util.Arrays.fill(ulColor, Color.DEFAULT);
         rowWrapped = new boolean[rows];
+        rowChrome = new boolean[rows];
         for (int i = 0; i < n; i++) { cp[i] = ' '; fg[i] = Color.DEFAULT; bg[i] = Color.DEFAULT; }
         cx = 0; cy = 0; wrapPending = false;
         viewOff = 0; layoutGen++;
@@ -2411,11 +2427,13 @@ public final class Term {
         fg = mainFg; bg = mainBg; attr = mainAttr;
         ul = mainUl; ulColor = mainUlColor; link = mainLink;
         rowWrapped = mainWrapped;
+        rowChrome = mainChrome;
         cx = mainX; cy = mainY;
         origin = mainOrigin; autowrap = mainAutowrap;
         mainCp = null; mainCluster = null;
         mainFg = null; mainBg = null; mainAttr = null;
         mainUl = null; mainUlColor = null; mainLink = null; mainWrapped = null;
+        mainChrome = null;
         viewOff = 0; layoutGen++;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         top = 0; bot = rows - 1;
