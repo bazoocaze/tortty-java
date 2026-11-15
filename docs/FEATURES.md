@@ -325,7 +325,11 @@ Features implemented in the Java version of TorTTY.
   fraction are distinguished, and the fraction accumulates until it completes
   a notch.
 - Visible selection (drag, double-click on word, triple-click on the whole
-  logical line) with inversion, including history. A triple click follows a
+  logical line) with inversion, including history. **Alt+drag** takes a **block**:
+  the same columns on every row, dragged from any corner, copied one line each —
+  the column of a table, not the ends of its lines (`B5`). It is ours even when
+  the child tracks the mouse (`?1000`…): an app that owns the pointer still
+  leaves the rectangle to the hand that asks for it. A triple click follows a
   soft-wrapped paragraph (`B31`): from column 0 of its first row to the last cell
   with ink, so copying a wrapped log line is one click and the copy carries no
   newline inside the paragraph. A double click ends a word only at whitespace, so

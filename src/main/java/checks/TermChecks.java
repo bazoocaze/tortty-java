@@ -34,6 +34,7 @@ public final class TermChecks {
         tabStops(c);
         osc52(c);
         theProgramReportsItsProgress(c);
+        aBlockSelectionKeepsItsColumns(c);
         logicalLines(c);
         resizing(c);
         theReaderKeepsHisPlace(c);
@@ -428,6 +429,47 @@ public final class TermChecks {
      * no reply is what a client reads as "not supported", and letting a program
      * in the terminal read the clipboard is a leak.
      */
+    /**
+     * `B5`: a **block** selection is a rectangle — the same columns on every row,
+     * one line each, dragged from any corner — while a flow selection follows the
+     * text and joins a soft-wrapped paragraph back into one line.
+     */
+    private static void aBlockSelectionKeepsItsColumns(Check c) {
+        Term t = new Term(30, 10);
+        Check.feed(t, "one   alpha  10\r\ntwo   beta   20\r\nthree gamma  30\r\n");
+        // columns 2..6 hold "e   a", "o   b", "ree g"
+        term.Selection.Span block = term.Selection.span(0, 2, 2, 6, true);
+        c.eq("the block copies the same columns of every row",
+                term.Selection.text(t, block), "e   a\no   b\nree g");
+        c.is("the block holds cell 2 of the last row", term.Selection.contains(block, 2, 2));
+        c.is("and not the cell before it", !term.Selection.contains(block, 2, 1));
+        c.is("nor a row past its end", !term.Selection.contains(block, 3, 3));
+
+        // dragged from the other corner the rectangle is the same one
+        term.Selection.Span flipped = term.Selection.span(2, 6, 0, 2, true);
+        c.eq("a right-to-left drag is the same rectangle",
+                term.Selection.text(t, flipped), "e   a\no   b\nree g");
+
+        // a flow selection keeps the text's own shape
+        term.Selection.Span flow = term.Selection.span(0, 6, 1, 3, false);
+        // only the first and the last row are bounded: what lies between them
+        // is taken whole, as in the Rust `span_text`
+        c.eq("a flow selection runs from the first row to the last",
+                term.Selection.text(t, flow), "alpha  10\ntwo");
+        c.is("and only its ends are bounded", term.Selection.contains(flow, 1, 0));
+        c.is("with the first row bounded on the left",
+                !term.Selection.contains(flow, 0, 5));
+
+        // a wrapped row continues the line in a flow selection, not in a block
+        Term w = new Term(10, 6);
+        Check.feed(w, "abcdefghijklmnop");
+        term.Selection.Span joined = term.Selection.span(0, 0, 1, 5, false);
+        c.eq("a wrapped paragraph stays one line",
+                term.Selection.text(w, joined), "abcdefghijklmnop");
+        term.Selection.Span cut = term.Selection.span(0, 0, 1, 5, true);
+        c.eq("a block cuts it per row", term.Selection.text(w, cut), "abcdef\nklmnop");
+    }
+
     /**
      * `OSC 9;4` (mintty/ConEmu): the program says how far it got. It is a
      * **state**, not a sentence, so it must never become a notification — a

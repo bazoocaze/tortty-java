@@ -1631,3 +1631,26 @@ on its way out and the lock was free afterwards. `session` gained
 `onlyOneWindowOwnsTheState` (first ask owns, the second does not, the lock is free
 after the owner leaves, no path means no lock). `selftest` 1508 checks.
 
+## 2026-11-15 — a drag can take a column
+
+**Context.** The only selection was a **flow**: from a column of one row to a
+column of another, following the text. Copying the `size` column of a `ls -l`
+meant dragging to the end of every line and editing by hand.
+
+**Activities.** The meaning of the two anchors moved out of the panel into
+`term.Selection`, where it is pure and testable: a span is normalised once, a
+flow span bounds only its first and last row (and joins a soft-wrapped paragraph
+back into one line), a **block** span is a rectangle cut per row. `TermPanel`
+keeps the anchors and gains one flag: **Alt**+drag sets it, and Alt wins over
+`?1000`/`?1002`/`?1003` — an app that tracks the mouse still leaves the
+rectangle to the hand that asks for it. Double-click and the scrolling rules
+clear it, so a word selection is never drawn as a rectangle.
+
+**Result.** Live on `Xvfb :98` at 130 dpi, a table printed by `printf` and
+Alt+dragged from row 1 column 8 to row 4 column 11 inverts exactly that
+rectangle — the dashes and the three numbers of the `size` column, not the ends
+of the lines. `term` gained `aBlockSelectionKeepsItsColumns`: the same columns of
+every row, a right-to-left drag being the same rectangle, a flow span running to
+the end of its middle rows, only its ends bounded, and a wrapped paragraph joined
+in a flow but cut per row in a block. `selftest` 1518 checks.
+

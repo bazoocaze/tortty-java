@@ -6,6 +6,7 @@ import term.Theme;
 import term.WcWidth;
 import term.KittyImages;
 import term.Placeholder;
+import term.Selection;
 import term.Sixel;
 import render.FrameGate;
 import prof.Prof;
@@ -47,6 +48,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     private int selAX = -1, selBX = -1;
     private long selAbsAY = -1, selAbsBY = -1;
     private boolean selecting;
+    /** The current drag is a rectangle (**Alt**+drag), not a flow to the text. */
+    private boolean selBlock;
     // scrollback search (`L9`): one bar over the top right of the grid
     private JPanel findBar;
     private javax.swing.JTextField findField;
@@ -146,10 +149,16 @@ public final class TermPanel extends JPanel implements KeyListener {
                         return;
                     }
                 }
-                boolean select = e.getButton() == MouseEvent.BUTTON1
-                        && (term.mouseMode == 0 || e.isShiftDown());
+                // Alt takes a **block**: the same columns on every row, dragged
+                // from any corner (Rust `B5`). It is ours even when the child
+                // tracks the mouse — an app that wants the pointer still leaves
+                // the rectangle selection to the hand that asks for it.
+                boolean block = e.getButton() == MouseEvent.BUTTON1 && e.isAltDown();
+                boolean select = block || (e.getButton() == MouseEvent.BUTTON1
+                        && (term.mouseMode == 0 || e.isShiftDown()));
                 if (select) {
                     int x = cellX(e), y = cellY(e);
+                    selBlock = block;
                     if (e.getClickCount() >= 2) {
                         selectWordOrLine(x, y, e.getClickCount() >= 3);
                         return;
@@ -1629,29 +1638,26 @@ public final class TermPanel extends JPanel implements KeyListener {
         return selAX >= 0 && (selAX != selBX || selAbsAY != selAbsBY);
     }
 
+    /** The drag's two anchors, as the shape they mean (`term.Selection`). */
+    private Selection.Span selectionSpan() {
+        return Selection.span(selAbsAY, selAX, selAbsBY, selBX, selBlock);
+    }
+
     private boolean isSelected(int x, int y) {
         if (!hasSelection()) return false;
-        long aL = selAbsAY, bL = selAbsBY;
-        int aC = selAX, bC = selBX;
-        if (aL > bL || (aL == bL && aC > bC)) {
-            long tl = aL; aL = bL; bL = tl;
-            int tc = aC; aC = bC; bC = tc;
-        }
-        long line = term.absoluteLine(y);
-        if (line < aL || line > bL) return false;
-        if (line == aL && x < aC) return false;
-        if (line == bL && x > bC) return false;
-        return true;
+        return Selection.contains(selectionSpan(), term.absoluteLine(y), x);
     }
 
     private void clearSelection() {
         selAX = selBX = -1;
         selAbsAY = selAbsBY = -1;
         selecting = false;
+        selBlock = false;
     }
 
     private void selectWordOrLine(int x, int y, boolean wholeLine) {
         selecting = false;
+        selBlock = false;
         long abs = term.absoluteLine(y);
         if (wholeLine) {
             // a soft-wrapped line is one line: the span walks the paragraph and
@@ -1674,38 +1680,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private String selectionText() {
         if (!hasSelection()) return "";
-        long aL = selAbsAY, bL = selAbsBY;
-        int aC = selAX, bC = selBX;
-        if (aL > bL || (aL == bL && aC > bC)) {
-            long tl = aL; aL = bL; bL = tl;
-            int tc = aC; aC = bC; bC = tc;
-        }
-        int c = term.cols;
-        StringBuilder out = new StringBuilder();
-        for (long abs = aL; abs <= bL; abs++) {
-            // a row that continues a soft-wrapped one is not a new line: the
-            // copy keeps the paragraph as the child wrote it
-            if (abs > aL && !term.wrappedAt(abs - 1)) out.append('\n');
-            int[] cps = term.rowCpAt(abs);
-            String[] cls = term.rowClusterAt(abs);
-            int off = term.rowOffsetAt(abs);
-            if (cps == null || off < 0) continue;
-            int from = (abs == aL) ? aC : 0;
-            int to = (abs == bL) ? bC : c - 1;
-            from = Math.max(0, Math.min(c - 1, from));
-            to = Math.max(0, Math.min(c - 1, to));
-            StringBuilder line = new StringBuilder();
-            for (int x = from; x <= to; x++) {
-                int cp = cps[off + x];
-                if (cp == Term.WIDE_CONT) continue;
-                line.append(Term.cellString(cps, cls, off + x));
-            }
-            while (line.length() > 0 && line.charAt(line.length() - 1) == ' ') {
-                line.setLength(line.length() - 1);
-            }
-            out.append(line);
-        }
-        return out.toString();
+        return Selection.text(term, selectionSpan());
     }
 
     private void copySelection() {
