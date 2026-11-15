@@ -861,7 +861,7 @@ public final class TermPanel extends JPanel implements KeyListener {
             } else {
                 Font gf = glyphFont(font, c, attr);
                 g2.setFont(gf);
-                g2.drawString(s, xPx + i * cellW(), baseline);
+                g2.drawString(visible(s, gf), xPx + i * cellW(), baseline);
                 g2.setFont(font);
             }
             int j = i + 1;
@@ -928,9 +928,13 @@ public final class TermPanel extends JPanel implements KeyListener {
      * shows its digit instead of a digit and a tofu (`L13`).
      */
     private static String visible(char[] b, int n, Font font) {
-        StringBuilder out = new StringBuilder(n);
-        for (int i = 0; i < n; i++) {
-            char c = b[i];
+        return visible(new String(b, 0, n), font);
+    }
+
+    private static String visible(CharSequence cs, Font font) {
+        StringBuilder out = new StringBuilder(cs.length());
+        for (int i = 0; i < cs.length(); i++) {
+            char c = cs.charAt(i);
             boolean hidden = c == '\u200D' || c == '\uFE0E' || c == '\uFE0F' || c == '\u20E3';
             if (hidden && !font.canDisplay(c)) continue;
             out.append(c);
