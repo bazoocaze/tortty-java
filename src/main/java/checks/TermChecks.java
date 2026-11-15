@@ -346,7 +346,8 @@ public final class TermChecks {
         Check.feed(t, E + "[5n");
         c.eq("DSR 5 is OK", Check.childOut(t), E + "[0n");
         Check.feed(t, E + "[c");
-        c.eq("DA1", Check.childOut(t), E + "[?62c");
+        // `4` is sixel (B65): a client that probes for picture support reads it
+        c.eq("DA1", Check.childOut(t), E + "[?62;4c");
         Check.feed(t, E + "[>c");
         c.eq("DA2", Check.childOut(t), E + "[>1;100;0c");
         Check.feed(t, E + "]10;?" + "\u0007");

@@ -1431,12 +1431,13 @@ public final class Term {
 
 
     /**
-     * The body of a `DCS` (`B62`). A multiplexer wraps a sequence for the
-     * terminal behind one: {@code ESC P tmux; ... ESC \\}, with every {@code ESC}
-     * of the inner sequence doubled so the multiplexer's own parser leaves it
-     * alone. That is how {@code kitten icat --passthrough tmux} and an editor
-     * inside {@code tmux} send a picture. Nothing else in a `DCS` is of use to
-     * us, so anything that does not open with {@code tmux;} is dropped as before.
+     * The body of a `DCS`, which carries two kinds of picture. A multiplexer wraps
+     * a sequence for the terminal behind one: {@code ESC P tmux; ... ESC \\}, with
+     * every {@code ESC} of the inner sequence doubled so the multiplexer's own
+     * parser leaves it alone — that is how {@code kitten icat --passthrough tmux}
+     * and an editor inside {@code tmux} send one (`B62`). A sixel (`B65`) is a
+     * `DCS` of its own, {@code ESC P <p1>;<p2>;<p3> q <body> ST}. Anything else is
+     * still not ours and is dropped.
      */
     private final StringBuilder dcsBuf = new StringBuilder();
     private boolean dcsOverflow = false;
@@ -1456,13 +1457,36 @@ public final class Term {
         String body = dcsBuf.toString();
         dcsBuf.setLength(0);
         dcsOverflow = false;
-        if (over || inner || !body.startsWith("tmux;")) return; // too big, nested, or not ours
+        if (over || inner) return; // too big, or already unwrapping
+        if (!body.startsWith("tmux;")) {
+            sixelDcs(body);
+            return;
+        }
         byte[] b = body.substring(5).getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
         byte[] grown = new byte[pendingLen + b.length];
         System.arraycopy(pending, 0, grown, 0, pendingLen);
         System.arraycopy(b, 0, grown, pendingLen, b.length);
         pending = grown;
         pendingLen = grown.length;
+    }
+
+    /**
+     * A `DCS` that is not a multiplexer's: it may be a sixel (`B65`), which is a
+     * picture at the cursor. The picture takes the rows it covers and the cursor
+     * ends **below** it at the left margin — `chafa` sends no newline of its own,
+     * so a terminal that leaves the cursor in place prints the prompt over the
+     * picture.
+     */
+    private void sixelDcs(String body) {
+        byte[] dcs = body.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        KittyImages.Result r = images.showSixel(dcs, cx, cy, cellW, cellH);
+        if (!r.changed) return;
+        if (r.moveCursor && r.lines > 0) {
+            cx = 0;
+            wrapPending = false;
+            for (int i = 0; i < r.lines; i++) index();
+        }
+        dirtyAll = true;
     }
 
     private final StringBuilder oscBuf = new StringBuilder();
@@ -1484,15 +1508,32 @@ public final class Term {
                 childOut.write(("\u001b_" + resp + "\u001b\\").getBytes(java.nio.charset.StandardCharsets.UTF_8));
             } catch (Exception ignored) { }
         }
-        // without `C=1` the cursor goes down the rows the image took
-        if (r.moveCursor) for (int i = 0; i < r.lines; i++) index();
+        // without `C=1` the cursor goes down the rows the image took, and to the
+        // left margin — what the Rust core does, and what a producer that adds
+        // its own newline after the picture expects
+        if (r.moveCursor) {
+            for (int i = 0; i < r.lines; i++) index();
+            cx = 0;
+            wrapPending = false;
+        }
         if (r.changed) dirtyAll = true;
     }
 
     private void oscByte(int b) {
         if (b == 7) { oscEnd(); return; }
         if (b == 0x1b) { state = OSC_ST; return; } // ST is ESC \ (handled next)
-        if (oscBuf.length() < 8192) oscBuf.append((char) b);
+        // an iTerm2 inline image carries a whole picture inside the string, so
+        // its cap is the transmission cap, not the 8 KiB everything else gets
+        int cap = itermOsc() ? KittyImages.MAX_APC + 1 : 8192;
+        if (oscBuf.length() < cap) oscBuf.append((char) b);
+    }
+
+    /** Whether what has arrived so far is still the start of {@code 1337;File=}. */
+    private boolean itermOsc() {
+        String prefix = "1337;File=";
+        int n = Math.min(oscBuf.length(), prefix.length());
+        for (int i = 0; i < n; i++) if (oscBuf.charAt(i) != prefix.charAt(i)) return false;
+        return true;
     }
 
     private void oscEnd() {
@@ -1503,6 +1544,17 @@ public final class Term {
             for (int i = 0; i < t.length(); i++) if (t.charAt(i) >= 0x20) sb.append(t.charAt(i));
             title = sb.toString();
             titleExplicit = true;
+        } else if (s.startsWith("1337;File=")) {
+            // iTerm2's inline image (B66): `chafa -f iterm` and `wezterm imgcat`
+            KittyImages.Result r = images.iterm(s.substring(5), cx, cy, cellW, cellH, cols, rows);
+            if (r.changed) {
+                if (r.moveCursor) {
+                    for (int i = 0; i < r.lines; i++) index();
+                    cx = 0;
+                    wrapPending = false;
+                }
+                dirtyAll = true;
+            }
         } else if (s.startsWith("4;")) {
             oscPalette(s.substring(2));
         } else if (s.startsWith("7;")) {
@@ -2003,7 +2055,11 @@ public final class Term {
                 if (privateGt) {
                     try { childOut.write("\u001b[>1;100;0c".getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 } else if (npar == 0 || (params[0] < 0 || params[0] == 0)) {
-                    try { childOut.write("\u001b[?62c".getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
+                    // `4` is sixel graphics (`B65`): a client that probes the
+                    // terminal for picture support (`chafa` reads this before it
+                    // decides what to send) has to see it, or it falls back to
+                    // character art
+                    try { childOut.write("\u001b[?62;4c".getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 }
             }
             // xterm's window ops (`B28`): 14/16 report the text area and the cell
@@ -2265,6 +2321,18 @@ public final class Term {
         for (int i = from; i < from + n; i++) blankCell(i);
     }
 
+    /**
+     * Blanks a run of cells **and takes the pictures covering them** (`B68`): a
+     * picture lives in its cells, so `EL`/`ED`/`ECH`/`ICH`/`DCH` erase it the way
+     * they erase the glyphs. The run never crosses a row, which is what makes one
+     * index into the grid enough to find the line and the column.
+     */
+    private void eraseCells(int from, int n) {
+        if (n <= 0) return;
+        blankRange(from, n);
+        images.eraseCells(from / cols, from % cols, n);
+    }
+
     private void copyRun(int dst, int src, int n) {
         System.arraycopy(cp, src, cp, dst, n);
         System.arraycopy(cluster, src, cluster, dst, n);
@@ -2279,8 +2347,7 @@ public final class Term {
     private void ed(int mode) {
         if (mode == 2 || mode == 3) {
             for (int y = top; y <= bot; y++) {
-                int off = y * cols;
-                for (int x = 0; x < cols; x++) blankCell(off + x);
+                eraseCells(y * cols, cols);
                 dirty[y] = true;
             }
             if (mode == 3) {
@@ -2294,16 +2361,14 @@ public final class Term {
         }
         if (mode == 0) {
             for (int y = cy; y <= bot; y++) {
-                int off = y * cols;
                 int start = (y == cy) ? cx : 0;
-                for (int x = start; x < cols; x++) blankCell(off + x);
+                eraseCells(y * cols + start, cols - start);
                 dirty[y] = true;
             }
         } else if (mode == 1) {
             for (int y = top; y <= cy; y++) {
-                int off = y * cols;
                 int end = (y == cy) ? cx + 1 : cols;
-                for (int x = 0; x < end; x++) blankCell(off + x);
+                eraseCells(y * cols, end);
                 dirty[y] = true;
             }
         }
@@ -2314,7 +2379,7 @@ public final class Term {
         int from = 0, to = cols;
         if (mode == 0) from = cx;
         else if (mode == 1) to = cx + 1;
-        for (int x = from; x < to; x++) blankCell(off + x);
+        eraseCells(off + from, to - from);
         dirty[cy] = true;
     }
 
@@ -2366,7 +2431,7 @@ public final class Term {
         System.arraycopy(ul, base + cx, ul, base + cx + n, cols - cx - n);
         System.arraycopy(ulColor, base + cx, ulColor, base + cx + n, cols - cx - n);
         System.arraycopy(link, base + cx, link, base + cx + n, cols - cx - n);
-        blankRange(base + cx, n);
+        eraseCells(base + cx, n);
         dirty[cy] = true;
     }
 
@@ -2382,7 +2447,7 @@ public final class Term {
         System.arraycopy(ul, base + cx + n, ul, base + cx, cols - cx - n);
         System.arraycopy(ulColor, base + cx + n, ulColor, base + cx, cols - cx - n);
         System.arraycopy(link, base + cx + n, link, base + cx, cols - cx - n);
-        blankRange(base + cols - n, n);
+        eraseCells(base + cols - n, n);
         dirty[cy] = true;
     }
 
@@ -2390,7 +2455,7 @@ public final class Term {
         if (n <= 0) return;
         if (n > cols - cx) n = cols - cx;
         int base = cy * cols;
-        blankRange(base + cx, n);
+        eraseCells(base + cx, n);
         dirty[cy] = true;
     }
 

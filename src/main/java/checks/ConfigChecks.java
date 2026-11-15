@@ -91,6 +91,12 @@ public final class ConfigChecks {
             c.eq("ligatures off", load(c, "ligatures off\n").ligatures, 0);
             c.is("ligatures bogus is an error", !load(c, "ligatures maybe\n").errors.isEmpty());
 
+            // `B67`: what the child sees as `$TERM`
+            c.eq("term is unset by default", load(c, "").term, "");
+            c.eq("term names the terminal", load(c, "term xterm-kitty\n").term, "xterm-kitty");
+            c.is("term with a space is an error", !load(c, "term foo bar\n").errors.isEmpty());
+            c.is("term with a path is an error", !load(c, "term /usr/bin/xterm\n").errors.isEmpty());
+
             Config blobs = load(c, "# a comment\n\n   \nfont_size 22\n");
             c.eq("comments and blank lines are skipped", blobs.fontSize, 22f);
             c.is("and are not errors", blobs.errors.isEmpty());

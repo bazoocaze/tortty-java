@@ -1402,3 +1402,48 @@ placement, checked on `Xvfb :98`); `chafa -f sixels`, `-f iterm` and `-f iterm2`
 draw nothing, which is now `L25` (sixel and `OSC 1337` are not implemented — the
 escapes are swallowed). `chafa` with no `-f` still falls back to symbols. `selftest`
 1331 checks (+4), `render-check` 62, both green.
+
+## 2026-11-14 — the pictures the rest of the world sends
+
+**Context.** Asked to evaluate `chafa -f <format>` against the image support, the
+kitty path was fixed (each chunk is its own base64 blob) but the other three
+formats drew **nothing**: `chafa -f sixels` is a `DCS` that was swallowed whole,
+`-f iterm` is an `OSC 1337;File=` that was ignored, and `chafa` with no `-f` was
+character art because it decides by `$TERM`.
+
+**Activities.** Three backlog items, all of them ports of what the Rust core
+already does. **`B65` sixel**: `term/Sixel.java` carries the decoder — `split`
+(digits then `q`, so `DECRQSS`'s `$q` stays out), `size` (as wide as the widest
+band, six pixels per `-`) and `decode` into RGBA with `!` runs clamped to the
+raster, `$` repainting a band, percentages and HLS; `KittyImages.showSixel` places
+it as `a=T` would, keeps at most 64 of them (they have no id and no `d=`), and
+`TermPanel.decodeImage` decodes against the theme's background for `P2=0`, the only
+layer that knows it. `DA1` now answers `ESC[?62;4c`. The cursor ends **below the
+picture and at the left margin** — `chafa` sends no newline of its own, so a
+terminal that keeps it in place prints the prompt over the picture; the kitty and
+iTerm2 paths were given the same rule, which is what the Rust core does and Java
+did not. **`B66` iTerm2 inline images**: `KittyImages.iterm` parses the arguments,
+refuses `inline=0` (it asks the terminal to write a file), maps `width`/`height`
+in cells, `px`, `%` or `auto`, and decodes the **uncompressed TIFF** `chafa` sends
+through the JDK's own reader into the raw RGBA the `f=32` path already takes — the
+Rust core had to write a TIFF decoder for it. `Term`'s OSC buffer keeps its 8 KiB
+cap except while the body is still `1337;File=`, which gets the transmission cap.
+**`B67` detection**: measured that `chafa` sends **no query at all** and chooses
+only by `$TERM` (`xterm-kitty` → kitty, `foot`/`mlterm` → sixel, anything else →
+symbols), so the `DA1` attribute helps only the clients that do probe; a new
+`term` config key says what `$TERM` the child sees (default unchanged,
+`xterm-256color`), and `term foot` makes `chafa` pick sixel by itself.
+
+**Result.** `chafa -f sixels mario_face.png` draws the face on `Xvfb :98` (1
+image, 1 placement, 176 k white pixels measured), `-f iterm` now has a picture to
+place, and `chafa` with no `-f` does the same under `term foot`. `L25` (sixel and
+iTerm2 not implemented) is gone from `LIMITATIONS.md`; `FEATURES.md` and
+`CONFIG.md` document the three. **`B68`**, found while testing them: erasing the
+cells did **not** erase the picture over them, so `mc` (a full-screen app without
+the alternate screen) kept the last `chafa` in every cell it repainted and a plain
+`ED 2` left it on screen — Rust's *a picture lives in its cells* was missing here.
+`KittyImages.eraseCells` prunes the placements a blanked run covers, and
+`Term.eraseCells` is now the one call `EL`/`ED`/`ECH`/`ICH`/`DCH` use. New `sixel`
+check area (53 assertions, the Rust decoder cases plus the two screen ones) and five
+more in `graphics` (four iTerm2, one for the erasure); `selftest` 1417 checks,
+`render-check` green.

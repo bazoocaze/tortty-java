@@ -45,18 +45,32 @@ public final class ChildPty {
     }
 
     public ChildPty(String cmd, int cols, int rows) throws IOException {
-        this(cmd, null, cols, rows, null);
+        this(cmd, null, cols, rows, null, DEFAULT_TERM);
     }
 
     public ChildPty(String cmd, String shell, int cols, int rows) throws IOException {
-        this(cmd, shell, cols, rows, null);
+        this(cmd, shell, cols, rows, null, DEFAULT_TERM);
+    }
+
+    public ChildPty(String cmd, String shell, int cols, int rows, String dir) throws IOException {
+        this(cmd, shell, cols, rows, dir, DEFAULT_TERM);
     }
 
     /**
-     * @param dir working directory for the child; {@code null} keeps the JVM's
-     *            own, and a new tab passes the cwd the previous one reported.
+     * What `$TERM` says when the config says nothing: the safest name, because
+     * its terminfo is everywhere. A caller that wants `chafa` and friends to pick
+     * a picture format on their own sets `term` (`B67`) — that choice is a
+     * property of the terminal, not of a tab.
      */
-    public ChildPty(String cmd, String shell, int cols, int rows, String dir) throws IOException {
+    public static final String DEFAULT_TERM = "xterm-256color";
+
+    /**
+     * @param dir  working directory for the child; {@code null} keeps the JVM's
+     *             own, and a new tab passes the cwd the previous one reported.
+     * @param term the `$TERM` the child sees; {@code null} or empty is
+     *             {@link #DEFAULT_TERM}.
+     */
+    public ChildPty(String cmd, String shell, int cols, int rows, String dir, String term) throws IOException {
         this.cols = cols; this.rows = rows;
         String[] command;
         if (cmd != null) {
@@ -65,7 +79,7 @@ public final class ChildPty {
             command = new String[] {resolveShell(shell)};
         }
         Map<String, String> env = new HashMap<>(System.getenv());
-        env.put("TERM", "xterm-256color");
+        env.put("TERM", term == null || term.isEmpty() ? DEFAULT_TERM : term);
         env.put("COLORTERM", "truecolor");
         env.put("TERM_PROGRAM", "tortty-java");
         env.put("SHELL", command[0]);

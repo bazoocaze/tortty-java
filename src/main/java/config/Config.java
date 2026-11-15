@@ -14,6 +14,8 @@ import java.util.List;
 public final class Config {
 
     public String shell = "";
+    /** {@code $TERM} the child sees; empty keeps {@code ChildPty.DEFAULT_TERM} ({@code B67}). */
+    public String term = "";
     public String fontFamily = "DejaVu Sans Mono";
     public float fontSize = 17f;
     public int cursorShape = 0;          // 0 block, 1 beam, 2 underline
@@ -88,6 +90,16 @@ public final class Config {
     private void apply(String key, String value) {
         switch (key) {
             case "shell" -> shell = value;
+            // `B67`: what the child sees as `$TERM`. The default is the safest
+            // name; `xterm-kitty` or `foot` is what makes a client such as
+            // `chafa` use a picture format without being told which.
+            case "term" -> {
+                String v = value.trim();
+                if (v.isEmpty() || v.indexOf(' ') >= 0 || v.indexOf('/') >= 0) {
+                    throw new IllegalArgumentException("a terminal name, no spaces");
+                }
+                term = v;
+            }
             case "font_family" -> {
                 if (value.isEmpty()) throw new IllegalArgumentException("empty family");
                 fontFamily = value;

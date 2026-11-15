@@ -1211,7 +1211,7 @@ public final class Main {
             w.pane.setSelectedComponent(panel);
 
             try {
-                tab.pty = new ChildPty(cmd != null ? cmd : o.cmd, cfg.shell, cols, rows, cwd);
+                tab.pty = new ChildPty(cmd != null ? cmd : o.cmd, cfg.shell, cols, rows, cwd, cfg.term);
             } catch (IOException e) {
                 System.err.println("tortty-java: pty spawn failed: " + e);
                 if (w.tabs.size() == 1) System.exit(1);

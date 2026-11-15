@@ -58,6 +58,25 @@ public final class GraphicsChecks {
     /** A 2x2 RGB image: four pixels, twelve bytes. */
     private static final byte[] PX2 = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
+    /** A picture the JDK can write and read back, for the iTerm2 checks (`B66`). */
+    private static byte[] raster(String kind, int w, int h, int argb) {
+        try {
+            java.awt.image.BufferedImage bi =
+                    new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) bi.setRGB(x, y, argb);
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            if (!javax.imageio.ImageIO.write(bi, kind, out)) return null;
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** The OSC an iTerm2 client sends: arguments, a colon, the picture in base64. */
+    private static String iterm(String args, byte[] data) {
+        return E + "]1337;File=" + args + ":" + Base64.getEncoder().encodeToString(data) + "\u0007";
+    }
+
     public static void run(Check c) {
         byFileReadsAndKeepsTheFile(c);
         aFileCanBeReadByTheSlice(c);
@@ -85,6 +104,11 @@ public final class GraphicsChecks {
         aNegativeZGoesUnderTheText(c);
         aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
+        erasingTheCellsTakesThePictureWithThem(c);
+        anItermPictureLandsWhereTheCursorWas(c);
+        anItermSizeInPxAndPercentResolves(c);
+        anItermPictureWithoutInlineIsRefused(c);
+        anItermTiffBecomesAPictureToo(c);
         everyChunkIsItsOwnBase64(c);
         aMultiplexerWrapperIsUnwrapped(c);
     }
@@ -802,6 +826,123 @@ public final class GraphicsChecks {
         Check.feed(m, apc("m=0", java.util.Arrays.copyOfRange(PX2, 9, 12)));
         c.eq("so does a padded chunk in the middle", m.images.image(8) != null
                 && java.util.Arrays.equals(m.images.image(8).data, PX2), true);
+    }
+
+    /**
+     * `B66`: the iTerm2 payload is a PNG in base64, `inline=1`, and it lands on
+     * the cell the cursor was on — the same placements list as kitty. The cursor
+     * ends on the row below it and at the left margin, where `chafa` adds its own
+     * `\r\n`.
+     */
+    private static void anItermPictureLandsWhereTheCursorWas(Check c) {
+        Term t = new Term(40, 12);
+        t.setCellSize(10, 19);
+        Check.feed(t, E + "[4;5H");
+        byte[] png = raster("png", 20, 19, 0xFF3366CC);
+        c.is("the check can write a PNG", png != null);
+        String name = Base64.getEncoder().encodeToString("x.png".getBytes());
+        Check.feed(t, iterm("name=" + name + ";inline=1;width=2;height=1", png));
+        c.eq("one placement", t.images.placements().size(), 1);
+        if (t.images.placements().size() == 1) {
+            term.KittyImages.Placement p = t.images.placements().get(0);
+            c.eq("at the cursor cell", p.col + "," + p.line, "4,3");
+            c.eq("as wide and as tall as it asked", p.cols + "x" + p.rows, "2x1");
+        }
+        c.eq("the cursor ends below it, at the margin", t.cx + "," + t.cy, "0,4");
+        c.eq("and iTerm2 has no reply channel", Check.childOut(t), "");
+        term.KittyImages.Image img = t.images.image(1);
+        c.is("the picture is on file", img != null);
+        if (img != null) c.eq("as the PNG it arrived as", img.format, term.KittyImages.FMT_PNG);
+    }
+
+    /** `width` in cells, in pixels and in percent resolves against the cell and the grid. */
+    private static void anItermSizeInPxAndPercentResolves(Check c) {
+        Term t = new Term(80, 24);
+        t.setCellSize(10, 19);
+        byte[] png = raster("png", 20, 19, 0xFF000000);
+        if (png == null) { c.is("the check can write a PNG", false); return; }
+        // 20 px in a 10 px cell is 2 cells; 50% of 24 rows is 12
+        Check.feed(t, iterm("inline=1;width=20px;height=50%", png));
+        term.KittyImages.Placement first = t.images.placements().get(0);
+        c.eq("pixels resolve against the cell", first.cols, 2);
+        c.eq("a percentage against the grid", first.rows, 12);
+        // `auto` is the image's own size: 20x19 px in a 10x19 cell
+        Check.feed(t, E + "[1;1H" + iterm("inline=1;width=auto;height=auto", png));
+        term.KittyImages.Placement second = t.images.placements().get(1);
+        c.eq("auto is the picture's own cells", second.cols + "x" + second.rows, "2x1");
+    }
+
+    /** `inline=0` (the default) asks the terminal to write a file: refused, nothing stored. */
+    private static void anItermPictureWithoutInlineIsRefused(Check c) {
+        Term t = new Term(40, 12);
+        t.setCellSize(10, 19);
+        byte[] png = raster("png", 4, 4, 0xFF00FF00);
+        if (png == null) { c.is("the check can write a PNG", false); return; }
+        Check.feed(t, iterm("name=" + Base64.getEncoder().encodeToString("a.png".getBytes())
+                + ";inline=0", png));
+        c.eq("nothing is stored", t.images.imageCount(), 0);
+        c.eq("and nothing is placed", t.images.placements().size(), 0);
+        Check.feed(t, E + "]1337;File=inline=1:@@@" + "\u0007");
+        c.eq("a payload that is not base64 is not a picture", t.images.imageCount(), 0);
+    }
+
+    /**
+     * `chafa -f iterm` sends an **uncompressed TIFF**, which the PNG reader cannot
+     * size. It is decoded through the JDK's reader and handed on as the raw RGBA
+     * the `f=32` path already takes.
+     */
+    private static void anItermTiffBecomesAPictureToo(Check c) {
+        Term t = new Term(40, 12);
+        t.setCellSize(10, 19);
+        byte[] tiff = raster("TIFF", 20, 19, 0xFFFF0000);
+        c.is("the check can write a TIFF", tiff != null);
+        if (tiff == null) return;
+        Check.feed(t, iterm("inline=1", tiff));
+        c.eq("one placement", t.images.placements().size(), 1);
+        term.KittyImages.Image img = t.images.image(1);
+        c.is("the picture is on file", img != null);
+        if (img == null) return;
+        c.eq("as the raw RGBA the kitty path takes", img.format, term.KittyImages.FMT_RGBA);
+        c.eq("with the size the TIFF had", img.width + "x" + img.height, "20x19");
+        c.eq("and the picture's own bytes", img.data.length, 20 * 19 * 4);
+        c.eq("the first pixel is red", (img.data[0] & 0xff) + "," + (img.data[1] & 0xff), "255,0");
+        term.KittyImages.Placement p = t.images.placements().get(0);
+        c.eq("covering its cells", p.cols + "x" + p.rows, "2x1");
+    }
+
+    /**
+     * `B68`: a picture lives in its cells, so erasing them takes it. `clear` and
+     * a full-screen app that paints over without the alternate screen (`mc`) rely
+     * on this — without it the picture stays in every cell they leave blank. What
+     * is in the history is untouched by a screen clear.
+     */
+    private static void erasingTheCellsTakesThePictureWithThem(Check c) {
+        Term t = new Term(20, 6);
+        t.setCellSize(8, 16);
+        // one band: six pixels, one 16 px cell row
+        String pic = apc("a=T,f=24,s=1,v=6,i=5", new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                13, 14, 15, 16, 17, 18});
+        Check.feed(t, E + "[2;9H");
+        Check.feed(t, pic);
+        c.eq("placed at row 1, col 8", t.images.placements().size(), 1);
+        // EL from the first cell to the end of the row: the picture is inside it
+        Check.feed(t, E + "[2;1H" + E + "[K");
+        c.eq("EL took it", t.images.placements().size(), 0);
+        // a picture further right survives an erase to its left
+        Check.feed(t, E + "[3;13H");
+        Check.feed(t, pic);
+        Check.feed(t, E + "[3;1H" + E + "[4X");
+        c.eq("ECH of the first four cells leaves it", t.images.placements().size(), 1);
+        // and the whole screen clearing removes what is on it
+        Check.feed(t, E + "[2J");
+        c.eq("ED 2 took it", t.images.placements().size(), 0);
+        // the same picture, in the history, is not the screen's to erase
+        Check.feed(t, E + "[6;1H");
+        Check.feed(t, pic);
+        Check.feed(t, "\r\n\r\n\r\n".repeat(4));
+        c.eq("the picture rode up", t.images.placements().size(), 1);
+        Check.feed(t, E + "[H" + E + "[2J");
+        c.eq("a screen clear leaves what went to the history", t.images.placements().size(), 1);
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {

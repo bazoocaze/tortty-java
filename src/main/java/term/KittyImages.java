@@ -49,6 +49,16 @@ public final class KittyImages {
     public static final int FMT_RGB = 24;
     public static final int FMT_RGBA = 32;
     public static final int FMT_PNG = 100;
+    /**
+     * Sixel ({@code B65}), kept as the stream arrived: the picture is decoded by
+     * the UI, which is the only layer that knows the theme's background for
+     * {@code P2=0}. Two formats because {@code P2=1} asks for a transparent
+     * background. Neither number is a kitty {@code f=}: a client never sends one.
+     */
+    public static final int FMT_SIXEL = 113;
+    public static final int FMT_SIXEL_ALPHA = 114;
+    /** How many sixel pictures are kept: they have no id to delete them by. */
+    public static final int SIXEL_KEEP = 64;
 
     /** Gap a frame gets when it does not ask for one — the protocol's default. */
     private static final int DEFAULT_GAP_MS = 40;
@@ -212,6 +222,190 @@ public final class KittyImages {
             if (p.placeholder && p.imageId == imageId && (pid == 0 || p.pid == pid)) return p;
         }
         return null;
+    }
+
+    /**
+     * Sixel ({@code B65}): the {@code DCS} body of a bitmap protocol, placed at
+     * the cursor the way {@code a=T} places a transmission — and, like it, the
+     * cursor ends below the picture, because {@code chafa} sends no newline of its
+     * own and a terminal that keeps the cursor where it was prints the prompt over
+     * the picture. A body that is not a sixel stores nothing, so a {@code DCS} that
+     * belongs to someone else keeps its own meaning.
+     */
+    public Result showSixel(byte[] dcs, int cx, int cy, int cellW, int cellH) {
+        Result out = new Result();
+        Sixel.Params params = Sixel.splitParams(dcs);
+        if (params == null) return out;
+        byte[] body = Sixel.body(dcs);
+        int[] size = body == null ? null : Sixel.size(body);
+        if (size == null) return out; // the stream draws nothing
+        if ((long) size[0] * size[1] > Sixel.MAX_PIXELS) return out;
+        int key = Math.max(1, nextId++);
+        generation++;
+        Image img = new Image(key, 0, generation, size[0], size[1],
+                params.background() == 1 ? FMT_SIXEL_ALPHA : FMT_SIXEL, body);
+        images.put(key, img);
+        pruneSixel();
+        out.lines = place(img, java.util.Map.of(), cx, cy, cellW, cellH);
+        out.moveCursor = out.lines > 0;
+        out.changed = true;
+        return out;
+    }
+
+    /**
+     * A sixel has no {@code d=} and no id: a program that draws one per frame of a
+     * video would grow the map forever. The oldest pictures go, with their
+     * placements — the ones on screen are the recent ones.
+     */
+    private void pruneSixel() {
+        List<Image> sixel = new ArrayList<>();
+        for (Image img : images.values()) {
+            if (img.format == FMT_SIXEL || img.format == FMT_SIXEL_ALPHA) sixel.add(img);
+        }
+        int over = sixel.size() - SIXEL_KEEP;
+        if (over <= 0) return;
+        sixel.sort(java.util.Comparator.comparingLong(i -> i.version));
+        Set<Integer> gone = new HashSet<>();
+        for (int i = 0; i < over; i++) gone.add(sixel.get(i).id);
+        images.keySet().removeAll(gone);
+        placements.removeIf(p -> gone.contains(p.imageId));
+    }
+
+    /**
+     * iTerm2's inline image ({@code OSC 1337;File=…:base64}) — {@code B66}, the
+     * half of the graphics story that arrives outside the kitty protocol:
+     * {@code chafa -f iterm} and {@code wezterm imgcat} speak it, and the second
+     * sends an **uncompressed TIFF**, which the PNG reader cannot size. The TIFF
+     * is decoded here through the JDK's own reader and handed on as the raw RGBA
+     * the kitty {@code f=32} path already takes, so nothing downstream learns a
+     * new format.
+     *
+     * <p>{@code inline=0} is the protocol's <em>default</em>, and it asks the
+     * terminal to write the file into the cwd: the bytes come from the child, so
+     * the terminal does not write them anywhere — it refuses.
+     */
+    public Result iterm(String arg, int cx, int cy, int cellW, int cellH, int cols, int rows) {
+        Result out = new Result();
+        if (!arg.startsWith("File=")) return out;
+        String rest = arg.substring(5);
+        // the payload follows the **last** colon: a `name=` may carry one, the
+        // base64 alphabet never does
+        int colon = rest.lastIndexOf(':');
+        if (colon < 0) return out;
+        Map<String, String> kv = new LinkedHashMap<>();
+        for (String item : rest.substring(0, colon).split(";")) {
+            int eq = item.indexOf('=');
+            if (eq > 0) kv.put(item.substring(0, eq).trim(), item.substring(eq + 1).trim());
+        }
+        if (!"1".equals(kv.get("inline"))) return out;
+        byte[] data;
+        try {
+            data = java.util.Base64.getMimeDecoder().decode(rest.substring(colon + 1).trim());
+        } catch (IllegalArgumentException e) {
+            return out;
+        }
+        if (data.length > MAX_APC) return out;
+        // `chafa -f iterm` sends an uncompressed TIFF; `imgcat` sends a PNG
+        if (isTiff(data)) {
+            Raster tiff = tiffRgba(data);
+            if (tiff == null) return out;
+            data = tiff.rgba;
+            kv.put("s", Integer.toString(tiff.width));
+            kv.put("v", Integer.toString(tiff.height));
+            kv.put("f", Integer.toString(FMT_RGBA));
+        }
+        // the full-size cells are what the placement counts in, so a bare
+        // `width`/`height` means the terminal's cells
+        int iw = parse(kv.get("s"), 0), ih = parse(kv.get("v"), 0);
+        if (iw == 0 || ih == 0) {
+            int[] size = pngSize(data);
+            if (size != null) { iw = size[0]; ih = size[1]; }
+        }
+        int cw = Math.max(1, cellW), ch = Math.max(1, cellH);
+        int c = itermCells(kv.get("width"), cols, cw, iw);
+        int r = itermCells(kv.get("height"), rows, ch, ih);
+        kv.put("a", "T");
+        if (c > 0) kv.put("c", Integer.toString(c));
+        if (r > 0) kv.put("r", Integer.toString(r));
+        int fmt = formatOf(kv, data);
+        if (dims(kv, data, fmt) == null) return out;
+        // a display transmission, without the kitty reply: the cursor ends below
+        // the picture, since `chafa` sends one `\r\n` after it and a terminal
+        // that keeps the cursor where it was prints the prompt over the picture
+        transmit(out, kv, data, 0, true, cx, cy, cellW, cellH);
+        return out;
+    }
+
+    /**
+     * An iTerm2 `width`/`height` in cells: a bare number is cells, `Npx` is
+     * pixels (floored against the cell), `N%` a share of the grid, `auto` the
+     * image's own size, and anything else the picture's pixels rounded up.
+     * {@code 0} means "let the placement decide".
+     */
+    private static int itermCells(String v, int total, int cellPx, int imagePx) {
+        if (v == null) return 0;
+        String s = v.trim();
+        if (s.isEmpty() || s.equals("auto")) return 0;
+        int split = 0;
+        while (split < s.length()
+                && (Character.isDigit(s.charAt(split)) || s.charAt(split) == '.')) split++;
+        double n;
+        try {
+            n = Double.parseDouble(s.substring(0, split));
+        } catch (RuntimeException e) {
+            return Math.max(1, (imagePx + cellPx - 1) / cellPx);
+        }
+        String unit = s.substring(split);
+        double out;
+        if (unit.isEmpty()) out = Math.max(1, n);
+        else if (unit.equals("px")) out = Math.max(1, Math.floor(Math.max(1, n) / cellPx));
+        else if (unit.equals("%")) out = Math.max(1, Math.ceil(n * total / 100.0));
+        else out = Math.max(1, (imagePx + cellPx - 1) / cellPx);
+        return (int) Math.min(Integer.MAX_VALUE, out);
+    }
+
+    /** A decoded picture: its size and its pixels. */
+    private record Raster(int width, int height, byte[] rgba) { }
+
+    /** The two byte orders a TIFF header can have. */
+    private static boolean isTiff(byte[] d) {
+        if (d.length < 8) return false;
+        boolean le = d[0] == 'I' && d[1] == 'I' && d[2] == 42 && d[3] == 0;
+        boolean be = d[0] == 'M' && d[1] == 'M' && d[2] == 0 && d[3] == 42;
+        return le || be;
+    }
+
+    /**
+     * A TIFF as RGBA8, through the JDK's own reader — the TIFF plugin has
+     * shipped with the JDK since 9, so no decoder of our own is needed (the Rust
+     * core had to write one). Anything it cannot read (a compression it does not
+     * know, a bit depth it does not) answers {@code null}, and the picture is
+     * refused rather than half drawn.
+     */
+    private static Raster tiffRgba(byte[] data) {
+        try {
+            java.awt.image.BufferedImage bi = javax.imageio.ImageIO.read(
+                    new java.io.ByteArrayInputStream(data));
+            if (bi == null) return null;
+            int w = bi.getWidth(), h = bi.getHeight();
+            if (w <= 0 || h <= 0 || (long) w * h * 4 > MAX_APC) return null;
+            byte[] rgba = new byte[w * h * 4];
+            int[] row = new int[w];
+            for (int y = 0; y < h; y++) {
+                bi.getRGB(0, y, w, 1, row, 0, w);
+                for (int x = 0; x < w; x++) {
+                    int p = row[x];
+                    int i = (y * w + x) * 4;
+                    rgba[i] = (byte) (p >> 16);
+                    rgba[i + 1] = (byte) (p >> 8);
+                    rgba[i + 2] = (byte) p;
+                    rgba[i + 3] = (byte) (p >>> 24);
+                }
+            }
+            return new Raster(w, h, rgba);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** What the {@link Term} must do after an APC. */
@@ -567,6 +761,21 @@ public final class KittyImages {
 
     private void refuse(Result out, Map<String, String> kv, boolean quiet, String why) {
         if (!quiet) out.responses.add(ident(kv) + ";" + why);
+    }
+
+    /**
+     * Erases the cells of a screen line ({@code B68}): a picture covering any of
+     * them goes, because a picture lives in its cells. {@code clear} and a
+     * full-screen app that paints over without the alternate screen (`mc`) rely
+     * on it — without it the picture stays in every cell they leave blank. A
+     * virtual placement has no cells of its own and is left alone.
+     */
+    public void eraseCells(int line, int col, int count) {
+        if (count <= 0) return;
+        int end = col + count;
+        placements.removeIf(p -> !p.placeholder
+                && line >= p.line && line < p.line + p.rows
+                && col < p.col + p.cols && end > p.col);
     }
 
     /** A placement covers a cell when the cell is inside its rectangle. */

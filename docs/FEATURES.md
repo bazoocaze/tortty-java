@@ -125,6 +125,44 @@ Features implemented in the Java version of TorTTY.
   frame past `MAX_APC` (64 MB) answers `ENOSPC`. The panel ticks at 60 Hz only
   while an image that is actually **placed** is running, and composes each frame
   once (`TermPanel.frameOf`), so a still image costs one decode.
+- Sixel (`B65`): the bitmap protocol `chafa -f sixels`, `img2sixel` and `lsix`
+  speak, inside a `DCS` of its own (`ESC P <p1>;<p2>;<p3> q … ST`): bands six
+  pixels tall, `!n` runs clamped to the raster, `$` to repaint a band, `-` for the
+  next one, and both colour spaces the protocol defines (`#n;2;h;l;s` percentages
+  and `#n;1` HLS). `P2=0` fills the unset pixels with the terminal's background
+  and `P2=1` leaves them transparent; the stream is kept as it arrived and decoded
+  in the panel, the only layer that knows that colour. The picture is placed at
+  the cursor the way a kitty transmission is, and **the cursor ends below it and
+  at the left margin**, scrolling the content up when the room is not there —
+  `chafa` sends no newline of its own, so a terminal that kept the cursor in place
+  printed the prompt over the picture. `DA1` answers `ESC [ ? 62 ; 4 c`, the `4`
+  being graphics. Because sixel has no id and no `d=`, at most 64 pictures are
+  kept and the oldest goes with its placements; a picture above 8.5 M px is
+  refused and `P1` (the aspect hint) is read and ignored, so pixels are square.
+- iTerm2 inline images (`B66`): `OSC 1337;File=name=…;width=…;height=…;inline=1:
+  <base64>`, which `chafa -f iterm` and `wezterm imgcat` speak. The payload
+  follows the **last** colon (a `name=` may carry one), `inline=0` — the
+  protocol's default — is refused because it asks the terminal to write the file
+  into the cwd, and `width`/`height` are cells, `Npx` pixels, `N%` of the grid or
+  `auto` for the picture's own size. The bytes are the kitty path's: a PNG is
+  stored as it came (`imgcat`), and the **uncompressed TIFF** `chafa` sends is
+  decoded through the JDK's own reader into the raw RGBA `f=32` already takes, so
+  nothing downstream learns a new format. It lands on the cursor's cell, takes
+  the rows it covers, the cursor ends below it, and iTerm2 has no reply channel,
+  so nothing is answered.
+- A picture lives in its cells (`B68`): `EL`, `ED`, `ECH`, `ICH` and `DCH`
+  erase cells, so they take the picture covering them — `clear` no longer leaves
+  the last `chafa` behind, and a full-screen app that paints over without the
+  alternate screen (`mc`) no longer keeps it in every cell it leaves blank. What
+  a scroll pushed into the history is not the screen's to erase, and a screen
+  clear leaves it alone; `ED 3`, which empties the history, takes it with the
+  lines.
+- What `$TERM` says is the config's (`B67`): `chafa` decides between character
+  art, sixel and kitty **only** by `$TERM` — it probes nothing, and a `DA1` reply
+  never reaches it —, so the default `xterm-256color` leaves it drawing symbols.
+  `term foot` (sixel, and its terminfo is everywhere), `term xterm-kitty` (kitty
+  graphics, but its terminfo is only installed with kitty) or any other name the
+  client knows is a key away in `tortty.conf`.
 - Deleting (`a=d`): the value of `d` says **what** goes and its case says
   whether the pixels go with it — lower case only takes the placements away, so
   the client can place the picture again without resending it, upper case frees

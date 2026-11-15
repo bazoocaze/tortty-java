@@ -6,6 +6,7 @@ import term.Theme;
 import term.WcWidth;
 import term.KittyImages;
 import term.Placeholder;
+import term.Sixel;
 import render.FrameGate;
 import prof.Prof;
 import pty.ChildPty;
@@ -311,6 +312,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     public void setTheme(Theme t) {
         this.theme = t;
         colorCache.clear();
+        // a sixel is decoded against this background (`P2=0`), so it is stale now
+        pics.clear();
         setBackground(new java.awt.Color(t.bg));
         styleFindBar();
         requestFullRepaint();
@@ -1491,7 +1494,18 @@ public final class TermPanel extends JPanel implements KeyListener {
         if (term.images.advance(System.nanoTime() / 1_000_000L)) repaint();
     }
 
-    private static java.awt.image.BufferedImage decodeImage(KittyImages.Image img) {
+    private java.awt.image.BufferedImage decodeImage(KittyImages.Image img) {
+        if (img.format == KittyImages.FMT_SIXEL || img.format == KittyImages.FMT_SIXEL_ALPHA) {
+            // `P2=0` puts the terminal's own background behind the picture;
+            // `P2=1` leaves it transparent. This is the only layer that knows
+            // which colour that is, which is why the stream is decoded here.
+            int[] under = img.format == KittyImages.FMT_SIXEL
+                    ? new int[] { (theme.bg >> 16) & 0xff, (theme.bg >> 8) & 0xff, theme.bg & 0xff }
+                    : null;
+            Sixel.Raster r = Sixel.decode(img.data, under, new int[] { img.width, img.height });
+            if (r == null) return null;
+            return decode(r.rgba(), KittyImages.FMT_RGBA, r.width(), r.height());
+        }
         return decode(img.data, img.format, img.width, img.height);
     }
 

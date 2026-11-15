@@ -22,6 +22,7 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 | key | default | what it does |
 |---|---|---|
 | `shell` | empty | initial program; empty = `$SHELL` (`--cmd` wins) |
+| `term` | empty | `$TERM` the child sees; empty = `xterm-256color` (`B67`). Names the terminal to the programs inside, and `chafa` — which picks a picture format **only** by this name, probing nothing — draws character art under the default. `foot` gets sixel (its terminfo is everywhere), `xterm-kitty` kitty graphics (its terminfo ships with kitty alone) |
 | `font_family` | `DejaVu Sans Mono` | monospaced family; unknown names fall back to `Monospaced` |
 | `font_size` | `17` | points (4..96), converted with the desktop's dpi — see below |
 | `cursor_shape` | `block` | `block`, `beam` or `underline`; DECSCUSR from the app wins |
