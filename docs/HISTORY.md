@@ -1361,3 +1361,23 @@ screen it left (measured with a `printf '\e[?1049h…'` + `trap '' HUP TERM` tab
 the photo carries both its lines, the restored tab shows them, the primary prompt
 is above in the history). Children that leave the alt screen when hung up are
 unchanged — the last words still win. `selftest` 1327 checks (+6), all green.
+
+## 2026-11-14 — the column opens on the card it was left on
+
+**Context.** Quitting on the second (or any later) workspace and restoring left the
+workspace column drawn one card down — card 1 missing, card 2 in its place — while
+the clicks landed on the right card and the picture only caught up after one. The
+window opens before it is laid out, so the restore's "bring the front card into
+sight" read a column one row tall and scrolled by that guess; the layout then
+clamped the offset back to zero **without repainting**, leaving the pixels from the
+wrong offset on screen.
+
+**Activities.** `revealCard()` no longer guesses before the column has a height: it
+parks the card in `pendingReveal` and the first `componentResized` reveals it once
+the row count is known. `clampSide()` repaints when it actually moves the offset,
+so no path can leave the cards painted where they were.
+
+**Result.** A session restored on workspace 2 opens with cards 1..4 and `+ new` in
+place, first paint included; with twelve workspaces in a short window the column
+still scrolls to put the front card in sight (offset 8 of 4 visible rows, measured).
+`selftest` 1327 checks, `render-check` 62, both green; verified on `Xvfb :98`.

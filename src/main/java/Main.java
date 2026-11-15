@@ -166,6 +166,14 @@ public final class Main {
          * by the mouse (Rust `B42`).
          */
         private int sideScroll;
+        /**
+         * Card that must come into sight as soon as the column has a height. The
+         * restore asks for it before the window is laid out, when one row is all
+         * the column reports, and scrolling by that guess left the column drawn
+         * one card down while the state said zero — the pixels only caught up
+         * after a click (`B64`).
+         */
+        private int pendingReveal = -1;
         /** Travel still owed to the card list, in detents (a touchpad fraction). */
         private double sideFrac;
         private int sideWheelDir;
@@ -739,15 +747,28 @@ public final class Main {
 
         /** Scrolls the least it takes to put card {@code i} in the column. */
         private void revealCard(int i) {
+            if (side.getHeight() <= 0) {
+                // no layout yet: `visibleRows()` would answer one, and the column
+                // would open one card down (`B64`)
+                pendingReveal = i;
+                return;
+            }
+            int before = sideScroll;
             int n = side.visibleRows();
             if (i < sideScroll) sideScroll = i;
             else if (i >= sideScroll + n) sideScroll = i + 1 - n;
             clampSide();
+            if (sideScroll != before) side.repaint();
         }
 
         /** Closing a workspace or growing the window can leave the offset past the end. */
         private void clampSide() {
-            sideScroll = Math.max(0, Math.min(side.maxScroll(), sideScroll));
+            int at = Math.max(0, Math.min(side.maxScroll(), sideScroll));
+            if (at == sideScroll) return;
+            sideScroll = at;
+            // the column was painted from the old offset: without this the cards
+            // move but the pixels stay where they were (`B64`)
+            side.repaint();
         }
 
         /** Closes a workspace and every pty it owns. */
@@ -857,7 +878,16 @@ public final class Main {
                 // a taller window fits more cards: the offset has to come back
                 // inside the list, or the column would end in blank space
                 addComponentListener(new ComponentAdapter() {
-                    @Override public void componentResized(ComponentEvent e) { clampSide(); }
+                    @Override public void componentResized(ComponentEvent e) {
+                        clampSide();
+                        // the card the restore wanted in sight, now that the column
+                        // knows how many rows it has
+                        if (pendingReveal >= 0) {
+                            int i = pendingReveal;
+                            pendingReveal = -1;
+                            revealCard(i);
+                        }
+                    }
                 });
                 // the wheel over the column walks the card list, one detent per
                 // card: a workspace past the bottom has no other way in with the
