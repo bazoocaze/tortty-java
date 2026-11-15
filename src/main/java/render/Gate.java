@@ -75,6 +75,7 @@ public final class Gate {
         ligatureStaysInItsCells();
         aPlaceholderShowsItsSlice();
         aWrappedImageStillPaints();
+        aColourEmojiIsPainted();
         aOneCellRunIsShaped();
         boldIsARealFace();
         theSearchIsPainted();
@@ -225,6 +226,28 @@ public final class Gate {
         eq("the grid cannot tell the wrapper from the direct write", diff, 0);
         Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
         is("and there is a picture there", s.ink(0, 0) > 100);
+    }
+
+    /**
+     * `L13`: Java2D draws nothing for a colour bitmap glyph, so the panel paints
+     * the font's own bitmap. What proves it is colour — a monochrome fallback
+     * glyph would be grey ink, the picture is not.
+     */
+    private static void aColourEmojiIsPainted() {
+        if (!ui.Emoji.get().available()) {
+            is("no colour emoji font on this machine", true);
+            return;
+        }
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        TermPanel p = panel(t);
+        feed(t, E + "[0m" + E + "[2J" + E + "[H" + "\uD83D\uDE00");
+        t.cursorVisible = false;
+        int[] buf = paint(p, t);
+        Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
+        is("the emoji cell carries ink", s.ink(0, 0) > 100);
+        is("and it is colour, not a monochrome fallback", s.coloured(0, 0) > 50);
+        save("emoji", image(buf, p.getWidth(), p.getHeight()));
     }
 
     /**
@@ -528,6 +551,20 @@ public final class Gate {
         int index(int col, int row) { return (row * ch + ch / 2) * img.getWidth() + col * cw + cw / 2; }
 
         int rgb(int i) { return img.getRGB(i % img.getWidth(), i / img.getWidth()) & 0xFFFFFF; }
+
+        /** Pixels in the cell whose channels disagree: colour, not grey ink. */
+        int coloured(int col, int row) {
+            int n = 0;
+            for (int y = row * ch; y < (row + 1) * ch; y++) {
+                for (int x = col * cw; x < (col + 1) * cw; x++) {
+                    int rgb = img.getRGB(x, y);
+                    int r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+                    int hi = Math.max(r, Math.max(g, b)), lo = Math.min(r, Math.min(g, b));
+                    if (hi - lo > 40) n++;
+                }
+            }
+            return n;
+        }
 
         /** Pixels in the cell that are not the background. */
         int ink(int col, int row) {

@@ -27,6 +27,7 @@ public final class Suites {
         l.add(new Area("graphics", GraphicsChecks::run));
         l.add(new Area("placeholder", PlaceholderChecks::run));
         l.add(new Area("sixel", SixelChecks::run));
+        l.add(new Area("emoji", EmojiChecks::run));
         l.add(new Area("frame", FrameGateChecks::run));
         l.add(new Area("find", FindChecks::run));
         l.add(new Area("pty", PtyChecks::run));

@@ -1499,3 +1499,29 @@ the same way. New `graphics` check `theAlternateScreenHasItsOwnPictures` (the
 primary picture hidden, the alt one its own, the primary's back on leaving, and
 `ED 3` up there taking both); `selftest` 1439 checks, `render-check` green.
 
+## 2026-11-14 — the emoji are in colour
+
+**Context.** `L13` said Java2D cannot draw a colour emoji face, and it is true —
+measured before on JDK 21 with `Noto Color Emoji` (U+1F600, sizes 16–137, no ink
+at all). The glyphs are in the font all the same, as bitmaps.
+
+**Activities.** `ui/Emoji` reads them: the table directory, `cmap` format 12 for
+code point → glyph id, the strike's index subtables in `CBLC` for where each
+picture starts and the next one ends, and the record's metrics header before the
+PNG in `CBDT`. The file is the one `fc-match` names (fontconfig is already what
+the X face comes from) and it is memory-mapped, not copied; decoded bitmaps are
+cached, 256 of them at most. `TermPanel` paints one in the cell where the glyph
+would be, its aspect kept — but only when the picture is what the character asked
+for: a variation selector, a symbol above the BMP or a code point the grid font has
+no glyph for. A text-presentation symbol keeps its monochrome glyph as before.
+
+**Result.** `A 😀 B 🚀 C ❤️ D` renders in colour on `Xvfb :98` (1 867 coloured
+pixels in the line, heart red through `U+2764 U+FE0F`), and the headless
+`render-check` proves the same without a display (`aColourEmojiIsPainted`: the cell
+carries ink and the ink is colour). New `emoji` area (16 assertions: the strike's
+`136x128`, colour, transparency, the cache answering the second read and staying
+bounded, plain text and out-of-range misses, the selector rule, the joined family
+falling back to its first member); `selftest` 1455 checks, `render-check` 64.
+`L13` now records what is left: `sbix`/`COLR` fonts have no bitmaps to read, and
+what `GSUB` would join (families, flags, skin tones) is drawn as its parts.
+

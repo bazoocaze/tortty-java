@@ -653,7 +653,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                     phPrev = null;
                     g2.setColor(color(rf));
                     g2.setFont(font);
-                    drawCells(g2, cps, cls, off + x, run - x, xPx, baseline, font, a);
+                    drawCells(g2, cps, cls, off + x, run - x, xPx, yPx, baseline, font, a);
                 }
                 if (uStyle != 0) {
                     drawUnderline(g2, xPx, yPx, runW, cellH, uStyle,
@@ -822,7 +822,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     private void drawCells(Graphics2D g2, int[] cps, String[] cls, int off, int n,
-                           int xPx, int baseline, Font font, int attr) {
+                           int xPx, int yPx, int baseline, Font font, int attr) {
         if (runBuf.length < n) runBuf = new char[n];
         int i = 0, buf = 0, start = 0;
         while (i < n) {
@@ -846,17 +846,53 @@ public final class TermPanel extends JPanel implements KeyListener {
             }
             String s = (cls[off + i] != null)
                     ? cls[off + i] : new String(Character.toChars(c));
-            Font gf = glyphFont(font, c, attr);
-            g2.setFont(gf);
-            g2.drawString(s, xPx + i * cellW(), baseline);
-            g2.setFont(font);
             int step = Math.max(1, w);
+            // a colour emoji has a bitmap in its font and Java2D draws nothing for
+            // it: the picture goes in the cell instead of the glyph (`L13`)
+            java.awt.image.BufferedImage em = emojiFor(s, c, font);
+            if (em != null) {
+                drawBitmap(g2, em, xPx + i * cellW(), yPx, step * cellW(), cellH());
+            } else {
+                Font gf = glyphFont(font, c, attr);
+                g2.setFont(gf);
+                g2.drawString(s, xPx + i * cellW(), baseline);
+                g2.setFont(font);
+            }
             int j = i + 1;
             while (j < n && j < i + step && cps[off + j] == Term.WIDE_CONT) j++;
             i = j;
             start = i;
         }
         if (buf > 0) drawTextRun(g2, runBuf, buf, xPx + start * cellW(), baseline, font);
+    }
+
+    /**
+     * The bitmap of a colour emoji, when the font it comes from is one the grid
+     * cannot draw (`L13`). A text-presentation symbol the grid font already has
+     * is left to the glyph — only a variation selector (U+FE0F), a symbol above
+     * the BMP or a code point the font has no glyph for asks for the picture.
+     */
+    private static java.awt.image.BufferedImage emojiFor(String s, int cp, Font font) {
+        if (cp < 0x2000) return null;
+        boolean asked = s.indexOf('\uFE0F') >= 0;
+        if (!asked && cp < 0x1F000 && font.canDisplay(cp)) return null;
+        return Emoji.get().image(s);
+    }
+
+    /** A bitmap centred in the cells it covers, its aspect kept. */
+    private static void drawBitmap(Graphics2D g2, java.awt.image.BufferedImage im,
+                                   int x, int y, int w, int h) {
+        if (w <= 0 || h <= 0 || im == null) return;
+        double s = Math.min((double) w / im.getWidth(), (double) h / im.getHeight());
+        int dw = Math.max(1, (int) Math.round(im.getWidth() * s));
+        int dh = Math.max(1, (int) Math.round(im.getHeight() * s));
+        Object hint = g2.getRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION);
+        g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g2.drawImage(im, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh, null);
+        if (hint != null) {
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, hint);
+        }
     }
 
     /**

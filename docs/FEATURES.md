@@ -155,6 +155,14 @@ Features implemented in the Java version of TorTTY.
   nothing downstream learns a new format. It lands on the cursor's cell, takes
   the rows it covers, the cursor ends below it, and iTerm2 has no reply channel,
   so nothing is answered.
+- Colour emoji (`L13`): presented as the font's own pictures, because Java2D does
+  not draw them. `ui/Emoji` maps a code point to a glyph through `cmap` format 12
+  and reads the `CBDT`/`CBLC` tables of the colour font `fc-match` names — the
+  PNG Noto ships, memory-mapped (the file is 10 MB) and cached, 256 bitmaps
+  most. The cell gets the picture where the glyph would be, its aspect kept, one
+  cell per cell code point and two for a wide one; a text-presentation symbol the
+  grid font already has stays a glyph, and only a variation selector (`❤️`), a
+  symbol above the BMP or a code point with no glyph asks for the picture.
 - The alternate screen is its own place (`B69`): what `mc`, `vim`, `less` and
   `top` draw, clear and scroll up there is theirs, so they cannot erase the
   pictures of the screen they cover — and the pictures are exactly as they were
