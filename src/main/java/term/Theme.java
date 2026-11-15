@@ -8,6 +8,8 @@ package term;
 public final class Theme {
 
     public int fg, bg, cursor;
+    /** `B71`: a bold cell on the low half of the palette takes the bright half. */
+    public boolean boldAsBright;
     public final int[] palette = new int[256];
 
     public Theme(int fg, int bg, int cursor, int[] palette16) {
@@ -28,6 +30,17 @@ public final class Theme {
 
     public static Theme defaults() {
         return new Theme(0xD6D6D6, 0x000000, 0xD6D6D6, Color.PALETTE16);
+    }
+
+    /**
+     * SGR 1 on one of the eight low colours draws the bright half (`B71`), the
+     * rule xterm calls `boldColors`. It is opt-in — the palette is the owner's,
+     * and a theme that gives the low half its own meaning keeps it — and it
+     * moves palette indexes only: a true colour is already exact, and a reverse
+     * -video cell never gets here, because the glyph wears the background.
+     */
+    public static int bright(int c) {
+        return (c >= 0 && c < 8) ? c + 8 : c;
     }
 
     public int resolve(int c, int def) {

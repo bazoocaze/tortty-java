@@ -2648,6 +2648,13 @@ public final class Term {
                 eraseCells(y * cols, cols);
                 dirty[y] = true;
             }
+            if (mode == 3 && alt) {
+                // an app on the alternate screen owns only its own grid: `clear`
+                // up there must not eat the transcript, nor the pictures of the
+                // screen the app covers — the scrollback belongs to the session,
+                // not to `vim` (`B70`, Rust `B63`)
+                return;
+            }
             if (mode == 3) {
                 hist.clear();
                 totalLines = 0;

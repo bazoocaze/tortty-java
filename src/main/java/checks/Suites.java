@@ -19,6 +19,7 @@ public final class Suites {
         l.add(new Area("keys", KeyChecks::run));
         l.add(new Area("config", ConfigChecks::run));
         l.add(new Area("keymap", KeymapChecks::run));
+        l.add(new Area("cards", CardsChecks::run));
         l.add(new Area("cli", CliChecks::run));
         l.add(new Area("drop", DropChecks::run));
         l.add(new Area("mouse", MouseChecks::run));

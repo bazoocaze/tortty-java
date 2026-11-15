@@ -33,6 +33,8 @@ public final class KeymapChecks {
         c.eq("alt+1 picks the first tab", m.match("alt+1").action() + " " + m.match("alt+1").arg(),
                 "select_tab 1");
         c.eq("alt+0 is the tenth", m.match("alt+0").arg(), 10);
+        c.eq("super+shift+up carries the workspace up", action(m, "shift+super+up"), "ws_move_up");
+        c.eq("and down carries it down", action(m, "shift+super+down"), "ws_move_down");
         c.eq("super+1 picks the first workspace",
                 m.match("super+1").action() + " " + m.match("super+1").arg(), "select_workspace 1");
         c.is("every default chord is bound", m.size() >= 40);

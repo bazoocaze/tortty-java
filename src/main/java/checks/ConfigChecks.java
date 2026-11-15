@@ -14,6 +14,7 @@ public final class ConfigChecks {
 
     public static void run(Check c) {
         defaults(c);
+        boldAsBright(c);
         keys(c);
         errors(c);
         editor(c);
@@ -40,6 +41,34 @@ public final class ConfigChecks {
         Config missing = Config.load(Path.of("/nonexistent/tortty.conf"));
         c.eq("a missing file is the defaults", missing.fontSize, 17f);
         c.is("and not an error", missing.errors.isEmpty());
+    }
+
+    /**
+     * `B71`: the rule is xterm's `boldColors` — SGR 1 on the eight low colours
+     * draws the bright half — and it is opt-in, because the palette is the
+     * owner's. Only a palette index moves: a true colour is already exact.
+     */
+    private static void boldAsBright(Check c) {
+        c.is("bold_as_bright is off by default", !Config.load(null).boldAsBright);
+        c.is("and the theme it builds says so", !Config.load(null).theme().boldAsBright);
+        try {
+            Config on = load(c, "bold_as_bright on\n");
+            c.is("bold_as_bright on parses", on.errors.isEmpty());
+            c.is("and reaches the theme", on.theme().boldAsBright);
+            Config off = load(c, "bold_as_bright off\n");
+            c.is("off is off", !off.theme().boldAsBright);
+        } catch (Exception e) {
+            c.is("the config checks could write a temp file: " + e, false);
+        }
+        // the rule itself: 0-7 gain the bright half, everything else is itself
+        c.eq("1 becomes 9", term.Theme.bright(1), 9);
+        c.eq("7 becomes 15", term.Theme.bright(7), 15);
+        c.eq("0 becomes 8", term.Theme.bright(0), 8);
+        c.eq("8 stays 8", term.Theme.bright(8), 8);
+        c.eq("a cube colour stays", term.Theme.bright(200), 200);
+        c.eq("a true colour stays", term.Theme.bright(Color.TRUECOLOR | 0x123456),
+                Color.TRUECOLOR | 0x123456);
+        c.eq("the default colour stays", term.Theme.bright(Color.DEFAULT), Color.DEFAULT);
     }
 
     private static void keys(Check c) {

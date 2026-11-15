@@ -1705,3 +1705,38 @@ table without a restart. `keymap` is a new check area (defaults, rebinding,
 freeing and giving back a chord, eleven crooked lines refused, and the table a
 real config file produces). `selftest` 1575 checks.
 
+## 2026-11-15 — a clear on the alternate screen, a bright half, a card in hand
+
+**Context.** Three gaps against the Rust version, two of them defects it had
+already fixed. A `clear` inside `vim`/`mc`/`less` (`ED 3` on the alternate
+screen) wiped the reader's transcript and the pictures of the screen the app
+covered; a bold glyph in one of the eight low palette colours drew the low half,
+where xterm has had `boldColors` for decades; and the workspace list was fixed —
+no way to carry a workspace to another place, by key or by hand.
+
+**Activities.** `Term.ed(3)` now stops at the app's own grid while the alternate
+screen is in use: no `hist.clear()`, no `images.clear()`, so the transcript and
+the saved primary placements survive while the app still clears what it owns
+(`B70`). `Config.boldAsBright` (default off) reaches `Theme.boldAsBright`, and
+`TermPanel` moves a bold cell's palette index to the bright half before the
+reverse-video swap — palette indexes only, so a true colour and a reversed cell
+keep what they have (`B71`). `Keymap` gained `ws_move_up`/`ws_move_down` on
+`Super+Shift+Up/Down`; the move is `Main.reorderWorkspaces` with the front index
+following as Rust's `moved_front` (`ui.Cards`); and the sidebar card became a
+handle — half a card of travel starts a drag, the card takes the slot under the
+pointer, and a drag held in the strip below the cards (or in the caption) walks
+the column one card every 500 ms (`B72`).
+
+**Result.** The probe that lost 31 lines of history to `ED 3` on the alternate
+screen now keeps all 31, and leaving the app still finds them; the render gate
+proves both halves of `B71` in pixels (a bold red glyph takes the bright colour
+only with the flag on, a plain one never, a reverse-video cell keeps the low
+half). Driven through the socket and `xdotool` on `Xvfb :98`:
+`Super+Shift+Up/Down` carried `ONE` from `[ONE, TWO, THREE]` to
+`[TWO, THREE, ONE]` and back, the front following, with no move past the ends;
+dragging the first card two places down gave `[TWO, THREE, ONE]` with the front
+workspace keeping its index, dragging it back gave the original order, and a drag
+held in the strip walked a card through a twenty-card list while the column
+scrolled under it. `selftest` 1618 checks (`cards` is a new area),
+`render-check` 93.
+

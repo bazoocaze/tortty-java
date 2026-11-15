@@ -13,6 +13,11 @@ Features implemented in the Java version of TorTTY.
   subparameters. Underline styles `4:0`–`4:5` (single, double, curly, dotted,
   dashed) and underline colour (`58;5`/`58;2`, `59` reset) are drawn per cell.
 - Attributes: bold, faint, italic, underline, blink, inverse, strike.
+- `bold_as_bright` (`B71`, default `off`): SGR 1 on one of the eight low palette
+  colours draws the bright half, xterm's `boldColors`. It is opt-in because the
+  palette is the owner's, it moves palette indexes only (a true colour is
+  already exact), and a reverse-video cell keeps the palette as it is — there the
+  glyph wears the background.
 - DEC graphics G0/G1 (`ESC(0`, `ESC)0`) for mc box-drawing.
 - OSC 0/2 (title), 4 (palette query/set), 7 (cwd and title fallback), 8
   (per-cell link), 133 (prompt marks: where the prompt starts, where the command
@@ -182,15 +187,19 @@ Features implemented in the Java version of TorTTY.
 - The alternate screen is its own place (`B69`): what `mc`, `vim`, `less` and
   `top` draw, clear and scroll up there is theirs, so they cannot erase the
   pictures of the screen they cover — and the pictures are exactly as they were
-  when the app leaves. `ED 3` up there is a `clear` and takes everything with it,
-  the pictures waiting beside the alt screen included.
+  when the app leaves. `ED 3` up there is the app clearing **its own** screen and
+  nothing else: the transcript and the pictures waiting beside the alt screen are
+  out of its reach, so one `clear` in `mc`/`vim`/`less` no longer costs the
+  reader his history (`B70`). On the main screen `3J` still erases it, which is
+  what `clear` there means.
 - A picture lives in its cells (`B68`): `EL`, `ED`, `ECH`, `ICH` and `DCH`
   erase cells, so they take the picture covering them — `clear` no longer leaves
   the last `chafa` behind, and a full-screen app that paints over without the
   alternate screen (`mc`) no longer keeps it in every cell it leaves blank. What
   a scroll pushed into the history is not the screen's to erase, and a screen
-  clear leaves it alone; `ED 3`, which empties the history, takes it with the
-  lines.
+  clear leaves it alone; `ED 3` on the main screen, which empties the history,
+  takes it with the lines — up on the alternate screen it takes only the app's
+  own (`B70`).
 - What `$TERM` says is the config's (`B67`): `chafa` decides between character
   art, sixel and kitty **only** by `$TERM` — it probes nothing, and a `DA1` reply
   never reaches it —, so the default `xterm-256color` leaves it drawing symbols.
@@ -304,13 +313,14 @@ Features implemented in the Java version of TorTTY.
 - `Ctrl+Shift+F2` opens the configuration file in an editor, in a new tab — see
   [`Config in a tab`](#config-in-a-tab-b37).
 - Shortcuts are a **table** (`M-H`): `map CHORD ACTION [N]` and `unmap CHORD` in
-  the config, nineteen actions over what already exists (copy, paste, tab and
+  the config, twenty-one actions over what already exists (copy, paste, tab and
   workspace open/close, the prompt walk, the config file, the search bar, four
-  scroll moves, `select_tab`/`select_workspace` with a number, the workspace
-  walk). The defaults are `map` lines of the same syntax — `Ctrl+Shift+C/V/T/W`,
+  scroll moves, `select_tab`/`select_workspace` with a number, the workspace walk
+  and the workspace carry). The defaults are `map` lines of the same syntax — `Ctrl+Shift+C/V/T/W`,
   `Ctrl+Shift+N/Q`, `Ctrl+Shift+Up/Down`, `Ctrl+Shift+F`/`F2`,
   `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab), `Ctrl+Shift+1`…`9` and
-  `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down` — so copying one into
+  `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down`, `Super+Shift+Up/Down`
+  — so copying one into
   the file reproduces it, changing the action changes it, and deleting or
   `unmap`ping the line **frees the chord**: an unbound key goes to the program,
   which is also why no chord is hard-coded in the panel any more. A crooked line
@@ -415,7 +425,14 @@ Features implemented in the Java version of TorTTY.
   everything beside it. The divider keeps the desktop's colours. The column takes
   no grid rows — only columns, and the width is dragged and remembered — while the tabs
   of the front workspace stay on the strip above the grid, so the two axes are
-  spatial: vertical = workspace, horizontal = tab. No tabs are listed inside the
+  spatial: vertical = workspace, horizontal = tab. A workspace is carried in the
+  list with `Super+Shift+Up`/`Down` or by **dragging its card** (`B72`): half a
+  card of travel starts the move, the card takes the place of the one the
+  pointer is over, and a drag held in the strip below the cards (or in the
+  caption above them) walks the column by itself, one card every 500 ms. The
+  workspace in front follows the move, and a card that crosses it leaves the same
+  workspace in front — the numbering is the list's order, so it is the order that
+  is saved and restored. No tabs are listed inside the
   column: a row shows the name, or, when never renamed, the title of the tab
   selected in that workspace. Ctrl+Shift+N creates — the new one opens where the
   old one was —, Ctrl+Shift+Q closes it with every pty it owns,

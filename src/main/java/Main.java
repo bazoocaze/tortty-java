@@ -11,6 +11,7 @@ import javax.swing.JComponent;
 import javax.swing.JFrame;
 import config.Keymap;
 import pty.ProcName;
+import ui.Cards;
 import ui.Chrome;
 import ui.Toast;
 import javax.swing.JMenuItem;
@@ -774,6 +775,37 @@ public final class Main {
             showWorkspace();
         }
 
+        /**
+         * Carries a workspace to another place in the list (`B72`), the front
+         * one following the move — the arithmetic is the Rust `moved_front`, so
+         * a move past the front keeps the same workspace in front and the
+         * neighbour takes its index.
+         */
+        private void moveWorkspace(int from, int to) {
+            if (reorderWorkspaces(from, to) == from) return;
+            revealCard(ws);
+            syncSide();
+            syncFrameTitle();
+            focusTerminal();
+        }
+
+        /**
+         * The move itself, with no window: takes the workspace at {@code from}
+         * out and puts it at {@code to}, the one in front following as
+         * {@link Cards#movedFront} says. Answers where it landed, so a caller can
+         * tell a move from a no-op.
+         */
+        private int reorderWorkspaces(int from, int to) {
+            int total = workspaces.size();
+            if (from < 0 || from >= total) return from;
+            to = Math.max(0, Math.min(total - 1, to));
+            if (from == to) return from;
+            ws = Cards.movedFront(ws, from, to);
+            Workspace moved = workspaces.remove(from);
+            workspaces.add(to, moved);
+            return to;
+        }
+
         /** Walks the card list by {@code delta} cards, clamped to it. */
         private void scrollSide(int delta) {
             int at = Math.max(0, Math.min(side.maxScroll(), sideScroll + delta));
@@ -868,6 +900,14 @@ public final class Main {
             private final Font base = Chrome.chromeFont("Label.font");
             private final Font bold = base.deriveFont(Font.BOLD);
             private final Font tiny = Chrome.chromeFontSmall("Label.font");
+            // the card being dragged (`B72`): where it came from, where the
+            // hand grabbed it, and the ticker that walks the column when the
+            // pointer is pushed into the strip below or above the cards
+            private int dragFrom = -1;
+            private int dragY0;
+            private boolean dragging;
+            private final javax.swing.Timer walk =
+                    new javax.swing.Timer(500, e -> walkDrag());
             // the geometry follows the fonts: the size is in points at the
             // desktop's dpi, so a fixed row height would clip the text the
             // moment the screen or the config grew
@@ -901,6 +941,11 @@ public final class Main {
                             }
                             if (i >= 0) {
                                 selectWorkspace(i);
+                                // a card is a handle (`B72`): the press remembers
+                                // it, and half a card of travel starts the move
+                                dragFrom = i;
+                                dragY0 = e.getY();
+                                dragging = false;
                                 focusTerminal();
                             } else if (overPlus(e.getY())) {
                                 newWorkspace(cwdOf(activeTab()), false);
@@ -912,6 +957,32 @@ public final class Main {
                         } else if (e.getButton() == MouseEvent.BUTTON3) {
                             popupFor(i >= 0 ? i : ws).show(Side.this, e.getX(), e.getY());
                         }
+                    }
+                });
+                addMouseMotionListener(new MouseAdapter() {
+                    @Override public void mouseDragged(MouseEvent e) {
+                        if (dragFrom < 0) return;
+                        if (!dragging) {
+                            if (Math.abs(e.getY() - dragY0) < row / 2) return;
+                            dragging = true;
+                        }
+                        // the strip below the cards and the caption above them do
+                        // not move the card: they walk the column, one per tick
+                        if (Cards.belowStrip(e.getY(), head, row, visibleRows())
+                                || Cards.aboveStrip(e.getY(), head)) {
+                            if (!walk.isRunning()) walk.start();
+                            return;
+                        }
+                        walk.stop();
+                        dragTo(Cards.slot(e.getY(), head, row, sideScroll, workspaces.size()));
+                    }
+                });
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseReleased(MouseEvent e) {
+                        if (dragFrom < 0) return;
+                        dragFrom = -1;
+                        dragging = false;
+                        walk.stop();
                     }
                 });
                 // a taller window fits more cards: the offset has to come back
@@ -965,6 +1036,40 @@ public final class Main {
             }
 
             private int rowY(int i) { return head + (i - sideScroll) * row; }
+
+            /** Carries the dragged card to {@code slot}, if that is a move at all. */
+            private void dragTo(int slot) {
+                if (slot == dragFrom) return;
+                dragFrom = reorderWorkspaces(dragFrom, slot);
+                side.repaint();
+            }
+
+            /**
+             * One tick of the auto-walk: a drag held in the strip below the cards
+             * carries the card one place down, in the caption one place up — the
+             * card the hand holds is what moves, and the column follows it.
+             */
+            private void walkDrag() {
+                if (!dragging || dragFrom < 0) {
+                    walk.stop();
+                    return;
+                }
+                java.awt.Point p = getMousePosition();
+                if (p == null) return;
+                boolean down = Cards.belowStrip(p.y, head, row, visibleRows());
+                boolean up = Cards.aboveStrip(p.y, head);
+                if (!down && !up) {
+                    walk.stop();
+                    return;
+                }
+                int to = dragFrom + (down ? 1 : -1);
+                if (to < 0 || to >= workspaces.size()) {
+                    walk.stop();
+                    return;
+                }
+                dragTo(to);
+                revealCard(dragFrom);
+            }
 
             /** Screen coordinates of each card drawn, for automation (like tab_rects). */
             private java.util.List<int[]> rects() {
@@ -1691,6 +1796,8 @@ public final class Main {
                 case "scroll_bottom" -> { if (t != null) t.panel.scrollBottom(); }
                 case "ws_prev" -> selectWorkspace(ws - 1);
                 case "ws_next" -> selectWorkspace(ws + 1);
+                case "ws_move_up" -> moveWorkspace(ws, ws - 1);
+                case "ws_move_down" -> moveWorkspace(ws, ws + 1);
                 case "select_tab" -> selectTab(b.arg() - 1);
                 case "select_workspace" -> selectWorkspace(b.arg() - 1);
                 default -> {

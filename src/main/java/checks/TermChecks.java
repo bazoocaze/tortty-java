@@ -248,12 +248,43 @@ public final class TermChecks {
         c.eq("trailing blanks are trimmed", new Term(6, 1).screenText(0), "");
         Check.feed(t, E + "[3J");
         c.eq("ED 3 clears the scrollback", t.historySize(), 0);
+        altScreenKeepsTheScrollback(c);
 
         Term cap = new Term(10, 2);
         cap.setScrollbackLimit(2);
         Check.feed(cap, "1\r\n2\r\n3\r\n4\r\n5");
         c.eq("the scrollback honours its cap", cap.historySize(), 2);
         c.eq("the cap keeps the newest lines", cap.historyText(1, 1).get(0), "3");
+    }
+
+    /**
+     * `B70`: an app on the alternate screen that clears its screen (`ED 2` +
+     * `ED 3`, which is what `clear` sends) must not take the reader's transcript
+     * with it, nor the pictures of the screen it covers. On the main screen
+     * `3J` still erases the scrollback, which is what `clear` there means.
+     */
+    private static void altScreenKeepsTheScrollback(Check c) {
+        Term t = new Term(20, 4);
+        StringBuilder all = new StringBuilder();
+        for (int i = 0; i < 12; i++) all.append("line").append(i).append("\r\n");
+        byte[] b = all.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        t.feed(b, 0, b.length);
+        int before = t.historySize();
+        c.is("the transcript is there before the app starts", before >= 8);
+
+        Check.feed(t, E + "[?1049h");
+        c.is("the app is on the alternate screen", t.inAltScreen());
+        Check.feed(t, E + "[3J");
+        c.eq("3J on the alternate screen keeps the transcript", t.historySize(), before);
+        Check.feed(t, E + "[2J" + E + "[3J");
+        c.eq("2J + 3J, the pair `clear` sends, keeps it too", t.historySize(), before);
+        c.eq("and the oldest line is still the oldest", t.historyText(0, 1).get(0), "line0");
+
+        Check.feed(t, E + "[?1049l");
+        c.is("back on the main screen", !t.inAltScreen());
+        c.eq("the transcript survives the app", t.historySize(), before);
+        Check.feed(t, E + "[3J");
+        c.eq("3J on the main screen still clears it", t.historySize(), 0);
     }
 
     private static void windowOps(Check c) {

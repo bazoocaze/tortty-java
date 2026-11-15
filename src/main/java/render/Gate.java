@@ -78,6 +78,7 @@ public final class Gate {
         aColourEmojiIsPainted();
         aOneCellRunIsShaped();
         boldIsARealFace();
+        theBoldLowColourTakesTheBrightHalf();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
         theProgressBarFollowsTheReport();
@@ -338,6 +339,57 @@ public final class Gate {
         int[] p2 = ink("Monospaced", E + "[0m" + E + "[1;1HMMMM");
         int[] b2 = ink("Monospaced", E + "[0m" + E + "[1;1H" + E + "[1mMMMM");
         eq("a family without a bold face is not smeared", p2, b2);
+    }
+
+    /**
+     * `B71`: with `bold_as_bright` on, a bold glyph in one of the eight low
+     * palette colours paints the bright half; with it off, the low half; a
+     * reverse-video cell keeps the palette as it is, because there the glyph is
+     * the background. The two halves are given distinct colours on purpose, or
+     * the check would pass without the rule.
+     */
+    private static void theBoldLowColourTakesTheBrightHalf() {
+        final int low = 0xCD0000, bright = 0x00ABCD;
+        Theme quiet = gateTheme(false, low, bright);
+        Theme loud = gateTheme(true, low, bright);
+        BufferedImage off = shot(quiet, E + "[1;31mMMMM");
+        BufferedImage on = shot(loud, E + "[1;31mMMMM");
+        BufferedImage plain = shot(loud, E + "[31mMMMM");
+        BufferedImage rev = shot(loud, E + "[1;7;31mMMMM");
+        int h = off.getHeight() / ROWS;
+        is("off: a bold glyph keeps the low half", count(off, 0, 0, off.getWidth(), h, low) > 0);
+        eq("off: and no bright ink", count(off, 0, 0, off.getWidth(), h, bright), 0);
+        is("on: a bold glyph takes the bright half", count(on, 0, 0, on.getWidth(), h, bright) > 0);
+        eq("on: and leaves the low half alone", count(on, 0, 0, on.getWidth(), h, low), 0);
+        is("on: a plain glyph keeps the low half", count(plain, 0, 0, plain.getWidth(), h, low) > 0);
+        eq("on: and no bright ink without bold", count(plain, 0, 0, plain.getWidth(), h, bright), 0);
+        is("a reverse-video cell keeps the low half", count(rev, 0, 0, rev.getWidth(), h, low) > 0);
+        eq("and never the bright one", count(rev, 0, 0, rev.getWidth(), h, bright), 0);
+    }
+
+    /** The gate's palette with the two halves of colour 1 told apart. */
+    private static Theme gateTheme(boolean boldAsBright, int low, int bright) {
+        int[] pal = new int[16];
+        System.arraycopy(term.Color.PALETTE16, 0, pal, 0, 16);
+        pal[1] = low;
+        pal[9] = bright;
+        Theme t = new Theme(FG, BG, CURSOR, pal);
+        t.boldAsBright = boldAsBright;
+        return t;
+    }
+
+    /** One screen of {@code content} painted with {@code th}, as a picture. */
+    private static BufferedImage shot(Theme th, String content) {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(th);
+        t.cursorVisible = false;
+        TermPanel p = new TermPanel(t, FAMILY, SIZE_PT, DPI, th);
+        p.setPadding(0);
+        p.setLigatures(false);
+        p.initFonts();
+        p.setSize(t.cols * p.cellW(), t.rows * p.cellH());
+        feed(t, E + "[0m" + E + "[2J" + E + "[H" + content);
+        return image(paint(p, t), p.getWidth(), p.getHeight());
     }
 
     /** The pixels of one painted row, for a panel of {@code family}. */

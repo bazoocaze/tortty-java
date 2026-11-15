@@ -52,6 +52,8 @@ public final class Keymap {
         "map shift+end scroll_bottom",
         "map super+up ws_prev",
         "map super+down ws_next",
+        "map super+shift+up ws_move_up",
+        "map super+shift+down ws_move_down",
         "map alt+1 select_tab 1",
         "map alt+2 select_tab 2",
         "map alt+3 select_tab 3",
@@ -87,7 +89,8 @@ public final class Keymap {
             "copy", "paste", "new_tab", "close_tab", "new_workspace", "close_workspace",
             "prev_prompt", "next_prompt", "open_config", "search",
             "scroll_page_up", "scroll_page_down", "scroll_top", "scroll_bottom",
-            "ws_prev", "ws_next", "select_tab N", "select_workspace N");
+            "ws_prev", "ws_next", "ws_move_up", "ws_move_down",
+            "select_tab N", "select_workspace N");
 
     private final Map<String, Bound> table = new LinkedHashMap<>();
 

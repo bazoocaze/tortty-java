@@ -24,6 +24,8 @@ public final class Config {
     public int windowPaddingWidth = 0;
     public int bell = 0;                 // 0 none, 1 visual, 2 audible
     public boolean copyOnSelect = true;  // Java keeps the B5 copy-on-release behaviour
+    /** `B71`: SGR 1 on the low eight palette colours draws the bright half. */
+    public boolean boldAsBright = false;
     /** Debug log path (`B23`); empty = off. */
     public String debugLog = "";
 
@@ -138,6 +140,7 @@ public final class Config {
                 default -> throw new IllegalArgumentException("none, visual or audible");
             };
             case "copy_on_select" -> copyOnSelect = parseBool(value);
+            case "bold_as_bright" -> boldAsBright = parseBool(value);
             case "ligatures" -> ligatures = switch (value.toLowerCase()) {
                 case "off", "none" -> 0;
                 case "standard", "on" -> 1;
@@ -192,7 +195,9 @@ public final class Config {
     }
 
     public Theme theme() {
-        return new Theme(foreground, background, cursorColor, palette16);
+        Theme t = new Theme(foreground, background, cursorColor, palette16);
+        t.boldAsBright = boldAsBright;
+        return t;
     }
 
     private static boolean parseBool(String v) {

@@ -616,6 +616,11 @@ public final class TermPanel extends JPanel implements KeyListener {
                 boolean hitSel = x >= findSelFrom && x < findSelTo;
                 int f = fg[i], b = bg[i], a = attr[i];
                 int uStyle = ul[i], uColor = ulColor[i];
+                // `bold_as_bright`: before the swap, so a reverse-video cell
+                // keeps the palette as it is — there the glyph is the background
+                if (theme.boldAsBright && (a & Term.BOLD) != 0 && (a & Term.INVERSE) == 0) {
+                    f = Theme.bright(f);
+                }
                 int rf = theme.resolve(f, theme.fg);
                 int rb = theme.resolve(b, theme.bg);
                 if ((a & Term.INVERSE) != 0) { int t = rf; rf = rb; rb = t; }

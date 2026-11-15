@@ -31,6 +31,7 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 | `window_padding_width` | `0` | margin around the grid in px (0..200) |
 | `bell` | `none` | `none`, `visual` or `audible` |
 | `copy_on_select` | `on` | drag selection also goes to the CLIPBOARD; the PRIMARY selection is always set |
+| `bold_as_bright` | `off` | SGR 1 on the eight low palette colours draws the bright half (xterm's `boldColors`); the palette is the owner's, so it is opt-in (`B71`) |
 | `ligatures` | `off` | `off`, `standard` or `all` (`B27`); the join needs a font that carries the ligature (see `L18`) |
 | `map` | the table below | `map CHORD ACTION [N]`: binds a chord to an app action, and re-binds one that exists. An unknown chord, modifier, key, action or a number where none belongs is an error on that line |
 | `unmap` | — | `unmap CHORD`: frees the chord, so the program sees the key again |
@@ -63,10 +64,12 @@ canonical one (`ctrl+alt+shift+super`).
 | `scroll_page_up` / `scroll_page_down` / `scroll_top` / `scroll_bottom` | the history |
 | `select_tab N` / `select_workspace N` | `N` is 1..10, where 10 is key `0` |
 | `ws_prev` / `ws_next` | walk the workspaces |
+| `ws_move_up` / `ws_move_down` | carry the workspace in front one card up or down, as dragging its card does |
 
 The defaults are the same syntax, one line per chord: `Ctrl+Shift+C/V`, `T/W`,
 `N/Q`, `Up/Down`, `F`/`F2`, `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab),
-`Ctrl+Shift+1`…`9` and `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down`.
+`Ctrl+Shift+1`…`9` and `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down`
+and `Super+Shift+Up/Down`.
 Copying one into your file reproduces the app's table, changing the action
 changes it for you, and **deleting a line frees the key** as surely as `unmap`
 does — an unbound key goes to the program.

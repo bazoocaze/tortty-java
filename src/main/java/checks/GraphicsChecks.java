@@ -969,12 +969,15 @@ public final class GraphicsChecks {
         c.eq("leaving brings the primary's back", t.images.placements().size(), 1);
         c.eq("in the line it was drawn on", t.images.placements().get(0).line, 0);
 
-        // `ED 3` up there is a clear: nothing survives it, saved pictures included
+        // `ED 3` up there is the app clearing **its own** screen: the primary's
+        // picture is out of its reach, and comes back when the app leaves (`B70`,
+        // Rust `B63`: "a `clear` up there takes neither the history nor the
+        // pictures it covers")
         Check.feed(t, E + "[?1049h" + E + "[3J");
-        c.eq("the app's clear empties its own screen", t.images.placements().size(), 0);
+        c.eq("the app's clear empties the screen it owns", t.images.placements().size(), 0);
         Check.feed(t, E + "[?1049l");
-        c.eq("and the picture the app cleared does not come back",
-                t.images.placements().size(), 0);
+        c.eq("and the picture below it survives the app's clear",
+                t.images.placements().size(), 1);
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {
