@@ -45,11 +45,23 @@ public final class EmojiChecks {
         c.is("a variation selector alone does not", e.image(0xFE0F) == null);
         c.is("the presentation sequence uses the heart",
                 e.image("\u2764\uFE0F") == e.image(0x2764));
-        // a joined family falls back to its first member (the ligature is GSUB)
+        // `ccmp` composes a sequence into one glyph: a flag is one picture, and
+        // so is a joined family — the whole chain is a ligature in Noto
         BufferedImage man = e.image(0x1F468);
         c.is("the man is there", man != null);
-        c.is("a joined family falls back to the first member",
-                e.image("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67") == man);
+        BufferedImage brazil = e.image("\uD83C\uDDE7\uD83C\uDDF7");
+        c.is("a flag is composed", brazil != null);
+        c.is("and it is not one of its letters", brazil != e.image(0x1F1E7) && brazil != man);
+        c.is("the flag carries colour", brazil != null && colour(brazil) > 500);
+        BufferedImage family = e.image("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67");
+        c.is("a joined family is composed too", family != null && family != man);
+        // a skin tone is a ligature too: the picture is the toned one, not the base
+        c.is("a skin tone is composed", e.image("\uD83D\uDC4D\uD83C\uDFFD") != null);
+        c.is("and it is a different picture from the base", differs(
+                e.image(0x1F44D), e.image("\uD83D\uDC4D\uD83C\uDFFD")));
+        // a keycap has no ligature here: the digit's own picture stands in
+        c.is("a keycap is not composed and falls back",
+                e.image("1\uFE0F\u20E3") == e.image('1'));
 
         // a child printing every emoji must not grow the cache forever
         Emoji.get();
@@ -58,6 +70,18 @@ public final class EmojiChecks {
 
         // and reading a font that is not one, or not there at all, must not throw
         c.is("an unmapped range is a miss, not a crash", e.image(0x0E0100) == null);
+    }
+
+    private static boolean differs(BufferedImage a, BufferedImage b) {
+        if (a == null || b == null) return false;
+        int w = Math.min(a.getWidth(), b.getWidth()), h = Math.min(a.getHeight(), b.getHeight());
+        int n = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (a.getRGB(x, y) != b.getRGB(x, y) && ++n > 200) return true;
+            }
+        }
+        return false;
     }
 
     private static int colour(BufferedImage im) {

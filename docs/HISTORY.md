@@ -1525,3 +1525,30 @@ falling back to its first member); `selftest` 1455 checks, `render-check` 64.
 `L13` now records what is left: `sbix`/`COLR` fonts have no bitmaps to read, and
 what `GSUB` would join (families, flags, skin tones) is drawn as its parts.
 
+## 2026-11-14 — the emoji sequences are one picture
+
+**Context.** The bitmaps were on screen (`L13`), but a flag showed as two blue
+letters and a family as three separate faces: the grid put every code point in its
+own cell, so the renderer never saw the sequence the font composes.
+
+**Activities.** Two halves. In the grid, `Term` now keeps an emoji sequence in the
+cell it started in: the second of a pair of regional indicators, a code point after
+a zero-width joiner and a skin tone all join the previous cell's cluster instead of
+taking one of their own (a third indicator does not — a flag is two). In the font,
+`ui/Emoji` reads `GSUB`: the scripts, the `ccmp` feature's lookups, the coverage
+tables and the type-4 ligature sets, then substitutes the run of glyphs the cluster
+names — a family's whole chain is one ligature in Noto, and so is a base with its
+tone. `TermPanel` draws the composed picture across the two cells a wide emoji
+takes, borrowing the blank cell beside a narrow one (a flag is two cells on a grid
+where each indicator is wide).
+
+**Result.** `BR 🇧🇷 family 👨‍👩‍👧 tone 👍🏽 pt 🇵🇹` on `Xvfb :98` draws the
+Brazilian and Portuguese flags, the family (the font's own icon for it) and the
+toned thumb, each as one picture. `emoji` grew to 21 assertions (flag, family and
+tone composed, the tone a different picture from its base, a keycap falling back to
+the digit) and `term` gained `emojiSequences` (one cluster per sequence, the cells
+they take, two flags in a row, a lone indicator); the headless gate paints a flag
+and finds colour across its two cells. `selftest` 1471 checks, `render-check` 65.
+`L13` now records only the fonts with no bitmaps to read (`sbix`, `COLR`) and the
+class-based contextual substitutions, which are not read.
+

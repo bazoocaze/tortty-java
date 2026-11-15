@@ -162,7 +162,12 @@ Features implemented in the Java version of TorTTY.
   most. The cell gets the picture where the glyph would be, its aspect kept, one
   cell per cell code point and two for a wide one; a text-presentation symbol the
   grid font already has stays a glyph, and only a variation selector (`❤️`), a
-  symbol above the BMP or a code point with no glyph asks for the picture.
+  symbol above the BMP or a code point with no glyph asks for the picture. A
+  sequence is one **cluster** on the grid — the two regional indicators of a flag,
+  a family across its zero-width joiners, a base with its skin tone — and the font
+  composes it through `GSUB`'s `ccmp` ligatures, so `🇧🇷` is the flag and not `B`
+  `R` beside it; the picture is drawn across the two cells a wide emoji takes,
+  borrowing the blank cell beside a narrow one.
 - The alternate screen is its own place (`B69`): what `mc`, `vim`, `less` and
   `top` draw, clear and scroll up there is theirs, so they cannot erase the
   pictures of the screen they cover — and the pictures are exactly as they were

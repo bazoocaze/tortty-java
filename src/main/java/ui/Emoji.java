@@ -30,12 +30,12 @@ import javax.imageio.ImageIO;
  * of emoji are the most a screen can show), and the cache is bounded so a child
  * printing every emoji in a loop cannot grow it forever.
  *
- * <p>Scope: one code point per cell, or a cluster whose base code point carries
- * the bitmap. Presentation sequences still work (`❤️` is U+2764 + U+FE0F and the
- * base has the picture), skin-tone modifiers do too when they are their own code
- * point in the font, and a joined family (`👨‍👩‍👧`) falls back to the first
- * member — the ligature that would combine them lives in {@code GSUB}, which is
- * out of scope here (`L13`).
+ * <p>A cluster of several code points is composed the way the font says to: the
+ * `ccmp` feature of `GSUB` maps the sequence to one glyph, which is how `🇧🇷` is
+ * one picture and not two letters. Only the ligature lookups are read (type 4) —
+ * the contextual ones (type 5/6, class-based) that join a family across its
+ * zero-width joiners are not, so `👨‍👩‍👧` still falls back to its first member
+ * (`L13`).
  */
 public final class Emoji {
 
@@ -51,6 +51,11 @@ public final class Emoji {
     private final int cmap;   // offset of the format 12 subtable, -1 when absent
     private final int cblc;
     private final int cbdt;
+    private final int gsub;
+    /** First glyph → the ligatures that start there: `ccmp`'s type 4 lookups. */
+    private record Ligature(int glyph, int[] components) {}
+
+    private final Map<Integer, java.util.List<Ligature>> ligatures;
     private final Map<Integer, BufferedImage> cache = new LinkedHashMap<>(CACHE, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<Integer, BufferedImage> e) {
@@ -81,7 +86,7 @@ public final class Emoji {
 
     private Emoji(ByteBuffer font) {
         this.font = font;
-        int c = -1, l = -1, d = -1;
+        int c = -1, l = -1, d = -1, s = -1;
         if (font != null) {
             int n = u16(4);
             for (int i = 0; i < n; i++) {
@@ -92,6 +97,7 @@ public final class Emoji {
                     case "cmap" -> c = off;
                     case "CBLC" -> l = off;
                     case "CBDT" -> d = off;
+                    case "GSUB" -> s = off;
                     default -> { }
                 }
             }
@@ -99,6 +105,8 @@ public final class Emoji {
         this.cmap = c >= 0 ? format12(c) : -1;
         this.cblc = l;
         this.cbdt = d;
+        this.gsub = s;
+        this.ligatures = s >= 0 ? ligatures(s) : java.util.Map.of();
     }
 
     /** How many decoded bitmaps are being kept, for the bound to be checkable. */
@@ -120,6 +128,10 @@ public final class Emoji {
      */
     public BufferedImage image(String cluster) {
         if (!available() || cluster == null || cluster.isEmpty()) return null;
+        // a sequence the font composes into one glyph is one picture: the flag,
+        // the keycap, whatever `ccmp` joins
+        BufferedImage composed = composed(cluster);
+        if (composed != null) return composed;
         for (int i = 0; i < cluster.length(); ) {
             int cp = cluster.codePointAt(i);
             i += Character.charCount(cp);
@@ -132,6 +144,146 @@ public final class Emoji {
         return null;
     }
 
+    /**
+     * The picture of a cluster the font composes, or {@code null} when it does not.
+     * The code points become glyphs, the `ccmp` ligature lookups are applied in
+     * order, and only a run that collapsed into a single glyph counts — anything
+     * else is not one picture and the caller falls back to the per-code-point path.
+     */
+    private BufferedImage composed(String cluster) {
+        if (ligatures.isEmpty()) return null;
+        int n = 0;
+        int[] gids = new int[cluster.length()];
+        for (int i = 0; i < cluster.length(); ) {
+            int cp = cluster.codePointAt(i);
+            i += Character.charCount(cp);
+            int gid = glyph(cp);
+            if (gid == 0) return null;
+            gids[n++] = gid;
+        }
+        if (n < 2) return null;
+        int[] run = java.util.Arrays.copyOf(gids, n);
+        int count = n;
+        for (int pass = 0; pass < 4 && count > 1; pass++) {
+            int[] next = substitute(run, count);
+            if (next == null) break;
+            run = next;
+            count = next.length;
+        }
+        if (count != 1) return null;
+        return bitmapImage(run[0]);
+    }
+
+    /** One pass of the ligature lookups over the run; {@code null} when nothing matched. */
+    private int[] substitute(int[] run, int count) {
+        int[] out = new int[count];
+        int n = 0;
+        boolean any = false;
+        for (int i = 0; i < count; ) {
+            Ligature best = null;
+            for (Ligature l : ligatures.getOrDefault(run[i], java.util.List.of())) {
+                int[] c = l.components();
+                if (c.length > count - i - 1) continue;
+                boolean match = true;
+                for (int k = 0; k < c.length; k++) {
+                    if (run[i + 1 + k] != c[k]) { match = false; break; }
+                }
+                if (match && (best == null || c.length > best.components().length)) best = l;
+            }
+            if (best != null) {
+                out[n++] = best.glyph();
+                i += 1 + best.components().length;
+                any = true;
+            } else {
+                out[n++] = run[i++];
+            }
+        }
+        return any ? java.util.Arrays.copyOf(out, n) : null;
+    }
+
+    /**
+     * The ligature lookups of the `ccmp` feature, keyed by their first glyph.
+     *
+     * <p>`ccmp` is the feature that recomposes character sequences and the one a
+     * colour emoji font puts its flags and keycaps in. Only lookups of type 4
+     * (ligature substitution, format 1) are read: the contextual ones are class
+     * based and out of scope (`L13`).
+     */
+    private Map<Integer, java.util.List<Ligature>> ligatures(int base) {
+        Map<Integer, java.util.List<Ligature>> out = new java.util.HashMap<>();
+        try {
+            int lookups = base + u16(base + 8);
+            for (int index : featureLookups(base)) {
+                int at = lookups + u16(lookups + 2 + 2 * index);
+                if (u16(at) != 4) continue;
+                int subtables = u16(at + 4);
+                for (int k = 0; k < subtables; k++) {
+                    int sub = at + u16(at + 6 + 2 * k);
+                    if (u16(sub) != 1) continue;
+                    int[] firsts = coverage(sub + u16(sub + 2));
+                    int sets = u16(sub + 4);
+                    for (int s = 0; s < sets && s < firsts.length; s++) {
+                        int set = sub + u16(sub + 6 + 2 * s);
+                        int count = u16(set);
+                        for (int j = 0; j < count; j++) {
+                            int lig = set + u16(set + 2 + 2 * j);
+                            int glyph = u16(lig);
+                            int comps = u16(lig + 2) - 1;
+                            if (comps < 1) continue;
+                            int[] components = new int[comps];
+                            for (int c = 0; c < comps; c++) components[c] = u16(lig + 4 + 2 * c);
+                            out.computeIfAbsent(firsts[s], g -> new java.util.ArrayList<>())
+                                    .add(new Ligature(glyph, components));
+                        }
+                    }
+                }
+            }
+        } catch (IndexOutOfBoundsException e) {
+            out.clear();   // an unfamiliar table is not an error: no composing
+        }
+        return out;
+    }
+
+    /** The lookup indices of every `ccmp` feature of every script, in order. */
+    private int[] featureLookups(int base) {
+        int scriptList = base + u16(base + 4);
+        int featureList = base + u16(base + 6);
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        int scripts = u16(scriptList);
+        for (int i = 0; i < scripts; i++) {
+            int script = scriptList + u16(scriptList + 6 + 6 * i);
+            int langs = u16(script);
+            int langSys = langs != 0 ? script + langs : script + 2;
+            int features = u16(langSys + 4);
+            for (int f = 0; f < features; f++) {
+                int feature = u16(langSys + 6 + 2 * f);
+                if (!tag(featureList + 2 + 6 * feature).equals("ccmp")) continue;
+                int at = featureList + u16(featureList + 6 + 6 * feature);
+                for (int k = 0; k < u16(at + 2); k++) out.add(u16(at + 4 + 2 * k));
+            }
+        }
+        return out.stream().mapToInt(Integer::intValue).toArray();
+    }
+
+    /** The glyphs a coverage table names (format 1 array or format 2 ranges). */
+    private int[] coverage(int at) {
+        int format = u16(at);
+        int count = u16(at + 2);
+        if (format == 1) {
+            int[] out = new int[count];
+            for (int i = 0; i < count; i++) out[i] = u16(at + 4 + 2 * i);
+            return out;
+        }
+        java.util.List<Integer> out = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            int rec = at + 4 + 6 * i;
+            for (int g = u16(rec), to = u16(rec + 2); g <= to && out.size() < 65536; g++) {
+                out.add(g);
+            }
+        }
+        return out.stream().mapToInt(Integer::intValue).toArray();
+    }
+
     /** The picture of {@code cp}, or {@code null} when the font has none. */
     public BufferedImage image(int cp) {
         if (!available()) return null;
@@ -141,15 +293,20 @@ public final class Emoji {
         }
         int gid = glyph(cp);
         if (gid <= 0) return null;
+        BufferedImage im = bitmapImage(gid);
+        if (im == null) return null;
+        synchronized (cache) {
+            cache.put(cp, im);
+        }
+        return im;
+    }
+
+    /** The picture of a glyph id, decoded; caching is the caller's business. */
+    private BufferedImage bitmapImage(int gid) {
         byte[] png = bitmap(gid);
         if (png == null) return null;
         try {
-            BufferedImage im = ImageIO.read(new ByteArrayInputStream(png));
-            if (im == null) return null;
-            synchronized (cache) {
-                cache.put(cp, im);
-            }
-            return im;
+            return ImageIO.read(new ByteArrayInputStream(png));
         } catch (IOException e) {
             return null;
         }

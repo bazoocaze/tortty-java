@@ -851,7 +851,13 @@ public final class TermPanel extends JPanel implements KeyListener {
             // it: the picture goes in the cell instead of the glyph (`L13`)
             java.awt.image.BufferedImage em = emojiFor(s, c, font);
             if (em != null) {
-                drawBitmap(g2, em, xPx + i * cellW(), yPx, step * cellW(), cellH());
+                // a flag's two regional indicators are one narrow cell on the grid
+                // but one square picture everywhere else: the blank cell beside it
+                // is lent to it, which is what the picture needs to look right
+                int span = step;
+                if (step == 1 && i + 1 < n && cps[off + i + 1] == ' '
+                        && cls[off + i + 1] == null) span = 2;
+                drawBitmap(g2, em, xPx + i * cellW(), yPx, span * cellW(), cellH());
             } else {
                 Font gf = glyphFont(font, c, attr);
                 g2.setFont(gf);

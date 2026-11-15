@@ -247,7 +247,18 @@ public final class Gate {
         Shot s = new Shot(image(buf, p.getWidth(), p.getHeight()), p.cellW(), p.cellH());
         is("the emoji cell carries ink", s.ink(0, 0) > 100);
         is("and it is colour, not a monochrome fallback", s.coloured(0, 0) > 50);
-        save("emoji", image(buf, p.getWidth(), p.getHeight()));
+
+        // a flag is one cluster and one picture: the font's own, not its letters
+        Term f = new Term(COLS, ROWS);
+        f.setTheme(theme());
+        TermPanel q = panel(f);
+        feed(f, E + "[0m" + E + "[2J" + E + "[H" + "\uD83C\uDDE7\uD83C\uDDF7");
+        f.cursorVisible = false;
+        int[] fbuf = paint(q, f);
+        Shot flag = new Shot(image(fbuf, q.getWidth(), q.getHeight()), q.cellW(), q.cellH());
+        is("the flag carries colour across its two cells",
+                flag.coloured(0, 0) + flag.coloured(1, 0) > 100);
+        save("emoji", image(fbuf, q.getWidth(), q.getHeight()));
     }
 
     /**

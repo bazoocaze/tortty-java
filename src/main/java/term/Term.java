@@ -1304,7 +1304,15 @@ public final class Term {
 
     private void putChar(int c) {
         int w = WcWidth.width(c);
+        // a skin tone is zero width the way a mark is, but it tints an emoji and
+        // nothing else: with no emoji before it, it gets a cell of its own
+        if (c >= 0x1F3FB && c <= 0x1F3FF && !joinsPrevious(c)) w = 1;
         if (w == 0) { combine(c); return; }
+        // an emoji sequence is one cluster: a flag's two regional indicators, a
+        // family across its zero-width joiners and a base with its skin tone all
+        // belong to the cell the sequence started in, or the renderer would draw
+        // the parts instead of the picture (`L13`)
+        if (w != 0 && joinsPrevious(c)) { join(c); return; }
         if (cols < 2 && w == 2) w = 1;
         if (wrapPending) {
             wrapPending = false;
@@ -1372,6 +1380,75 @@ public final class Term {
         // `?7l`: the last column is the end of the line, and the next glyph
         // overwrites it — no pending wrap is armed
         if (cx >= cols) { cx = cols - 1; wrapPending = autowrap; }
+    }
+
+    /**
+     * Whether {@code c} continues the emoji sequence in the cell before it: the
+     * second of a pair of regional indicators (which is how a flag is spelled), the
+     * code point that follows a zero-width joiner, or a skin-tone modifier.
+     */
+    private boolean joinsPrevious(int c) {
+        boolean regional = c >= 0x1F1E6 && c <= 0x1F1FF;
+        boolean tone = c >= 0x1F3FB && c <= 0x1F3FF;
+        if (!regional && !tone && c != 0x20E3) {
+            // only a joiner asks for the next code point, whatever it is
+            return previousEndsWithJoiner();
+        }
+        int py = cy;
+        int px = wrapPending ? cx : cx - 1;
+        if (px < 0) {
+            if (py <= 0) return false;
+            py--;
+            px = cols - 1;
+        }
+        int i = py * cols + px;
+        if (cp[i] == WIDE_CONT && px > 0) i--;
+        String cell = cellString(cp, cluster, i);
+        if (regional) {
+            // the pair, not a third one: a flag is exactly two
+            return cell.codePointCount(0, cell.length()) == 1
+                    && cell.codePointAt(0) >= 0x1F1E6 && cell.codePointAt(0) <= 0x1F1FF;
+        }
+        // a tone belongs to an emoji, never to a letter or to the blank it follows
+        return !cell.isEmpty() && cell.codePointAt(0) >= 0x2000;
+    }
+
+    /** Whether the cell before the cursor ends with a zero-width joiner. */
+    private boolean previousEndsWithJoiner() {
+        int py = cy;
+        int px = wrapPending ? cx : cx - 1;
+        if (px < 0) {
+            if (py <= 0) return false;
+            py--;
+            px = cols - 1;
+        }
+        int i = py * cols + px;
+        if (cp[i] == WIDE_CONT && px > 0) i--;
+        String cell = cellString(cp, cluster, i);
+        return !cell.isEmpty() && cell.codePointBefore(cell.length()) == 0x200D;
+    }
+
+    /** Appends a code point of any width to the previous cell: an emoji sequence. */
+    private void join(int c) {
+        int py = cy;
+        int px = wrapPending ? cx : cx - 1;
+        if (px < 0) {
+            if (py <= 0) return;
+            py--;
+            px = cols - 1;
+        }
+        int i = py * cols + px;
+        if (cp[i] == WIDE_CONT && px > 0) i--;
+        String base = cellString(cp, cluster, i);
+        String norm = java.text.Normalizer.normalize(
+                base + new String(Character.toChars(c)), java.text.Normalizer.Form.NFC);
+        if (norm.codePointCount(0, norm.length()) == 1) {
+            cp[i] = norm.codePointAt(0);
+            cluster[i] = null;
+        } else {
+            cluster[i] = norm;
+        }
+        dirty[py] = true;
     }
 
     /** Appends a zero-width code point to the previous cell, composing when NFC can. */

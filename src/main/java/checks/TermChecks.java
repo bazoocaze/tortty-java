@@ -36,6 +36,7 @@ public final class TermChecks {
         logicalLines(c);
         resizing(c);
         theReaderKeepsHisPlace(c);
+        emojiSequences(c);
     }
 
     private static void printing(Check c) {
@@ -426,6 +427,63 @@ public final class TermChecks {
      * no reply is what a client reads as "not supported", and letting a program
      * in the terminal read the clipboard is a leak.
      */
+    /**
+     * `L13`: an emoji sequence is **one cluster**, so the renderer gets the whole
+     * thing in one cell and can draw the picture the font composes instead of the
+     * parts. Without this a flag was two regional-indicator letters, a family three
+     * faces with invisible joiners, and a skin tone a plain base emoji beside a
+     * coloured square.
+     */
+    private static void emojiSequences(Check c) {
+        // a flag: two regional indicators, one cluster, two cells (they are wide)
+        Term t = new Term(20, 3);
+        Check.feed(t, "A \uD83C\uDDE7\uD83C\uDDF7 B");
+        c.eq("the flag is one cluster", clusters(t), java.util.List.of("\uD83C\uDDE7\uD83C\uDDF7"));
+        c.eq("and the text around it is untouched", t.lineString(0).trim(),
+                "A \uD83C\uDDE7\uD83C\uDDF7 B");
+        c.eq("which the picture may be drawn across", t.cp[3], Term.WIDE_CONT);
+
+        // a family: the joiners keep the whole sequence in the first cell
+        t = new Term(20, 3);
+        Check.feed(t, "\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67X");
+        c.eq("a joined family is one cluster", clusters(t),
+                java.util.List.of("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67"));
+        c.eq("and X lands after its two cells", t.cp[2], (int) 'X');
+
+        // a skin tone belongs to the base it paints
+        t = new Term(20, 3);
+        Check.feed(t, "\uD83D\uDC4D\uD83C\uDFFDY");
+        c.eq("a skin tone joins its base", clusters(t), java.util.List.of("\uD83D\uDC4D\uD83C\uDFFD"));
+        c.eq("and Y lands after its two cells", t.cp[2], (int) 'Y');
+
+        // two flags in a row are two clusters, not one long run
+        t = new Term(20, 3);
+        Check.feed(t, "\uD83C\uDDE7\uD83C\uDDF7\uD83C\uDDF5\uD83C\uDDF9");
+        c.eq("two flags are two clusters", clusters(t), java.util.List.of(
+                "\uD83C\uDDE7\uD83C\uDDF7", "\uD83C\uDDF5\uD83C\uDDF9"));
+
+        // a tone with nothing to tint is its own cell, not a space's passenger
+        t = new Term(20, 3);
+        Check.feed(t, "A \uD83C\uDFFD");
+        c.is("a tone after text does not join it", t.cluster[2] == null);
+        c.eq("and it is written in its own cell", t.cp[2], 0x1F3FD);
+
+        // and a lone indicator is just a letter of its own
+        t = new Term(20, 3);
+        Check.feed(t, "\uD83C\uDDE7X");
+        c.is("a lone indicator stays one code point", t.cluster[0] == null);
+        c.eq("with X after its two cells", t.cp[2], (int) 'X');
+    }
+
+    /** Every cluster the first row carries, in order: what the panel would draw. */
+    private static java.util.List<String> clusters(Term t) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int x = 0; x < t.cols; x++) {
+            if (t.cluster[x] != null) out.add(t.cluster[x]);
+        }
+        return out;
+    }
+
     /**
      * `B63`: the reported bug — with `pi` writing, a reader who scrolled up a few
      * lines to re-read watched the view run to the **top**. Output pushes rows out
