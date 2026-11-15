@@ -229,7 +229,14 @@ public final class KittyImages {
     private int nextId = 1;
     private long generation;
     /** Chunks of a transmission in progress ({@code m=1}). */
-    private StringBuilder buf;
+    /**
+     * Bytes of the upload in flight. Each chunk is its own base64 blob — the
+     * spec splits the payload into strings the client encodes one by one, so a
+     * sender may pad every chunk (`chafa` does) and gluing the text together
+     * would put `=` in the middle and lose the image. Decoded here, appended
+     * here, assembled once at the end.
+     */
+    private java.io.ByteArrayOutputStream buf;
     private Map<String, String> bufKv;
 
     public List<Placement> placements() { return placements; }
@@ -305,31 +312,33 @@ public final class KittyImages {
         // the following ones only carry `m=1`.
         boolean first = buf == null;
         if (first) {
-            buf = new StringBuilder();
+            buf = new java.io.ByteArrayOutputStream();
             bufKv = kv;
         }
-        if (buf.length() + payload.length() > MAX_APC) {
+        byte[] chunk;
+        try {
+            // the MIME decoder, so the newlines some senders put between chunks
+            // are not an error; the padding of *this* chunk ends its own blob
+            chunk = Base64.getMimeDecoder().decode(payload);
+        } catch (IllegalArgumentException e) {
+            buf = null;
+            bufKv = null;
+            out.responses.add("Gi=0;EINVAL:base64");
+            return out;
+        }
+        if (buf.size() + chunk.length > MAX_APC) {
             buf = null;
             bufKv = null;
             out.responses.add("Gi=0;EINVAL:too big");
             return out;
         }
-        buf.append(payload);
+        buf.write(chunk, 0, chunk.length);
         if ("1".equals(kv.get("m"))) return out; // there is still a chunk coming
-        if (buf == null) return out;
-        String b64 = buf.toString();
+        byte[] data = buf.toByteArray();
         buf = null;
         Map<String, String> params = bufKv;
         bufKv = null;
         if (params == null) params = kv;
-
-        byte[] data;
-        try {
-            data = Base64.getMimeDecoder().decode(b64);
-        } catch (IllegalArgumentException e) {
-            out.responses.add("Gi=0;EINVAL:base64");
-            return out;
-        }
         String action = params.getOrDefault("a", "t");
         String medium = params.getOrDefault("t", "d");
         int id = parseIdent(params.get("i"));

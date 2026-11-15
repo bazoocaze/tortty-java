@@ -85,6 +85,7 @@ public final class GraphicsChecks {
         aNegativeZGoesUnderTheText(c);
         aFrameHasACanvasColourAndFramesCompose(c);
         anUploadInFlightIsAbortedByADelete(c);
+        everyChunkIsItsOwnBase64(c);
         aMultiplexerWrapperIsUnwrapped(c);
     }
 
@@ -773,6 +774,34 @@ public final class GraphicsChecks {
         int under = 0, over = 0;
         for (term.KittyImages.Placement p : order) { if (p.z < 0) under++; else over++; }
         c.eq("one placement in each band", under + "/" + over, "1/1");
+    }
+
+    /**
+     * A chunk is its own base64 blob: the spec has the client encode each piece,
+     * so a sender may pad every chunk — `chafa -f kitty` splits the raw RGBA into
+     * 513-byte pieces and pads each one. Gluing the text together put `=` in the
+     * middle and the image was answered `EINVAL:base64`.
+     */
+    private static void everyChunkIsItsOwnBase64(Check c) {
+        // 4 bytes and 8 bytes of a 2x2 f=24 image: the first piece needs `==`
+        byte[] head = java.util.Arrays.copyOf(PX2, 4);
+        byte[] tail = java.util.Arrays.copyOfRange(PX2, 4, 12);
+        Term t = new Term(20, 8);
+        Check.feed(t, apc("a=T,f=24,s=2,v=2,i=7,m=1", head));
+        Check.feed(t, apc("m=0", tail));
+        term.KittyImages.Image img = t.images.image(7);
+        c.is("a chunk padded on its own still adds up", img != null);
+        if (img != null) {
+            c.eq("with the bytes of both", java.util.Arrays.equals(img.data, PX2), true);
+            c.eq("and the pixels of the first chunk kept", img.data[0] + "," + img.data[3], "1,4");
+        }
+        // three chunks, the middle one padded as well (5 bytes, then 4, then 3)
+        Term m = new Term(20, 8);
+        Check.feed(m, apc("a=T,f=24,s=2,v=2,i=8,m=1", java.util.Arrays.copyOf(PX2, 5)));
+        Check.feed(m, apc("m=1", java.util.Arrays.copyOfRange(PX2, 5, 9)));
+        Check.feed(m, apc("m=0", java.util.Arrays.copyOfRange(PX2, 9, 12)));
+        c.eq("so does a padded chunk in the middle", m.images.image(8) != null
+                && java.util.Arrays.equals(m.images.image(8).data, PX2), true);
     }
 
     private static void anUploadInFlightIsAbortedByADelete(Check c) {

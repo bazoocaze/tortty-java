@@ -17,4 +17,4 @@ reused.
 
 
 | L24 | The window is hidden before the farewell, so the process can outlive the picture by the length of it — up to the 250 ms drain plus the snapshot write | for that moment there is no window and no way to stop it but a signal; a signal that skipped the farewell hangs the children up and waits only while one is alive, so a child that goes at once costs nothing |
-
+| L25 | Sixel and iTerm2 inline images are not implemented: only the kitty graphics protocol draws a picture. A sixel document (`DCS … q … ST`) and an iTerm2 image (`OSC 1337;File=…`) are consumed as unknown escapes, so nothing is drawn and nothing is complained about | a tool that speaks only sixel or `OSC 1337` — `chafa -f sixels`, `chafa -f iterm`, `img2sixel`, `wezterm imgcat` — shows an empty screen where the picture should be (measured with `chafa 1.14`); `chafa -f kitty` and `kitten icat` work, and `chafa` with no `-f` falls back to character art because `$TERM` does not name a kitty terminal |

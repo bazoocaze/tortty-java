@@ -79,8 +79,14 @@ Features implemented in the Java version of TorTTY.
   media, because `icat` sends every frame after the root as `a=f,t=s` with the
   shared-memory name as the payload. Image ids and numbers are 32-bit
   **unsigned** (`icat` numbers an animation around 2^32, `I=4281793601`), kept as
-  the same 32 bits and echoed back in the decimal the client sent. The image
-  follows the scroll into the history, is pruned with it, and `ED 3` clears it.
+  the same 32 bits and echoed back in the decimal the client sent. A transmission
+  in chunks (`m=1`) is decoded **chunk by chunk**, because each chunk is its own
+  base64 blob and a client may pad every one of them — `chafa -f kitty` splits the
+  raw RGBA into 513-byte pieces, each ending in `=`; gluing the text together put
+  `=` in the middle and answered `EINVAL:base64`. The image follows the scroll into
+  the history, is pruned with it, and `ED 3` clears it. Verified with `chafa 1.14`
+  (`-f kitty` draws the picture; `-f sixels` and `-f iterm` draw nothing — see
+  `L25`).
 - Through a multiplexer (`B62`): `kitten icat --passthrough tmux`, `bicat` and an
   editor inside `tmux` wrap each sequence in `DCS tmux;` with the `ESC`s doubled;
   the picture, the frames and the replies all survive it, and the cells land

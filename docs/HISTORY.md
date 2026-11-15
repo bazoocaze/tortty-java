@@ -1381,3 +1381,24 @@ so no path can leave the cards painted where they were.
 place, first paint included; with twelve workspaces in a short window the column
 still scrolls to put the front card in sight (offset 8 of 4 visible rows, measured).
 `selftest` 1327 checks, `render-check` 62, both green; verified on `Xvfb :98`.
+
+## 2026-11-14 — chafa's kitty pictures and the shapes they came in
+
+**Context.** Asked to evaluate `chafa -f <format>` against the image support, the
+kitty path answered `EINVAL:base64` for every picture: `chafa` splits the raw RGBA
+into 513-byte pieces and base64-encodes **each piece on its own**, so every chunk
+ends in padding — and the parser glued the chunk texts together before decoding
+(`Base64.getMimeDecoder()` rejects `=` in the middle). `kitten icat` never showed
+it because its chunks happen to be 3072 bytes, a whole number of quanta.
+
+**Activities.** `KittyImages.handle()` now decodes each chunk as its own blob and
+appends the bytes (`ByteArrayOutputStream`), with the `MAX_APC` budget counted on
+the decoded size; a decode failure still answers `EINVAL:base64` and drops the
+upload. `GraphicsChecks.everyChunkIsItsOwnBase64` feeds a 4+8 and a 5+4+3 split of
+a 2x2 image, so a padded chunk in the middle is covered too.
+
+**Result.** `chafa -f kitty mario_face.png` draws the 600x600 face (1 image, 1
+placement, checked on `Xvfb :98`); `chafa -f sixels`, `-f iterm` and `-f iterm2`
+draw nothing, which is now `L25` (sixel and `OSC 1337` are not implemented — the
+escapes are swallowed). `chafa` with no `-f` still falls back to symbols. `selftest`
+1331 checks (+4), `render-check` 62, both green.
