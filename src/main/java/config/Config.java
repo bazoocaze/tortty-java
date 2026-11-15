@@ -41,6 +41,9 @@ public final class Config {
     /** Errors found while loading; the valid keys still apply on initial load. */
     public final List<String> errors = new ArrayList<>();
 
+    /** The `map`/`unmap` lines as written, in file order (`M-H`). */
+    public final List<String> shortcutLines = new ArrayList<>();
+
     public static Path defaultPath() {
         String xdg = System.getenv("XDG_CONFIG_HOME");
         Path dir = (xdg != null && !xdg.isEmpty())
@@ -147,6 +150,15 @@ public final class Config {
                 case "content" -> RESTORE_CONTENT;
                 default -> throw new IllegalArgumentException("none, layout or content");
             };
+            // `map ctrl+shift+y new_tab` / `unmap ctrl+shift+w`: the shortcut
+            // table (`M-H`). The line is kept as written and validated here, so a
+            // bad chord or action is an error with its own line number, and the
+            // table is built from the defaults plus these lines, in order.
+            case "map", "unmap" -> {
+                String line = key + " " + value;
+                new Keymap(new String[0]).parseLine(line, 0);
+                shortcutLines.add(line);
+            }
             case "debug_log" -> debugLog = value.equals("off") ? "" : value;
             case "foreground" -> foreground = parseColor(value);
             case "background" -> background = parseColor(value);
@@ -166,6 +178,17 @@ public final class Config {
                 }
             }
         }
+    }
+
+    /**
+     * The shortcut table: the built-in {@link Keymap#DEFAULTS} with this file's
+     * `map`/`unmap` lines applied on top, in order — an edit takes effect on the
+     * next reload like any other key.
+     */
+    public Keymap keymap() {
+        Keymap m = new Keymap();
+        for (String line : shortcutLines) m.parseLine(line, 0);
+        return m;
     }
 
     public Theme theme() {

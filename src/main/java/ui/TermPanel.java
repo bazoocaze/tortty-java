@@ -1023,48 +1023,44 @@ public final class TermPanel extends JPanel implements KeyListener {
      * child must not see it. The debug socket's `keys` verb calls this too
      * (`B23`), so an automated key is the keyboard's key.
      */
+    /**
+     * The actions a chord can name (`M-H`): what the panel owns and the shortcut
+     * table may ask for. The chords themselves are the `map` lines in the config,
+     * so nothing here knows a key.
+     */
+    public void copySelectionNow() {
+        copySelection();
+    }
+
+    public void pasteClipboardNow() {
+        pasteClipboard();
+    }
+
+    public void openFindNow() {
+        openFind();
+    }
+
+    public void scrollPage(int dir) {
+        term.scrollView(dir * Math.max(1, term.rows - 1));
+        requestFullRepaint();
+    }
+
+    public void scrollTop() {
+        term.scrollView(term.historySize());
+        requestFullRepaint();
+    }
+
+    public void scrollBottom() {
+        term.scrollToBottom();
+        requestFullRepaint();
+    }
+
+    /**
+     * Whether the panel wants nothing more of this key. Everything that used to
+     * be here (`Ctrl+Shift+C/V/F`, the `Shift` scroll keys) is a `map` line now,
+     * so an `unmap` really does give the key back to the program.
+     */
     public boolean localKey(int keyCode, int modifiers) {
-        boolean ctrl = (modifiers & java.awt.event.InputEvent.CTRL_DOWN_MASK) != 0;
-        boolean shift = (modifiers & java.awt.event.InputEvent.SHIFT_DOWN_MASK) != 0;
-        if (ctrl && shift) {
-            if (keyCode == KeyEvent.VK_F) {
-                openFind();
-                return true;
-            }
-            if (keyCode == KeyEvent.VK_C) {
-                copySelection();
-                return true;
-            }
-            if (keyCode == KeyEvent.VK_V) {
-                pasteClipboard();
-                return true;
-            }
-        }
-        if (shift && !term.inAltScreen() && term.historySize() > 0) {
-            switch (keyCode) {
-                case KeyEvent.VK_PAGE_UP -> {
-                    term.scrollView(term.rows - 1);
-                    requestFullRepaint();
-                    return true;
-                }
-                case KeyEvent.VK_PAGE_DOWN -> {
-                    term.scrollView(-(term.rows - 1));
-                    requestFullRepaint();
-                    return true;
-                }
-                case KeyEvent.VK_HOME -> {
-                    term.scrollView(term.historySize());
-                    requestFullRepaint();
-                    return true;
-                }
-                case KeyEvent.VK_END -> {
-                    term.scrollToBottom();
-                    requestFullRepaint();
-                    return true;
-                }
-                default -> { }
-            }
-        }
         return false;
     }
 

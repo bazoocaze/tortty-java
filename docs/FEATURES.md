@@ -303,10 +303,20 @@ Features implemented in the Java version of TorTTY.
 - Block, beam, or underline cursor, with blink.
 - `Ctrl+Shift+F2` opens the configuration file in an editor, in a new tab — see
   [`Config in a tab`](#config-in-a-tab-b37).
-- Shortcuts: Ctrl+Shift+T/W/N/Q/F (the search bar), Ctrl+Shift+F2 (the config file, in its own
-  section below) and Ctrl+Shift+1..9, Alt+1..9, plus Super+N/Q
-  and Super+1..9 (0 = the tenth), the workspace alias the Rust version has
-  (`B35`). AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
+- Shortcuts are a **table** (`M-H`): `map CHORD ACTION [N]` and `unmap CHORD` in
+  the config, nineteen actions over what already exists (copy, paste, tab and
+  workspace open/close, the prompt walk, the config file, the search bar, four
+  scroll moves, `select_tab`/`select_workspace` with a number, the workspace
+  walk). The defaults are `map` lines of the same syntax — `Ctrl+Shift+C/V/T/W`,
+  `Ctrl+Shift+N/Q`, `Ctrl+Shift+Up/Down`, `Ctrl+Shift+F`/`F2`,
+  `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab), `Ctrl+Shift+1`…`9` and
+  `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down` — so copying one into
+  the file reproduces it, changing the action changes it, and deleting or
+  `unmap`ping the line **frees the chord**: an unbound key goes to the program,
+  which is also why no chord is hard-coded in the panel any more. A crooked line
+  is an error with its number and the rest of the file still applies; a reload
+  rebuilds the table from the defaults.
+  AWT never sets its Meta bit for Super on X11, so `input.SuperKey`
   tracks the key from its own press and release. A Super chord that is no
   shortcut is swallowed rather than typed into the child without its modifier —
   unless the child asked for the modifiers with the kitty keyboard protocol

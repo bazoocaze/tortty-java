@@ -9,6 +9,7 @@ import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
+import config.Keymap;
 import pty.ProcName;
 import ui.Chrome;
 import ui.Toast;
@@ -188,6 +189,8 @@ public final class Main {
         private int ws = -1;
         private int nextCard;
         private Session session = new Session();
+        /** The shortcut table: the defaults plus the config's `map` lines (`M-H`). */
+        private Keymap keymap = new Keymap();
         /** The lock that makes this window the owner of the session (`B46`). */
         private Session.Owner owner;
         /** A window that did not get the lock: it never restores and never writes. */
@@ -262,6 +265,8 @@ public final class Main {
             for (String err : cfg.errors) System.err.println("tortty-java: config: " + err);
             o.applyTo(cfg);
             theme = cfg.theme();
+            // the shortcut table: defaults plus this file's `map`/`unmap` lines
+            keymap = cfg.keymap();
             // the log is a sink: whoever asks for it (CLI or config) gets it
             debug.Log.set(o.debugLog != null ? o.debugLog : cfg.debugLog);
             // `restore_state = none` is the owner saying "this terminal has no
@@ -374,6 +379,7 @@ public final class Main {
                 }
                 o.applyTo(updated);
                 cfg = updated;
+                keymap = updated.keymap(); // the shortcut table, as reloaded (`M-H`)
                 forEachTab(t -> applyLive(updated, t));
                 syncChrome(); // the keys, then every strip re-installs
                 syncSide();
@@ -1647,50 +1653,48 @@ public final class Main {
          * one (`B23`), so a shortcut driven from a test is not a second table;
          * F2 (rename) stays out of it because the socket must not open a dialog.
          */
+        /**
+         * The shortcut table (`M-H`): the chord is looked up in {@code keymap},
+         * which starts from the built-in `map` lines and takes the config's on
+         * top. An `unmap`ped chord falls through, so the program sees the key —
+         * which is also why nothing here hard-codes a chord. The debug socket's
+         * `keys` verb calls this same one (`B23`), so a shortcut driven from a
+         * test is not a second table; F2 (rename) stays out of it because the
+         * socket must not open a dialog.
+         */
         private boolean localShortcut(int kc, boolean ctrl, boolean alt, boolean shift, boolean meta) {
-            boolean digit = kc >= KeyEvent.VK_1 && kc <= KeyEvent.VK_9;
-            boolean digit0 = kc == KeyEvent.VK_0;
-            boolean ctrlShift = ctrl && shift && !alt && !meta;
-            boolean altOnly = alt && !ctrl && !shift && !meta;
-            if (altOnly && digit) {
-                selectTab(kc - KeyEvent.VK_1);
-                return true;
-            }
-            // Super+N/Q and Super+1..9 (0 = the tenth): the workspace alias, as in
-            // the Rust `super_only`. `meta` here is AWT's (0 on X11) or the Super
-            // key the dispatcher tracked by hand.
-            boolean superOnly = meta && !ctrl && !alt;
-            if (superOnly) {
-                switch (kc) {
-                    case KeyEvent.VK_N -> newWorkspace(cwdOf(activeTab()), false);
-                    case KeyEvent.VK_Q -> closeWorkspace(ws);
-                    default -> {
-                        if (!digit && !digit0) return false;
-                        selectWorkspace(digit0 ? 9 : kc - KeyEvent.VK_1);
-                    }
-                }
-                return true;
-            }
-            if (!ctrlShift) return false;
-            switch (kc) {
-                case KeyEvent.VK_T -> newTab(front(), cwdOf(activeTab()), false);
-                case KeyEvent.VK_W -> {
-                    Tab t = activeTab();
-                    Workspace w = front();
-                    if (t != null && w != null) closeTab(w, t);
-                }
-                case KeyEvent.VK_N -> newWorkspace(cwdOf(activeTab()), false);
-                case KeyEvent.VK_Q -> closeWorkspace(ws);
-                // the config file in the editor, as the Rust `P33` does; taken
-                // before encoding so an editor never sees the chord
-                case KeyEvent.VK_F2 -> openConfig();
-                // walk the `OSC 133` prompt marks (`B39`): the previous/next
-                // prompt goes to the first row, and at the ends nothing moves
-                case KeyEvent.VK_UP -> promptJump(activeTab(), true);
-                case KeyEvent.VK_DOWN -> promptJump(activeTab(), false);
+            String chord = Keymap.chord(kc, ctrl, alt, shift, meta);
+            if (chord == null) return false;
+            Keymap.Bound b = keymap.match(chord);
+            if (b == null) return false;
+            return runAction(b);
+        }
+
+        /** Runs one bound action; {@code false} means "not ours after all". */
+        private boolean runAction(Keymap.Bound b) {
+            Tab t = activeTab();
+            Workspace w = front();
+            switch (b.action()) {
+                case "copy" -> { if (t != null) t.panel.copySelectionNow(); }
+                case "paste" -> { if (t != null) t.panel.pasteClipboardNow(); }
+                case "new_tab" -> newTab(w, cwdOf(t), false);
+                case "close_tab" -> { if (t != null && w != null) closeTab(w, t); }
+                case "new_workspace" -> newWorkspace(cwdOf(t), false);
+                case "close_workspace" -> closeWorkspace(ws);
+                case "prev_prompt" -> promptJump(t, true);
+                case "next_prompt" -> promptJump(t, false);
+                case "open_config" -> openConfig();
+                case "search" -> { if (t != null) t.panel.openFindNow(); }
+                case "scroll_page_up" -> { if (t != null) t.panel.scrollPage(1); }
+                case "scroll_page_down" -> { if (t != null) t.panel.scrollPage(-1); }
+                case "scroll_top" -> { if (t != null) t.panel.scrollTop(); }
+                case "scroll_bottom" -> { if (t != null) t.panel.scrollBottom(); }
+                case "ws_prev" -> selectWorkspace(ws - 1);
+                case "ws_next" -> selectWorkspace(ws + 1);
+                case "select_tab" -> selectTab(b.arg() - 1);
+                case "select_workspace" -> selectWorkspace(b.arg() - 1);
                 default -> {
-                    if (!digit) return false;
-                    selectWorkspace(kc - KeyEvent.VK_1);
+                    return false;
                 }
             }
             return true;

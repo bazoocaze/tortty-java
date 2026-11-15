@@ -32,6 +32,8 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 | `bell` | `none` | `none`, `visual` or `audible` |
 | `copy_on_select` | `on` | drag selection also goes to the CLIPBOARD; the PRIMARY selection is always set |
 | `ligatures` | `off` | `off`, `standard` or `all` (`B27`); the join needs a font that carries the ligature (see `L18`) |
+| `map` | the table below | `map CHORD ACTION [N]`: binds a chord to an app action, and re-binds one that exists. An unknown chord, modifier, key, action or a number where none belongs is an error on that line |
+| `unmap` | — | `unmap CHORD`: frees the chord, so the program sees the key again |
 | `debug_log` | empty | append-only debug log path (`B23`); empty = off. The `log` verb of the socket changes it at runtime |
 | `restore_state` | `layout` | what comes back on the next run (`B26`): `none` (one tab, a clean screen — nothing read or written), `layout` (the workspaces and tabs of the last run, in their order, the front where it was, and each workspace back on the tab it was showing) or `content` (the layout **and** what the tabs had on screen and in the history — a photograph, not the process: the shell starts again in the same directory). **Content is opt-in**: with the default `layout` no `session-*.ans` is written (leftovers are deleted), so a run that only restores tabs is a run without this key — `state` on the socket reports the live value |
 | `foreground` | `#d6d6d6` | text colour; the workspace column's labels and the context menu follow it too |
@@ -41,6 +43,42 @@ after SECS seconds, used by automation), `-V`/`--version`, `--prof`, `--no-vsync
 
 Colours are `#rgb` or `#rrggbb`. Booleans accept `on/yes/true/1` and
 `off/no/false/0`.
+
+### Shortcuts (`M-H`)
+
+A shortcut is a **chord** — modifiers joined with `+` (`ctrl`, `alt`, `shift`,
+`super`) plus one key — and an **action**. The key is a single character or one of
+`enter esc tab backspace space insert delete home end pgup pgdn up down left
+right f1`…`f24`; the modifiers are written in any order and spelled back in the
+canonical one (`ctrl+alt+shift+super`).
+
+| action | what it does |
+|---|---|
+| `copy` / `paste` | the grid's selection, CLIPBOARD |
+| `new_tab` / `close_tab` | tab |
+| `new_workspace` / `close_workspace` | workspace |
+| `prev_prompt` / `next_prompt` | walk the `OSC 133` marks, the prompt onto the first row |
+| `open_config` | the config file in `$EDITOR`, in a new tab |
+| `search` | the search bar over the scrollback |
+| `scroll_page_up` / `scroll_page_down` / `scroll_top` / `scroll_bottom` | the history |
+| `select_tab N` / `select_workspace N` | `N` is 1..10, where 10 is key `0` |
+| `ws_prev` / `ws_next` | walk the workspaces |
+
+The defaults are the same syntax, one line per chord: `Ctrl+Shift+C/V`, `T/W`,
+`N/Q`, `Up/Down`, `F`/`F2`, `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab),
+`Ctrl+Shift+1`…`9` and `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down`.
+Copying one into your file reproduces the app's table, changing the action
+changes it for you, and **deleting a line frees the key** as surely as `unmap`
+does — an unbound key goes to the program.
+
+```conf
+map ctrl+shift+y new_tab
+unmap ctrl+shift+w
+```
+
+A chord bound twice keeps the last line. The table is rebuilt from the defaults
+on every reload, so an edit takes effect without a restart; a crooked line is an
+error with its number and the rest of the file still applies.
 
 `font_size` is **points**, and the pixels come from the desktop's dots per inch:
 `gnome.Xft/DPI` (the `Xft.dpi` of `xrdb`, in 1024ths) when the toolkit answers

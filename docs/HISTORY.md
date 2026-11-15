@@ -1678,3 +1678,30 @@ unknown kind and a crooked status ignored, prompt-to-prompt navigation skipping
 the marks that are not prompts, the ceiling, the prune, and a `RIS` clearing
 them). `selftest` 1538 checks.
 
+## 2026-11-15 — the shortcuts are a table
+
+**Context.** Every chord was a `switch` arm in `Main.localShortcut` (and three
+more in the panel), so a keyboard that is not the owner's, or a hand used to
+`tmux`, could not rebind anything — and `Ctrl+Shift+W` closing a tab was not
+negotiable.
+
+**Activities.** `config.Keymap` holds `map CHORD ACTION [N]` and `unmap CHORD`,
+with the nineteen actions written as text and the ~50 defaults as `map` lines of
+the same syntax, so a line copied out of the config reproduces the app's table.
+A chord is canonicalised (modifiers in a fixed order, the key by the name
+`input.Keys` already knew) and every part is validated: an unknown modifier, key,
+action, or a number where none belongs is an error on that line and nothing else
+in the file suffers. `Config` keeps the raw `map`/`unmap` lines in order and
+builds the table (`Config.keymap()`), which `Main` applies at startup and again
+on every reload; `localShortcut` is now a lookup and `runAction` a switch over
+action names, and the panel's own chord block is gone — which is what makes
+`unmap` real: an unbound chord falls through to the child.
+
+**Result.** With `map ctrl+shift+y new_tab` and `unmap ctrl+shift+w` in the
+config, driven through the socket on `Xvfb :98`: `ctrl+shift+y` opened a tab
+(handled), `ctrl+shift+w` was *not* handled and reached the child as `0x17`,
+`ctrl+shift+t` still opened one from the defaults, and the reload rebuilt the
+table without a restart. `keymap` is a new check area (defaults, rebinding,
+freeing and giving back a chord, eleven crooked lines refused, and the table a
+real config file produces). `selftest` 1575 checks.
+
