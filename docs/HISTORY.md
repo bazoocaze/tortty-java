@@ -1447,3 +1447,34 @@ the alternate screen) kept the last `chafa` in every cell it repainted and a pla
 check area (53 assertions, the Rust decoder cases plus the two screen ones) and five
 more in `graphics` (four iTerm2, one for the erasure); `selftest` 1417 checks,
 `render-check` green.
+
+## 2026-11-14 — a synchronized repaint does not move the reader
+
+**Context.** Reported against `pi` working: the reader scrolls up a few lines to
+re-read something and the view sporadically runs to the **top**. The Rust core had
+the same arithmetic and fixed it in its own `B41`; this is the port.
+
+**Activities.** `Term` now counts what the offset needs to survive a read: the rows
+that left through the top (`scrolled`), of those the ones a `?2026` repaint
+scrolled (`scrolledSync`), a history generation (`histGen`) that grows on `ED 3`
+and `RIS`, and — when the wipe happened **inside** a window — that generation in
+`quietWipeGen`. `mark()`/`viewAfterOutput()` are the pair the Rust core calls
+`FeedMark`/`view_after_output`: `feed` takes the mark before the bytes and moves the
+offset once afterwards, so a multiplexer's payload re-entering the parser cannot
+move it twice. A `SyncTrace` tells the two shapes of a window apart — one that
+erased the screen, sent the cursor home or reset is a repaint, one that only writes
+is an append, which is how `pi` grows its transcript (`B53` in Rust). Two things the
+port needed to get right: the offset the read started from has to be captured
+*before* the loop, because `ED 3` and `RIS` clear the field (`reset()` now also
+empties the scrollback, the `clear` xterm does), and `ris` has to be read from the
+mode before `reset()` turns it off.
+
+**Result.** Live, with a reader 69 rows back: a `?2026` window that repaints the
+transcript (`ED 2` + home + 300 lines) left the view at **348** before — the
+ceiling of the history, the reported jump — and at **71** after, still reading the
+same position of the new text; a window carrying `ED 2` + `ED 3` + `CUP H` dropped
+the reader to the live screen before and now keeps them 70 rows back. Five checks in
+`term` mirror the Rust tests (output, an appending window, a repainting window, a
+wipe inside a window, a wipe outside, and `RIS`); `selftest` 1432 checks,
+`render-check` green.
+

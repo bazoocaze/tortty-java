@@ -31,7 +31,12 @@ Features implemented in the Java version of TorTTY.
   UTF-8 `?1005`, SGR `?1006`, pixels `?1016`).
 - Scrollback (10k default) with view offset: wheel, `Shift+Home/End` and
   `Shift+PageUp/PageDown`, an 8 px scrollbar with click/drag, and selection/copy
-  through the history. Output keeps the line being read in place.
+  through the history. Output keeps the line being read in place — and a
+  **synchronized repaint does not move the reader** (`B63`): the rows a `?2026`
+  window scrolls are the same text drawn again, so only the rows **output** pushed
+  count, and a transcript wiped (`ED 3`, `RIS`) **inside** a window keeps the
+  offset clamped to the lines the reader could already see, while the same wipe
+  outside a window is a `clear` and returns the view to the live screen.
 - **Search** (`Ctrl+Shift+F`): a bar at the top right of the grid, its own
   field, so typing goes there and never reaches the child. It looks at the
   **whole buffer** — history and the live screen, oldest first — with a

@@ -35,6 +35,7 @@ public final class TermChecks {
         osc52(c);
         logicalLines(c);
         resizing(c);
+        theReaderKeepsHisPlace(c);
     }
 
     private static void printing(Check c) {
@@ -425,6 +426,83 @@ public final class TermChecks {
      * no reply is what a client reads as "not supported", and letting a program
      * in the terminal read the clipboard is a leak.
      */
+    /**
+     * `B63`: the reported bug — with `pi` writing, a reader who scrolled up a few
+     * lines to re-read watched the view run to the **top**. Output pushes rows out
+     * and the offset must follow them; a synchronized repaint (`?2026` around
+     * `ED 2` + `ED 3` + `CUP H`, which is how `pi` rewrites its transcript) is the
+     * same text drawn again and must not move the reader at all.
+     */
+    private static void theReaderKeepsHisPlace(Check c) {
+        // output: the reader stays on the same absolute line
+        Term t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 10; i++) Check.feed(t, "l" + i + "\r\n");
+        t.scrollView(3);
+        c.eq("the reader is three rows back", t.viewOff(), 3);
+        String before = t.lineString(0);
+        long abs = t.absoluteLine(0);
+        Check.feed(t, "new1\r\nnew2\r\n");
+        c.eq("two rows arrived", t.viewOff(), 5);
+        c.eq("the reader kept the same absolute line", t.absoluteLine(0), abs);
+        c.eq("and the same text", t.lineString(0), before);
+        t.scrollToBottom();
+        Check.feed(t, "more\r\n");
+        c.eq("at the bottom it stays at the bottom", t.viewOff(), 0);
+
+        // a window that only appends is output, not a repaint (`pi` appends so)
+        t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 10; i++) Check.feed(t, "l" + i + "\r\n");
+        t.scrollView(3);
+        Check.feed(t, E + "[?2026h");
+        for (int i = 0; i < 6; i++) Check.feed(t, "r" + i + "\r\n");
+        Check.feed(t, E + "[?2026l");
+        c.eq("the appending window moved the reader", t.viewOff() > 3, true);
+        c.eq("an append is not a repaint", t.mark().redraw(), 0L);
+
+        // a window that repaints moves nobody: `2J` + home before the rows
+        t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 10; i++) Check.feed(t, "l" + i + "\r\n");
+        t.scrollView(3);
+        Check.feed(t, E + "[?2026h" + E + "[2J" + E + "[H");
+        for (int i = 0; i < 6; i++) Check.feed(t, "r" + i + "\r\n");
+        Check.feed(t, E + "[?2026l");
+        c.eq("the repaint scrolled rows", t.mark().redraw() > 0, true);
+        c.eq("a repaint did not move the reader", t.viewOff(), 3);
+
+        // and the reported case: `2J` + `3J` + the transcript reprinted inside one
+        // window, with the reader well up in a history that is about to be erased
+        t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 60; i++) Check.feed(t, "old" + i + "\r\n");
+        t.scrollView(50);
+        c.eq("50 rows back", t.viewOff(), 50);
+        Check.feed(t, E + "[?2026h" + E + "[2J" + E + "[3J" + E + "[H");
+        for (int i = 0; i < 200; i++) Check.feed(t, "new" + i + "\r\n");
+        Check.feed(t, E + "[?2026l");
+        c.eq("the history was rebuilt", t.historySize() > 150, true);
+        c.eq("the view was not carried to the top", t.viewOff(), 50);
+
+        // outside a window the same erase is a `clear`: nothing above to read
+        t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 60; i++) Check.feed(t, "old" + i + "\r\n");
+        t.scrollView(50);
+        Check.feed(t, E + "[3J");
+        c.eq("a clear drops the reader to the live screen", t.viewOff(), 0);
+
+        // `RIS` is a wipe too, and inside a window it is a repaint
+        t = new Term(20, 4);
+        t.setScrollbackLimit(1000);
+        for (int i = 0; i < 60; i++) Check.feed(t, "old" + i + "\r\n");
+        t.scrollView(40);
+        Check.feed(t, E + "[?2026h" + E + "c");
+        c.eq("the reset emptied the history", t.historySize(), 0);
+        c.eq("a reset inside a window left the reader where he was", t.viewOff(), 40);
+    }
+
     private static void osc52(Check c) {
         Term t = new Term(20, 3);
         c.eq("nothing is asked for at first", t.clipSeq, 0L);

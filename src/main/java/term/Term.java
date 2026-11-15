@@ -129,6 +129,16 @@ public final class Term {
     private int viewOff;
     /** Absolute index of the first live-screen row (history grows this). */
     private long totalLines;
+    // --- what the reader's offset needs to survive a read (`B63`): the rows
+    // that left through the top, of which the ones a `?2026` repaint scrolled,
+    // and a generation that grows whenever the history is erased.
+    private long scrolled;
+    private long scrolledSync;
+    private long histGen;
+    /** The `histGen` of the erase made **inside** a window: a repaint, not a `clear`. */
+    private long quietWipeGen;
+    /** The shape of the open `?2026` window, `null` when none is open. */
+    private SyncTrace trace;
     /** Bumped when the grid layout changes and old anchors stop being valid. */
     private long layoutGen;
     /** Rows dropped by the scrollback cap: every surviving absolute line shifts with them. */
@@ -144,6 +154,78 @@ public final class Term {
         viewOff = Math.min(viewOff, hist.size());
     }
     public int viewOff() { return viewOff; }
+
+    /**
+     * The history counters taken before a read, so the view can stay on the line
+     * the reader was reading ({@code B63}): see {@link #viewAfterOutput}.
+     *
+     * @param scrolled   absolute rows that had left through the top
+     * @param redraw     of those, the ones a `?2026` repaint scrolled
+     * @param history    lines the reader could look at
+     * @param generation the history generation — a new one means it was erased
+     */
+    public record FeedMark(long scrolled, long redraw, int history, long generation) {}
+
+    /** The history as it is now: what {@link #viewAfterOutput} compares against. */
+    public FeedMark mark() {
+        return new FeedMark(scrolled, scrolledSync, hist.size(), histGen);
+    }
+
+    /**
+     * How far the view must move so the reader does not lose the line they were
+     * on, after {@code mark} was taken before the read ({@code B63}).
+     *
+     * Only the rows **output** pushed count. Rows a synchronized update (`?2026`)
+     * scrolled are a repaint of what is already on screen: the app is saying "this
+     * is one frame", so the frame does not move the reader either — and a window
+     * that only writes, which is how `pi` appends, is not a repaint and does move
+     * them.
+     *
+     * A history erased (`CSI 3J`, `RIS`) splits in two, and the difference is who
+     * asked for it: **inside** a window it is a repaint — the transcript is being
+     * rewritten, the reader stays where he was (clamped to what he could already
+     * see), because adding the reprinted lines to the offset throws the view at
+     * the top of an unrelated history. **Outside** a window it is a `clear`: the
+     * saved lines are gone for good and there is nothing above the live screen.
+     */
+    public int viewAfterOutput(int off, FeedMark mark) {
+        if (off == 0) return 0;
+        if (histGen != mark.generation()) {
+            return quietWipeGen == histGen ? Math.min(off, mark.history()) : 0;
+        }
+        long quiet = scrolled - scrolledSync;
+        long d = Math.max(0, quiet - (mark.scrolled() - mark.redraw()));
+        if (d == 0) return off;
+        // Only the distance from the live area matters: a row that left the
+        // scrollback (by cap) is already handled by the clamp below.
+        return (int) Math.min(hist.size(), off + d);
+    }
+
+    /** Counts one event in the open `?2026` window; nothing when none is open. */
+    private void trace(java.util.function.Consumer<SyncTrace> f) {
+        if (trace != null) f.accept(trace);
+    }
+
+    /**
+     * What an open `?2026` window has done so far: enough to tell a **repaint**
+     * from an append, which is the difference `B63` turns on.
+     */
+    static final class SyncTrace {
+        int ed2;
+        int ed3;
+        int home;
+        int ris;
+
+        /**
+         * Whether the window so far is a repaint: it erased the screen, sent the
+         * cursor home or reset, so the rows it scrolls are the same text drawn
+         * again. `EL` does not count — a line-by-line append clears lines too,
+         * and that is exactly the shape the creep came in.
+         */
+        boolean repaints() {
+            return ed2 > 0 || ed3 > 0 || home > 0 || ris > 0;
+        }
+    }
     public long totalLines() { return totalLines; }
     public long layoutGen() { return layoutGen; }
 
@@ -294,6 +376,9 @@ public final class Term {
     }
 
     public void reset() {
+        // read before the modes go: a `RIS` ends a `?2026` window without a
+        // close, and whether it was open decides what the wipe means (`B63`)
+        boolean wasSync = sync;
         penFg = DEFAULT; penBg = DEFAULT; penAttr = 0; penUl = 0; penUlColor = DEFAULT; insert = false;
         charsetG0 = Charset.ASCII; charsetG1 = Charset.ASCII; useG1 = false;
         decckm = false; lnm = false; alt = false; keypadApp = false;
@@ -311,7 +396,17 @@ public final class Term {
         mainChrome = null;
         links.clear(); linkIndex.clear(); penLink = 0;
         images.clear();
+        // a full reset is a `clear` too: xterm drops the saved lines with it
+        hist.clear(); totalLines = 0;
         viewOff = 0; layoutGen++;
+        // a `RIS` empties the history and ends the window without a close, so it
+        // is the wipe branch of `viewAfterOutput` that has to rescue the reader
+        if (trace != null) { trace.ris++; }
+        trace = null;
+        histGen++;
+        scrolled = 0;
+        scrolledSync = 0;
+        if (wasSync) quietWipeGen = histGen;
         cx = 0; cy = 0; wrapPending = false;
         dirtyAll = true; java.util.Arrays.fill(dirty, true);
         java.util.Arrays.fill(rowWrapped, false);
@@ -1085,6 +1180,12 @@ public final class Term {
 
     public void feed(byte[] buf, int off, int len) {
         long t0 = prof.Prof.on() ? System.nanoTime() : 0;
+        // the outermost read owns the reader's offset: a multiplexer's payload
+        // re-enters `feed` and must not move it twice (`B62`, `B63`). The offset
+        // is taken here too, because a wipe inside the read (`ED 3`, `RIS`)
+        // clears the field — the reader's place is decided from what it was.
+        int off0 = viewOff;
+        FeedMark mark = inPending == 0 && off0 > 0 ? mark() : null;
         for (int i = off; i < off + len; i++) {
             int b = buf[i] & 0xff;
             switch (state) {
@@ -1128,6 +1229,13 @@ public final class Term {
                     }
                     state = GROUND;
                 }
+            }
+        }
+        if (mark != null) {
+            int nv = viewAfterOutput(off0, mark);
+            if (nv != viewOff) {
+                viewOff = nv;
+                dirtyAll = true;
             }
         }
         if (prof.Prof.on()) prof.Prof.addParse(System.nanoTime() - t0, len);
@@ -1335,12 +1443,13 @@ public final class Term {
                             rowChrome[top + r]));
                 }
                 totalLines++;
+                scrolled++;
+                // A window is not proof of a repaint: `pi` appends new lines
+                // inside `?2026`, and counting those as redrawing would freeze
+                // the reader's offset while lines go into the history under it.
+                if (trace != null && trace.repaints()) scrolledSync++;
             }
-        }
-        if (viewOff > 0 && !alt && top == 0) {
-            // Keep the line the reader is on in place while output arrives.
-            viewOff = Math.min(hist.size(), viewOff + n);
-            dirtyAll = true;
+            // the reader is moved by `viewAfterOutput`, once the read is done
         }
         for (int r = 0; r < n; r++) {
             for (int y = top; y < bot; y++) {
@@ -1890,6 +1999,8 @@ public final class Term {
                     if (r < 0) r = 0; if (r >= rows) r = rows - 1;
                 }
                 if (c < 0) c = 0; if (c >= cols) c = cols - 1;
+                // the jump a repaint makes before drawing over itself
+                if (r == 0 && c == 0) trace(t -> t.home++);
                 cx = c; cy = r; wrapPending = false;
             }
             case 'A' -> { int n = (p0 >= 0 ? p0 : 1); int min = cy < top ? 0 : top; cy = Math.max(min, cy - n); wrapPending = false; }
@@ -2018,7 +2129,10 @@ public final class Term {
                             case 1006 -> mouseSgr = on;
                             case 1016 -> mousePixels = on;
                             case 2004 -> bracketed = on;
-                            case 2026 -> sync = on;
+                            case 2026 -> {
+                                sync = on;
+                                trace = on ? new SyncTrace() : null;
+                            }
                             default -> {}
                         }
                     }
@@ -2346,6 +2460,7 @@ public final class Term {
 
     private void ed(int mode) {
         if (mode == 2 || mode == 3) {
+            if (mode == 2) trace(t -> t.ed2++); else trace(t -> t.ed3++);
             for (int y = top; y <= bot; y++) {
                 eraseCells(y * cols, cols);
                 dirty[y] = true;
@@ -2356,6 +2471,10 @@ public final class Term {
                 viewOff = 0;
                 layoutGen++;
                 images.clear();
+                histGen++;
+                // inside a window this is a repaint rewriting the transcript,
+                // not a `clear`: the reader keeps the lines he could already see
+                if (sync) quietWipeGen = histGen;
             }
             return;
         }
