@@ -66,6 +66,7 @@ public final class SessionChecks {
         api.name = "api";
         api.cwds.add("/tmp");
         api.cwds.add("/var");
+        api.tab = 1;
         Session.Mem empty = new Session.Mem();
         s.workspaces.add(api);
         s.workspaces.add(empty);
@@ -84,6 +85,8 @@ public final class SessionChecks {
         c.eq("the workspace count survives", back.workspaces.size(), 2);
         c.eq("the name survives", back.workspaces.get(0).name, "api");
         c.eq("the directories survive", back.workspaces.get(0).cwds, java.util.List.of("/tmp", "/var"));
+        c.eq("the tab each workspace was showing survives", back.workspaces.get(0).tab, 1);
+        c.eq("a workspace that never moved keeps its first tab", back.workspaces.get(1).tab, 0);
         c.eq("a never-named workspace keeps its empty name", back.workspaces.get(1).name, "");
         Files.deleteIfExists(file);
         Files.deleteIfExists(dir);
@@ -94,14 +97,16 @@ public final class SessionChecks {
         Path p = null;
         try {
             p = Files.createTempFile("tortty-session-bad-", ".json");
-            Files.writeString(p, "{\"w\":100,\"h\":100,\"sideW\":5000,\"ws\":7,\"tab\":-4}");
+            Files.writeString(p, "{\"w\":100,\"h\":100,\"sideW\":5000,\"ws\":7,\"tab\":-4,"
+                    + "\"workspaces\":[{\"name\":\"a\",\"cwds\":[\"/tmp\"],\"tab\":-3}]}");
             Session loaded = Session.loadFrom(p);
             c.eq("a window smaller than the minimum is forgotten", loaded.w, 0);
             c.eq("the height too", loaded.h, 0);
             c.eq("a side out of range goes back to 150", loaded.sideW, 150);
             c.eq("a front workspace past the end is clamped", loaded.ws, 0);
             c.eq("a negative front tab is clamped", loaded.tab, 0);
-            c.eq("no workspace in the file becomes one", loaded.workspaces.size(), 1);
+            c.eq("a negative per-workspace tab is clamped", loaded.workspaces.get(0).tab, 0);
+            c.eq("the workspace in the file is kept", loaded.workspaces.size(), 1);
         } catch (Exception e) {
             c.is("could write the crooked file: " + e, false);
         } finally {

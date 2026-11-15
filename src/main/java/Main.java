@@ -556,7 +556,11 @@ public final class Main {
                         newTab(w, dir, false, snapshotFor(wi, ti));
                     }
                     if (w.tabs.isEmpty()) newTab(w, null, false, snapshotFor(wi, 0));
-                    w.active = Math.max(0, Math.min(w.active, w.tabs.size() - 1));
+                    // the tab each workspace was showing (`B64`); a file written
+                    // before the per-workspace field existed only carries the one
+                    // in front, in `session.tab`
+                    int want = m.tab > 0 ? m.tab : (wi == session.ws ? session.tab : 0);
+                    w.active = Math.max(0, Math.min(want, w.tabs.size() - 1));
                     w.pane.setSelectedIndex(w.active);
                     any = true;
                 }
@@ -566,11 +570,6 @@ public final class Main {
                 return;
             }
             ws = Math.max(0, Math.min(session.ws, workspaces.size() - 1));
-            Workspace f = front();
-            if (f != null) {
-                f.active = Math.max(0, Math.min(session.tab, f.tabs.size() - 1));
-                f.pane.setSelectedIndex(f.active);
-            }
             showWorkspace();
         }
 
@@ -597,6 +596,7 @@ public final class Main {
             for (Workspace w : workspaces) {
                 Session.Mem m = new Session.Mem();
                 m.name = w.name;
+                m.tab = Math.max(0, w.active);
                 for (Tab t : w.tabs) m.cwds.add(cwdOf(t));
                 s.workspaces.add(m);
             }
@@ -1270,11 +1270,12 @@ public final class Main {
                     }
                 }
             }
-            if (changed) {
-                for (Workspace w : workspaces) updateTitles(w);
-                syncSide();
-                syncFrameTitle();
-            }
+            if (changed) syncSide();
+            // the labels are refreshed from the titles every tick, not only when a
+            // cwd moved: a restored tab is born wearing the shell's own title and
+            // would otherwise keep it for the whole session (`B64`)
+            for (Workspace w : workspaces) updateTitles(w);
+            syncFrameTitle();
         }
 
         private void syncFrameTitle() {

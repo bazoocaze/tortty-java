@@ -278,8 +278,14 @@ Features implemented in the Java version of TorTTY.
 - Window padding and fg/bg/cursor palette from the config.
 - Tabs: one pty, term and panel per tab; Ctrl+Shift+T opens (inheriting the
   shell's cwd from `/proc`), Ctrl+Shift+W closes, Alt+1..9 selects. The
-  tab label is the title (`OSC 0/2`, else `basename(cwd)`, else `tortty-java`),
-  with `~` for the home directory, a cut at 24 characters and a `•` marker
+  tab label is the title — `OSC 0/2` when the app sets one, else the basename of
+  the directory **the tab is really in** (the cwd of the last descendant of the
+  shell, read from `/proc`, so a tab running `mc` in another directory names that
+  one), else the basename of the `OSC 7` the shell announced (only when it is a
+  directory, because it goes stale), else `tortty-java` — kept fresh by a 1 s
+  reading of `/proc` even when no cwd moved, so a restored tab does not keep the
+  name its fresh shell was born with; then `~` for the home directory, a cut at
+  24 characters and a `•` marker
   when a background tab received a notification; the window title mirrors the
   active tab. A dead shell closes its tab; the last one closes the app. The
   wheel over the strip cycles one tab per detent (a touchpad's travel
@@ -457,7 +463,8 @@ what the hot reload watches.
 
 - Session (`B22`): the window geometry (position, size, maximized kept apart
   from the normal size) and the layout of the last run — workspace names, the
-  directory of each tab, and which workspace and tab were in front — in
+  directory of each tab, and which workspace **and which tab of each workspace**
+  were in front — in
   `$XDG_STATE_HOME/tortty-java/window.json`. Written for every way out (the close
   button, `exit` in the last shell, `quit` on the socket); a directory that is
   gone opens the tab on the shell's default, and a crooked file only means

@@ -1317,3 +1317,25 @@ moves it; its light blue stays, because colour was not why it read foreign — t
 rename reads at the chrome's size instead of half of it. `render-check` grew the
 popup and dialog-font cases (58 checks), `selftest` 1314, both green; the popup
 and the dialog were checked on `Xvfb :99` at `--dpi 130`.
+
+## 2026-11-14 — the session keeps the tab of every workspace
+
+**Context.** After a restore the workspaces came back but not the tab each of them
+was showing (only the one in front was in the file), and the tab strip kept the
+name every fresh shell was born with — three tabs of a restored workspace read the
+same, while the title the app computed was already right.
+
+**Activities.** `Session.Mem` gained `tab` (the tab in front of that workspace) and
+`Main.snapshot()` writes `w.active` for each of them; `restore()` puts each
+workspace back on its own tab, falling back to the old top-level `tab` for a file
+written before the field existed. `refreshCwd()` relabels the strip every tick
+instead of only when a cwd moved, which is what a restored tab needed. The title
+now follows Rust: the live `/proc` cwd first and a *stale* `OSC 7` only when it is
+a real directory, and `ChildPty.cwd()` walks to the last descendant of the shell,
+so a tab with `mc` open names the directory `mc` is in.
+
+**Result.** A session with four workspaces comes back on the tab each was showing,
+the strip reads `tortty / castle3 / castle3` instead of `tortty-java` three times,
+and a `cd /tmp && sleep 60` in a tab titles it `tmp`. `selftest` 1321 checks
+(+7: per-workspace round trip and clamping, the title order, the descendant walk),
+verified live on `Xvfb :98` with the owner's own saved session.

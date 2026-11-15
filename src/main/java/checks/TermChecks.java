@@ -275,6 +275,14 @@ public final class TermChecks {
         Check.feed(t, E + "]7;file:///tmp" + "\u0007");
         c.eq("OSC 7 keeps the cwd", t.cwd, "/tmp");
         c.eq("the title falls back to the cwd name", t.windowTitle(), "tmp");
+
+        // `B64`: OSC 7 goes stale — the shell announces it on the prompt, and a
+        // program that moves the child afterwards leaves it behind
+        t.shellCwd = "/home/someone/tools";
+        c.eq("the live cwd wins over a stale OSC 7", t.windowTitle(), "tools");
+        t.shellCwd = null;
+        t.cwd = "/tmp/that/does/not/exist";
+        c.eq("OSC 7 is ignored when it is not a directory", t.windowTitle(), "tortty-java");
     }
 
     private static void cursorStyle(Check c) {

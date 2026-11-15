@@ -20,6 +20,34 @@ public final class PtyChecks {
         aFontChangeAloneRepaintsThePixels(c);
         aBadCellSizeIsIgnored(c);
         theProgramsTheChildStartedDieWithIt(c);
+        theTitleFollowsWhatRunsInFront(c);
+    }
+
+    /**
+     * `B64`: the automatic title names the directory of what runs **in front** of
+     * the shell. Here the shell stays in the home of the test while the program it
+     * started works in `/tmp`, which is the case of `mc` or a `vim` opened from
+     * another directory — the title has to follow the program, as Rust's does.
+     */
+    private static void theTitleFollowsWhatRunsInFront(Check c) {
+        ChildPty p = null;
+        try {
+            String home = System.getProperty("user.home");
+            p = new ChildPty("cd /tmp && sleep 30", 80, 24);
+            p.start();
+            String got = null;
+            for (int i = 0; i < 100; i++) {
+                Thread.sleep(50);
+                got = p.cwd();
+                if ("/tmp".equals(got)) break;
+            }
+            c.eq("the cwd is the one of the program in front, not of the shell", got, "/tmp");
+            c.is("which is not where the test started", !home.equals(got));
+        } catch (Exception e) {
+            c.is("the pty spawns: " + e, false);
+        } finally {
+            if (p != null) p.destroy();
+        }
     }
 
     /**

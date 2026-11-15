@@ -28,11 +28,17 @@ public final class Session {
     /** Marks "no position remembered" (`x`/`y` outside any screen). */
     public static final int NO_POS = Integer.MIN_VALUE;
 
-    /** One remembered workspace: its name and the directory of each tab. */
+    /** One remembered workspace: its name, the directory of each tab and which tab was in front. */
     public static final class Mem {
         public String name = "";
         /** {@code null} = the tab opened on the shell's own directory. */
         public List<String> cwds = new ArrayList<>();
+        /**
+         * Which of its tabs was in front (`0` = the first). Every workspace keeps
+         * its own, so a session with four workspaces comes back on the tab each
+         * of them was showing, not only the one in front (`B64`).
+         */
+        public int tab = 0;
     }
 
     public int x = NO_POS;
@@ -103,6 +109,7 @@ public final class Session {
             if (m.cwds == null) m.cwds = new ArrayList<>();
             // a null entry keeps its tab position: it means "shell default"
             m.cwds.replaceAll(c -> c == null ? "" : c);
+            if (m.tab < 0) m.tab = 0;
         }
         if (workspaces.isEmpty()) {
             workspaces.add(new Mem());

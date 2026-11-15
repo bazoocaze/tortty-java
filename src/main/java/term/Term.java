@@ -1708,17 +1708,23 @@ public final class Term {
         return (id > 0 && id <= links.size()) ? links.get(id - 1) : null;
     }
 
-    /** Title shown by the window: OSC 0/2 wins, then basename(cwd). */
+    /**
+     * Title shown by the window: OSC 0/2 wins, then basename of the directory the
+     * tab is really in, then basename of the OSC 7 the shell announced. The live
+     * cwd comes first because OSC 7 goes stale: a shell that only announces it on
+     * the prompt keeps the old name once a full-screen program moves the child
+     * (`B64`).
+     */
     public String windowTitle() {
         if (titleExplicit && !title.isEmpty()) return title;
-        if (!cwd.isEmpty()) {
-            String n = new java.io.File(cwd).getName();
-            if (!n.isEmpty()) return n;
-        }
         // A shell that does not write OSC 7: the app keeps the cwd here from
         // /proc, as the Rust version does.
         if (shellCwd != null && !shellCwd.isEmpty()) {
             String n = new java.io.File(shellCwd).getName();
+            if (!n.isEmpty()) return n;
+        }
+        if (!cwd.isEmpty() && new java.io.File(cwd).isDirectory()) {
+            String n = new java.io.File(cwd).getName();
             if (!n.isEmpty()) return n;
         }
         return "tortty-java";

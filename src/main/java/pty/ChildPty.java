@@ -183,13 +183,38 @@ public final class ChildPty {
     }
 
     /** Working directory of the child, read from /proc; null when it is gone. */
+    /**
+     * The directory the tab is really in: the cwd of the last descendant of the
+     * shell, which is what a full-screen program like `mc` changes, the way the
+     * Rust version reads it. Falls back to nothing when `/proc` says no.
+     */
     public String cwd() {
         try {
+            int pid = (int) proc.pid();
+            for (int i = 0; i < 8; i++) {
+                int child = firstChild(pid);
+                if (child <= 0) break;
+                pid = child;
+            }
             return java.nio.file.Files.readSymbolicLink(
-                    java.nio.file.Paths.get("/proc/" + proc.pid() + "/cwd")).toString();
+                    java.nio.file.Paths.get("/proc/" + pid + "/cwd")).toString();
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** The first child of a process (`/proc/<pid>/task/<pid>/children`), or 0. */
+    private static int firstChild(int pid) {
+        try {
+            String txt = java.nio.file.Files.readString(
+                    java.nio.file.Paths.get("/proc/" + pid + "/task/" + pid + "/children"));
+            for (String s : txt.trim().split("\\s+")) {
+                if (!s.isEmpty()) return Integer.parseInt(s);
+            }
+        } catch (Exception ignored) {
+            // no children, or no /proc: the walk stops here
+        }
+        return 0;
     }
 
     /**
