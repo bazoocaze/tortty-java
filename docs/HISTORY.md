@@ -1740,3 +1740,28 @@ held in the strip walked a card through a twenty-card list while the column
 scrolled under it. `selftest` 1618 checks (`cards` is a new area),
 `render-check` 93.
 
+## 2026-11-15 — a keycap is a picture
+
+**Context.** `emoji-check.txt` promised "the digit stands, no tofu box" for
+`1️⃣ 2️⃣ 3️⃣`, and that is what the app did — but the font carries the composed
+keycap (the blue rounded tecla) and two things kept it off the screen: the
+`ccmp` lookup of `ui/Emoji` mapped every code point of the cluster to a glyph, and
+a variation selector has none, so the run died before any ligature was tried; and
+`TermPanel.emojiFor` refused every cluster whose first code point is below
+`U+2000`, which a digit is. The one spelling that reached the ligature
+(`1` + `U+20E3`, no selector) was therefore the one the panel never asked for.
+
+**Activities.** `composed()` now drops `U+FE0E`/`U+FE0F` before the glyph lookup,
+which is what a shaper does with the default ignorables — the modern spelling
+finds the same ligature as the old one. `emojiFor` lets a low code point through
+only when the cluster carries `U+20E3`, so `#` or `1` with a selector alone still
+draws the glyph the grid font has and the font's component bitmaps are never
+painted as pictures of their own.
+
+**Result.** The three keycap sequences of `emoji-check.txt`, rendered from the
+installed build at 130 dpi, are the composed teclas (blue `1`/`2`/`3` in rounded
+squares), and `1️⃣` and `1⃣` paint the same picture; the render gate proves it in
+pixels (the keycap cell wears the font's blue and is not the grey glyph, the old
+spelling is pixel-identical, the digit alone carries no blue), `selftest` 1623
+checks, `render-check` 98.
+

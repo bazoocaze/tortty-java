@@ -893,7 +893,13 @@ public final class TermPanel extends JPanel implements KeyListener {
      * the BMP or a code point the font has no glyph for asks for the picture.
      */
     private static java.awt.image.BufferedImage emojiFor(String s, int cp, Font font) {
-        if (cp < 0x2000) return null;
+        // `M-U`: below U+2000 only a keycap sequence is a picture — `1` with
+        // U+20E3. A digit, a `#` or a `*` with a variation selector alone asks
+        // for a glyph: the font's bitmaps for those are the pieces a keycap is
+        // built from, not pictures of their own.
+        if (cp < 0x2000) {
+            return s.indexOf('\u20E3') >= 0 ? Emoji.get().image(s) : null;
+        }
         boolean asked = s.indexOf('\uFE0F') >= 0;
         if (!asked && cp < 0x1F000 && font.canDisplay(cp)) return null;
         return Emoji.get().image(s);

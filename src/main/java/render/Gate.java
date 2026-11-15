@@ -76,6 +76,7 @@ public final class Gate {
         aPlaceholderShowsItsSlice();
         aWrappedImageStillPaints();
         aColourEmojiIsPainted();
+        aKeycapIsItsOwnPicture();
         aOneCellRunIsShaped();
         boldIsARealFace();
         theBoldLowColourTakesTheBrightHalf();
@@ -339,6 +340,45 @@ public final class Gate {
         int[] p2 = ink("Monospaced", E + "[0m" + E + "[1;1HMMMM");
         int[] b2 = ink("Monospaced", E + "[0m" + E + "[1;1H" + E + "[1mMMMM");
         eq("a family without a bold face is not smeared", p2, b2);
+    }
+
+    /**
+     * `M-U`: a keycap is a picture, in both spellings — `1` + U+20E3 and
+     * `1` + VS16 + U+20E3 must paint the same composed tecla, in the font's
+     * blue, and not the grey digit the grid font would draw. The digit alone
+     * stays a glyph: below U+2000 only a sequence with the enclosing mark asks
+     * for a bitmap.
+     */
+    private static void aKeycapIsItsOwnPicture() {
+        BufferedImage plain = shot(theme(), "1");
+        BufferedImage modern = shot(theme(), "1\uFE0F\u20E3");
+        BufferedImage old = shot(theme(), "1\u20E3");
+        int w = plain.getWidth() / COLS, h = plain.getHeight() / ROWS;
+        is("the digit alone is glyph ink", count(plain, 0, 0, w, h, FG) > 0);
+        is("and it carries no blue", blue(plain, 0, 0, w, h) == 0);
+        is("the keycap wears the font's blue", blue(modern, 0, 0, w, h) > 100);
+        is("and it is not the glyph", !java.util.Arrays.equals(
+                cell(modern, w, h), cell(plain, w, h)));
+        is("the old spelling paints the same picture", java.util.Arrays.equals(
+                cell(old, w, h), cell(modern, w, h)));
+    }
+
+    /** The pixels of the first cell of a screen, for comparing two of them. */
+    private static int[] cell(BufferedImage img, int w, int h) {
+        return img.getRGB(0, 0, w, h, null, 0, w);
+    }
+
+    /** Pixels with a clear blue cast in a rectangle: the keycap's own tint. */
+    private static int blue(BufferedImage img, int x, int y, int w, int h) {
+        int n = 0;
+        for (int yy = y; yy < Math.min(img.getHeight(), y + h); yy++) {
+            for (int xx = x; xx < Math.min(img.getWidth(), x + w); xx++) {
+                int p = img.getRGB(xx, yy);
+                int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+                if (b > r + 25 && b > 60) n++;
+            }
+        }
+        return n;
     }
 
     /**

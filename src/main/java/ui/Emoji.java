@@ -157,6 +157,12 @@ public final class Emoji {
         for (int i = 0; i < cluster.length(); ) {
             int cp = cluster.codePointAt(i);
             i += Character.charCount(cp);
+            // a variation selector asks for a presentation; it is not a glyph of
+            // the sequence the font ligates. Dropped before the lookup, as a
+            // shaper drops the default ignorables: `1` VS16 U+20E3 has to find
+            // the same `ccmp` ligature as `1` U+20E3, or a keycap never composes
+            // in the spelling everyone actually sends (`M-U`, `L13`)
+            if (cp == 0xFE0E || cp == 0xFE0F) continue;
             int gid = glyph(cp);
             if (gid == 0) return null;
             gids[n++] = gid;

@@ -55,13 +55,26 @@ public final class EmojiChecks {
         c.is("the flag carries colour", brazil != null && colour(brazil) > 500);
         BufferedImage family = e.image("\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67");
         c.is("a joined family is composed too", family != null && family != man);
+        // a keycap (`M-U`): the `ccmp` ligature is `digit` + U+20E3, and the
+        // variation selector of the modern spelling is not part of it — dropped
+        // before the lookup, `1`+VS16+U+20E3 finds the same tecla as `1`+U+20E3
+        BufferedImage keyOne = e.image("1\u20E3");
+        c.is("a keycap has a picture", keyOne != null);
+        c.is("the modern spelling composes to the same picture",
+                !differs(e.image("1\uFE0F\u20E3"), keyOne));
+        c.is("and it is not the digit it is built from", differs(keyOne, e.image('1')));
+        c.is("the keycap carries colour", keyOne != null && colour(keyOne) > 500);
+        c.is("a hash keycap is its own picture",
+                differs(e.image("#\uFE0F\u20E3"), e.image('#')));
+        // `1`+VS16 without the enclosing mark is a request for a glyph, not a
+        // keycap: nothing to compose
+        c.is("a lone digit with a selector does not compose",
+                !differs(e.image("1\uFE0F"), e.image('1')));
+
         // a skin tone is a ligature too: the picture is the toned one, not the base
         c.is("a skin tone is composed", e.image("\uD83D\uDC4D\uD83C\uDFFD") != null);
         c.is("and it is a different picture from the base", differs(
                 e.image(0x1F44D), e.image("\uD83D\uDC4D\uD83C\uDFFD")));
-        // a keycap has no ligature here: the digit's own picture stands in
-        c.is("a keycap is not composed and falls back",
-                e.image("1\uFE0F\u20E3") == e.image('1'));
 
         // a child printing every emoji must not grow the cache forever
         Emoji.get();
