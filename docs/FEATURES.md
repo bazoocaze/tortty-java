@@ -550,6 +550,14 @@ what the hot reload watches.
   button, `exit` in the last shell, `quit` on the socket); a directory that is
   gone opens the tab on the shell's default, and a crooked file only means
   "default window". `--no-state` ignores the file and does not write it.
+- One window **owns** the state: it holds a `flock` on `state.lock` beside
+  `window.json` for as long as it lives. A window that finds the lock taken is a
+  **scratch** window — the default geometry, one tab in the directory it was
+  called from, no restore and no write — because two windows writing the same
+  session would each erase the other's layout, and a probe launched from a script
+  would erase the session of the window in use. `restore_state none`, `--cmd`
+  and `--cols`/`--rows` never even ask for the lock, so they leave the hot
+  session untouched (Rust `B46`).
 - `restore_state` (`none`/`layout`/`content`, `B26`): **`content` is opt-in** — with
   the default `layout` only the windows file is written and the `.ans` files are
   removed, so "the tabs came back but the content did not" means this key is not

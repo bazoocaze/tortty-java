@@ -1607,3 +1607,27 @@ the gate gained `theProgressBarFollowsTheReport`, which compares each state
 against the same strip drawn with no report — the bar's rows and share are found
 by difference, not assumed. `selftest` 1503 checks, `render-check` 85.
 
+## 2026-11-15 — one window owns the session
+
+**Context.** Nothing stopped two windows from reading and writing the same
+`window.json` and the same `session-*.ans`: the last one out won, so a second
+window — or a `--quit-after` probe launched from a script — silently erased the
+layout of the window the owner was using.
+
+**Activities.** `Session.lock()` takes a `flock` on `state.lock` beside the state
+file and hands back an owner that holds it for the life of the process; a second
+ask answers `null` (and, inside one JVM, throws before it can block — the same
+answer a second process gets). The loser is a **scratch** window: it skips
+`Session.load()`, opens one tab in the directory it was called from, keeps the
+default geometry and never writes — `saveSession` returns at once. `--cmd` and
+`--cols`/`--rows` never ask for the lock at all (`Cli` now records whether the
+size was given), and `restore_state none`/`--no-state` behave as before. A scratch
+window says so on stderr, once.
+
+**Result.** Two windows on `Xvfb :98`: the first took `state.lock`, the second
+printed *"another window owns the session; this one is scratch and will not be
+remembered"* and left no file behind when it quit; the first wrote `window.json`
+on its way out and the lock was free afterwards. `session` gained
+`onlyOneWindowOwnsTheState` (first ask owns, the second does not, the lock is free
+after the owner leaves, no path means no lock). `selftest` 1508 checks.
+

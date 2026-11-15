@@ -188,6 +188,10 @@ public final class Main {
         private int ws = -1;
         private int nextCard;
         private Session session = new Session();
+        /** The lock that makes this window the owner of the session (`B46`). */
+        private Session.Owner owner;
+        /** A window that did not get the lock: it never restores and never writes. */
+        private boolean scratch;
         private final java.awt.Rectangle normalBounds = new java.awt.Rectangle();
         private boolean maximized;
         /**
@@ -262,8 +266,26 @@ public final class Main {
             debug.Log.set(o.debugLog != null ? o.debugLog : cfg.debugLog);
             // `restore_state = none` is the owner saying "this terminal has no
             // state": nothing is read and nothing is written, as with --no-state
-            session = (o.noState || cfg.restoreState == Config.RESTORE_NONE)
-                    ? new Session() : Session.load();
+            boolean stateWanted = !o.noState && cfg.restoreState != Config.RESTORE_NONE;
+            // `--cmd`, `--cols` and `--rows` are a probe launched from a script,
+            // not a session: it never takes the lock, so it cannot disturb the
+            // window the owner is using (`B46`)
+            boolean probe = o.cmd != null || o.sizeGiven;
+            // one window owns the state: two writing the same session would each
+            // erase the other's layout, and a second window silently rewriting
+            // the snapshots is the worst kind of surprise. The loser is a
+            // **scratch** window — default geometry, no restore, no write
+            if (stateWanted && !probe) {
+                owner = Session.lock();
+                scratch = owner == null;
+            } else {
+                scratch = stateWanted;
+            }
+            if (scratch && stateWanted) {
+                System.err.println("tortty-java: another window owns the session;"
+                        + " this one is scratch and will not be remembered");
+            }
+            session = (stateWanted && !scratch) ? Session.load() : new Session();
 
             frame = new JFrame("tortty-java");
             // the close button is ours, not the toolkit's: `EXIT_ON_CLOSE` calls
@@ -655,6 +677,9 @@ public final class Main {
         /** Reads only the model, so the shutdown hook is safe. */
         private void saveSession() {
             if (o.noState || cfg.restoreState == Config.RESTORE_NONE) return;
+            // a scratch window owns nothing: writing here would overwrite the
+            // session of the window that does (`B46`)
+            if (scratch) return;
             try {
                 snapshot().save();
             } catch (Exception ignored) {

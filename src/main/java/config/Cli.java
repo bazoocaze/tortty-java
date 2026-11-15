@@ -47,6 +47,8 @@ public final class Cli {
         public String debugLog;
         /** `--cols`/`--rows` for automation (the benchmark uses it). */
         public int cols = 80, rows = 24;
+        /** Whether the size above was asked for: a probe, not a session. */
+        public boolean sizeGiven;
         /** Runs the headless checks and exits, without opening a window (`B24`). */
         public boolean selftest;
         /** `--version`/`-V`: print and leave, without a window. */
@@ -71,8 +73,8 @@ public final class Cli {
                     case "--dpi" -> o.dpi = Float.parseFloat(args[++i]);
                     case "--cmd" -> o.cmd = args[++i];
                     case "--no-state" -> o.noState = true;
-                    case "--cols" -> o.cols = Integer.parseInt(args[++i]);
-                    case "--rows" -> o.rows = Integer.parseInt(args[++i]);
+                    case "--cols" -> { o.cols = Integer.parseInt(args[++i]); o.sizeGiven = true; }
+                    case "--rows" -> { o.rows = Integer.parseInt(args[++i]); o.sizeGiven = true; }
                     case "--selftest" -> o.selftest = true;
                     case "--quit-after" -> o.quitAfter = Integer.parseInt(args[++i]);
                     case "-V", "--version" -> o.version = true;

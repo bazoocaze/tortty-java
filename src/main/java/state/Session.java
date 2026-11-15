@@ -64,6 +64,65 @@ public final class Session {
         return Paths.get(base, "tortty-java", "window.json");
     }
 
+    /**
+     * The one window that owns the state (`B46` in the Rust version): a
+     * {@code flock} on {@code state.lock}, beside {@code window.json}, held for
+     * the life of the process.
+     *
+     * <p>Two windows writing the same session would each erase the other's
+     * layout — and a probe launched from a script would erase the session of the
+     * window the owner is using. The one that finds the lock taken becomes a
+     * **scratch** window: it opens on the default geometry, never restores and
+     * never writes.
+     */
+    public static final class Owner implements java.io.Closeable {
+        private final java.nio.channels.FileChannel file;
+        private final java.nio.channels.FileLock lock;
+
+        private Owner(java.nio.channels.FileChannel file, java.nio.channels.FileLock lock) {
+            this.file = file;
+            this.lock = lock;
+        }
+
+        @Override public void close() {
+            try { lock.release(); } catch (Exception ignored) { }
+            try { file.close(); } catch (Exception ignored) { }
+        }
+    }
+
+    /** {@code state.lock} beside the state file. */
+    public static Path lockPath() {
+        Path p = path();
+        return p == null ? null : p.resolveSibling("state.lock");
+    }
+
+    /**
+     * Takes the lock, or answers {@code null} when another window holds it.
+     * Testable without a display and without the real state directory.
+     */
+    public static Owner lock() {
+        return lockAt(lockPath());
+    }
+
+    public static Owner lockAt(Path lock) {
+        if (lock == null) return null;
+        try {
+            Path dir = lock.getParent();
+            if (dir != null) Files.createDirectories(dir);
+            java.nio.channels.FileChannel ch = java.nio.channels.FileChannel.open(lock,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.WRITE);
+            java.nio.channels.FileLock l = ch.tryLock();
+            if (l == null) {
+                ch.close();
+                return null;
+            }
+            return new Owner(ch, l);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** Reads the file; the default object for anything unexpected. */
     public static Session load() {
         return loadFrom(path());

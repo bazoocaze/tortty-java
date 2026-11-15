@@ -17,9 +17,33 @@ public final class SessionChecks {
             snapshots(c);
             sanitize(c);
             crooked(c);
+            onlyOneWindowOwnsTheState(c);
         } catch (Exception e) {
             c.is("the session suite could write a temp file: " + e, false);
         }
+    }
+
+    /**
+     * `B46`: one window owns the session. The second one that asks for the lock
+     * gets nothing and becomes a scratch window — it never restores and never
+     * writes, so a probe launched from a script cannot erase the session of the
+     * window the owner is using. Within one JVM the second ask throws before it
+     * can block, which is the same answer a second process gets, so the check
+     * does not need one.
+     */
+    private static void onlyOneWindowOwnsTheState(Check c) throws Exception {
+        Path dir = Files.createTempDirectory("tortty-lock-");
+        Path lock = dir.resolve("state.lock");
+        Session.Owner first = Session.lockAt(lock);
+        c.is("the first window owns the state", first != null);
+        c.is("the lock file exists", Files.isRegularFile(lock));
+        Session.Owner second = Session.lockAt(lock);
+        c.is("a second window does not", second == null);
+        if (first != null) first.close();
+        Session.Owner third = Session.lockAt(lock);
+        c.is("and the lock is free again once the owner leaves", third != null);
+        if (third != null) third.close();
+        c.is("no path, no lock", Session.lockAt(null) == null);
     }
 
     /** The snapshot files of `B26`: written atomically, read back per tab. */
