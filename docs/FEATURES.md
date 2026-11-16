@@ -567,7 +567,8 @@ what the hot reload watches.
   `tabs`/`active`/`titles` (and `tab_rects`, the screen coordinates of each tab
   label, `B25`), `grid_rect` (the grid panel on screen, for a mouse test) and
   `side_scroll`/`side_visible`/`side_rects` (the card list as it is drawn,
-  `B32`); `screen` returns the visible rows of the active tab
+  `B32`), and `feeds`/`feed_bytes`/`feeds_per_mb` — the drain's own bill (`L23`);
+  `screen` returns the visible rows of the active tab
   (history included) and `resize` applies to every tab.
 - `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
 

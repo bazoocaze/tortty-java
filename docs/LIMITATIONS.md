@@ -42,19 +42,15 @@ reused.
   its tail (measured: 5 212 → 33 705 lines) at the price of an exit that lasts
   819–904 ms instead of 637 while it does. What is left: a flood is still slower
   than an unthrottled reader, and if the event loop is wedged the 3 s watchdog
-  photographs the tabs from another thread without draining anything.
-
-## Exit and lifecycle (what the way out costs)
-
-- **`L24` — the window is gone before the farewell, so the process outlives the
-  picture.** Measured on the installed build at 130 dpi, from the quit order to
-  the last thread: **376 ms** with `restore_state none`, **390 ms** with
-  `layout` and **392–402 ms** with `content` — the farewell stopped costing its
-  cap when the hangup became a real `SIGHUP` (`B73`; it used to be 637 ms). What
-  is left is the JVM's own teardown plus the snapshot write, and for those
-  ~400 ms nothing is on screen. A child that traps `SIGHUP` still spends the
-  250 ms ceiling before the picture is taken, which is the price of its last
-  words.
+  photographs the tabs from another thread without draining anything. The first
+  hypothesis for the rest was the chunk itself — merging what the reader hands
+  over — and it was **measured false**: the pty already delivers 58 KB per read,
+  so a run feeds 0.017 times per MB and coalescing up to 64 KB moved throughput
+  by 1%. What is left is the **yield**: the slice hands the loop back on a
+  deadline whether or not anything is waiting for it, and only the run with no
+  slice bound reaches 791 fps. The next lever is to yield only when the event
+  queue actually has something; `feeds`/`feed_bytes`/`feeds_per_mb`, reported by
+  the debug socket's `state`, exist so the next claim can be read and not felt.
 
 ## Graphics and images
 

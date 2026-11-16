@@ -1857,3 +1857,22 @@ build measures **360.2** against the base's **321.7**, **+12%**, so the ramp pay
 at both ends of the clock.
 `selftest` 1641 checks (`pace` is a new area), `render-check` 98.
 
+## 2026-11-15 — `L24` closes, and a lever that was measured and dropped
+
+**Context.** With `L23`'s ramp measured at both ends of the clock, the list was
+read again for the cheap items. `L24` was describing something the code had
+already changed: `quitNow` hides the frame before it does anything else, so the
+~400 ms that remain are a window-less process — JVM teardown and the snapshot
+write — and nothing the eye can see. It left the file.
+
+**Activities.** The rest of the `L23` gap was attacked where the count said it
+was: the number of `feed()` calls. Chunks were merged up to 64 KB before the
+parse, and the debug socket grew `feeds`/`feed_bytes`/`feeds_per_mb` so the claim
+could be read instead of felt.
+
+**Result.** The merge measured **298.0 → 301.9 fps (+1%)** — inside the noise —
+and the counter said why: 1 009 feeds for 58 MB, **0.017 per MB**, because the pty
+already delivers 58 KB per read. The merge was reverted rather than kept "in
+case"; the counters stayed, and `L23` now names the yield, not the chunk, as what
+is left. `selftest` 1641 checks, `render-check` 98.
+

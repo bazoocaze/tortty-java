@@ -201,3 +201,22 @@ while the reader thread was feeding the grid, so `window.json` was written and t
 tab snapshots were **not**. The grid is now taken away from every feeder before
 the picture is taken (`Main.stopFeeding`: a flag, then a wait on the counter of
 feeds in flight), which is what makes the exit deterministic.
+
+### The lever that did not pay: merging chunks (2026-11-15)
+
+With the ramp in place the next suspect for the rest of the `L23` gap was the
+chunk itself — every `feed()` also checks the clipboard, the title, the badge and
+the progress, and asks for a repaint, so fewer and larger calls looked like free
+money. Measured, on the charger at `schedutil`, 800 frames, 80x24, interleaved:
+
+| build | fps | median fps | feeds per MB |
+|---|---|---|---|
+| `0.0.6` (one chunk per feed) | 298.0 · 303.1 · 287.5 | **298.0** | 0.017 |
+| chunks merged up to 64 KB | 317.2 · 294.9 · 301.9 | **301.9** | 0.017 |
+
+**+1%, inside the noise, and the last column says why**: the pty already hands
+over 58 KB per read, so a run of 58 MB is 1 009 feeds — there is nothing to
+merge. The change was reverted; the counters that measured it stayed (`state`
+reports `feeds`, `feed_bytes`, `feeds_per_mb`), because the next lever — yielding
+only when the event queue has work — needs exactly that number.
+

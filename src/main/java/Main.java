@@ -222,6 +222,9 @@ public final class Main {
          * picture and one whose tail was thrown away (`L23`).
          */
         private volatile long lastFeedNs = System.nanoTime();
+        /** How many feed calls reached a grid, and how many bytes (`L23`). */
+        private long statFeeds;
+        private long statBytes;
         /**
          * Set the moment a way out is asked for — the close button, `SIGTERM`,
          * the socket, `--quit-after`. The drain of a flooded child stops instead
@@ -1613,7 +1616,7 @@ public final class Main {
             while (true) {
                 byte[] chunk;
                 synchronized (t.inbox) {
-                    chunk = quitting ? null : t.inbox.pollFirst();
+                    chunk = quitting ? null : pollChunk(t);
                     if (chunk == null) {
                         t.inbox.clear();
                         t.inboxBytes = 0;
@@ -1621,8 +1624,6 @@ public final class Main {
                         t.inbox.notifyAll();          // the reader may resume
                         return;
                     }
-                    t.inboxBytes -= chunk.length;
-                    if (t.inboxBytes < INBOX_MAX / 2) t.inbox.notifyAll();
                 }
                 if (t.stopFeed) return;
                 feedGuarded(t, chunk, true);
@@ -1631,6 +1632,22 @@ public final class Main {
                     return;
                 }
             }
+        }
+
+        /**
+         * One chunk for one feed, and the reader is let go again once the inbox
+         * is half empty. Merging chunks was measured and does **not** pay: the
+         * pty already hands 58 KB per read here, so a run of `doomfire` feeds
+         * 1 009 times for 58 MB — 0.017 feeds per MB — and coalescing them up to
+         * 64 KB moved the number by 1% (`BENCHMARKS.md`). The cost left in `L23`
+         * is the yield, not the chunk. Called with the inbox lock held.
+         */
+        private byte[] pollChunk(Tab t) {
+            byte[] chunk = t.inbox.pollFirst();
+            if (chunk == null) return null;
+            t.inboxBytes -= chunk.length;
+            if (t.inboxBytes < INBOX_MAX / 2) t.inbox.notifyAll();
+            return chunk;
         }
 
         /**
@@ -1744,6 +1761,8 @@ public final class Main {
         /** One chunk of the child, on the event loop (or on the reader, draining). */
         private void feedChunk(Tab t, byte[] chunk, boolean ui) {
             lastFeedNs = System.nanoTime();
+            statFeeds++;
+            statBytes += chunk.length;
             Term term = t.term;
             {
                 boolean lat = Boolean.getBoolean("tortty.debug.latency");
@@ -2032,6 +2051,12 @@ public final class Main {
                         }
                     }
                     m.put("tab_rects", rects);
+                    // the drain's own bill (`L23`): how many calls and bytes the
+                    // grid took, so a throughput claim can be read instead of felt
+                    m.put("feeds", statFeeds);
+                    m.put("feed_bytes", statBytes);
+                    m.put("feeds_per_mb", statBytes == 0 ? 0.0
+                            : Math.round(statFeeds * 1e6 / statBytes) / 1e3);
                     // the grid on screen: a mouse test needs the cell the pointer
                     // is over, and only the app knows where Swing put the panel
                     int[] grid = new int[] {0, 0, 0, 0};
