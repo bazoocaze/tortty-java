@@ -54,7 +54,9 @@ def free_display():
 
 
 def start_xvfb(n, width, height):
-    p = subprocess.Popen(["setsid", "Xvfb", f":{n}", "-screen", "0", f"{width}x{height}x24"],
+    # no `setsid` wrapper: it detaches and leaves the pid we hold pointing at a
+    # corpse, so the display survives the run — measured, three of them did
+    p = subprocess.Popen(["Xvfb", f":{n}", "-screen", "0", f"{width}x{height}x24"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
     for _ in range(50):
