@@ -1852,6 +1852,8 @@ quit costs 407–417 ms where it was 392–402, and a quit mid-dump 819–904 ms
 the old build took 637 and often wrote no snapshots at all. The first attempt at
 the photograph's barrier was a `synchronized` on the feed — which at full clock
 cost **339 → 237 fps**, so the barrier became a counter of feeds in flight and the
-lock left the hot path entirely; that full-clock comparison is still owed.
+lock left the hot path entirely — and at full clock, on the charger, the counter
+build measures **360.2** against the base's **321.7**, **+12%**, so the ramp pays
+at both ends of the clock.
 `selftest` 1641 checks (`pace` is a new area), `render-check` 98.
 

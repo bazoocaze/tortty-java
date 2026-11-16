@@ -172,11 +172,19 @@ intermediate build measured +14% (104.7 → 119.3): that build also held a
 fps** — the ramp's win was real, the lock's loss was bigger. The lock is gone,
 replaced by a counter of feeds in flight that the photograph waits out.
 
-**Still open: the full-clock number.** The `schedutil` A/B was taken on the
-locked build, so the only full-clock comparison there is the one the lock
-poisoned. Until the ramp is re-measured at `schedutil` — one 55-second run, the
-governor switched there and back — there is **no claim here about full clock**,
-and the canonical `schedutil` tables above remain those of `0.0.3`.
+**Then at full clock**, with the notebook on the charger and `schedutil` free to
+reach 2.9 GHz (same 800 frames, same grid, interleaved):
+
+| build | fps | median fps |
+|---|---|---|
+| `0.0.3` (step at half the inbox) | 323.0 · 321.7 · 320.5 | **321.7** |
+| ramp (`util/Pace`) | 345.1 · 361.4 · 360.2 | **360.2** |
+
+**+12%**, every new run above every old one, and the base is tightly grouped
+(±0.4%) so the separation is not noise. The first new run is the JIT warming up;
+the steady state is 360–361. That also settles the lock question from the other
+direction: the same ramp with a `synchronized` on the feed measured **237** where
+the counter measures **360** against a base of 322.
 
 Two more measurements from the same session, both on the installed build:
 
