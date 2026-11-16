@@ -100,13 +100,15 @@ public final class Main {
          */
         volatile boolean directFeed;
         /**
-         * Guards the grid: every chunk that reaches {@code Term} is fed inside
-         * it, and the photograph sets {@link #stopFeed} inside it too, so no
-         * feed can be in flight while the picture is taken (`L23`).
+         * Chunks being fed right now: the photograph sets {@link #stopFeed} and
+         * then waits for this to fall to zero (`L23`). A counter and not a lock,
+         * because the feed is the hot path — measured, a `synchronized` there
+         * cost 339 → 237 fps at full clock, and a picture is taken once.
          */
-        final Object feedLock = new Object();
+        final java.util.concurrent.atomic.AtomicInteger feeding =
+                new java.util.concurrent.atomic.AtomicInteger();
         /** Set once the picture is about to be taken: nothing feeds any more. */
-        boolean stopFeed;
+        volatile boolean stopFeed;
 
         Tab(Term term, TermPanel panel) {
             this.term = term;
@@ -1560,10 +1562,8 @@ public final class Main {
                 // the grid itself, which is what puts the child's last words in
                 // the picture (`B48`). `offer` answers false once that has been
                 // decided, so the choice is made once, under the inbox lock.
-                synchronized (t.feedLock) {
-                    if (t.stopFeed) return;
-                    if (!offer(t, chunk)) feedChunk(t, chunk, false);
-                }
+                if (t.stopFeed) return;
+                if (!offer(t, chunk)) feedGuarded(t, chunk, false);
             });
             wireRest(t);
         }
@@ -1624,10 +1624,8 @@ public final class Main {
                     t.inboxBytes -= chunk.length;
                     if (t.inboxBytes < INBOX_MAX / 2) t.inbox.notifyAll();
                 }
-                synchronized (t.feedLock) {
-                    if (t.stopFeed) return;
-                    feedChunk(t, chunk, true);
-                }
+                if (t.stopFeed) return;
+                feedGuarded(t, chunk, true);
                 if (System.nanoTime() >= deadline) {
                     yieldDrain(t);
                     return;
@@ -1645,34 +1643,60 @@ public final class Main {
          * which is what used to cut the tail off a `cat` (`B73` measured the
          * same handover going wrong on the way in).
          */
+        /**
+         * Runs one chunk into its grid, counted so a photograph can wait it out
+         * (`L23`): the flag is read *inside* the count, so a feed that starts
+         * after the picture was announced still sees it and does nothing.
+         */
+        private void feedGuarded(Tab t, byte[] chunk, boolean viaEdt) {
+            t.feeding.incrementAndGet();
+            try {
+                if (t.stopFeed) return;
+                feedChunk(t, chunk, viaEdt);
+            } finally {
+                t.feeding.decrementAndGet();
+            }
+        }
+
+        /**
+         * What was already read is fed now, in order, and the reader takes over
+         * from there: both halves under the inbox lock, so a chunk is either in
+         * the queue before the handover or fed after it — never both, never
+         * neither, and never out of order.
+         */
         private void enterExitFeed() {
             forEachTab(t -> {
-                java.util.ArrayList<byte[]> queued = new java.util.ArrayList<>();
                 synchronized (t.inbox) {
                     for (byte[] chunk; (chunk = t.inbox.pollFirst()) != null; ) {
                         t.inboxBytes -= chunk.length;
-                        queued.add(chunk);
+                        feedGuarded(t, chunk, true);
                     }
                     t.inboxBytes = 0;
-                    t.inbox.notifyAll();          // the reader may resume, if any
-                    t.directFeed = true;          // ... and feed what comes next
-                }
-                synchronized (t.feedLock) {
-                    if (t.stopFeed) return;
-                    for (byte[] chunk : queued) feedChunk(t, chunk, true);
+                    t.directFeed = true;          // the reader feeds from here on
+                    t.inbox.notifyAll();          // and may stop waiting for room
                 }
             });
         }
 
         /**
          * Takes the grid away from every feeder before the picture is taken:
-         * the flag goes inside the same lock the feeders hold, so once this
-         * returns nothing can start feeding, and the reader is told to stop as
-         * well — otherwise a chunk landing mid-photograph tears it (`L23`).
+         * the flag stops new feeds, the counter waits out one in flight, and the
+         * reader is told to stop reading — otherwise a chunk landing
+         * mid-photograph tears it, measured as a `ConcurrentModificationException`
+         * in `Term.snapshot()` that lost the whole set of tab snapshots (`L23`).
          */
         private void stopFeeding() {
-            forEachTab(t -> { synchronized (t.feedLock) { t.stopFeed = true; } });
-            forEachTab(t -> { if (t.pty != null) t.pty.stopReading(); });
+            java.util.ArrayList<Tab> tabs = new java.util.ArrayList<>();
+            forEachTab(tabs::add);
+            for (Tab t : tabs) t.stopFeed = true;
+            long hard = System.nanoTime() + 50_000_000L;
+            while (System.nanoTime() < hard) {
+                boolean busy = false;
+                for (Tab t : tabs) if (t.feeding.get() != 0) { busy = true; break; }
+                if (!busy) break;
+                try { Thread.sleep(1); } catch (InterruptedException e) { return; }
+            }
+            for (Tab t : tabs) if (t.pty != null) t.pty.stopReading();
         }
 
         /**

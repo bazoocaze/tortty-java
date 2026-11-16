@@ -152,25 +152,31 @@ gap means reading more per wake and doing the handoff off the event loop.
 `B73` closed and `L23` attacked on two fronts: the drain's slice now ramps with
 the backlog (`util/Pace`, one millisecond per 32 KB over a 4 ms floor, up to
 48 ms) instead of stepping at half the inbox, and the way out waits for the child
-to stop talking (`EXIT_QUIET_MS` 30 ms, ceiling 300 ms) instead of a flat 100 ms.
+to stop talking (30 ms of silence, ceiling 300 ms) instead of a flat 100 ms.
 
-**Condition of this table, said plainly.** The notebook was on **battery** with
-`acpi-cpufreq` at the **`powersave`** governor, which pins the clock at its floor
-(1397 of 2900 MHz) — so these numbers are **not** comparable with the `schedutil`
-table above, and they are not a claim about the app's ceiling. They are an
-interleaved A/B (`base`, `new`, `base`, `new`, …) of two jars on the same
-condition, which is what makes the ratio worth reading. 1200 frames, font 17,
-80x24, `--no-vsync`, Xvfb `:98`, median of 3:
+**Condition, said plainly.** The notebook was on **battery** with `acpi-cpufreq`
+at the **`powersave`** governor, which pins the clock at its floor — 1397 of
+2900 MHz on a Ryzen 7 4800H. These numbers are therefore **not** comparable with
+the `schedutil` tables above; they are an interleaved A/B (`base`, `new`, `base`,
+`new`, …) of two jars on one condition, which is what makes the ratio worth
+reading. 800 frames, font 17, 80x24, `--no-vsync`, Xvfb `:98`:
 
-| build | fps | MB/s | median fps |
-|---|---|---|---|
-| `0.0.3` (step at half the inbox) | 99.2 · 104.7 · 106.2 | 7.3 · 7.7 · 7.8 | **104.7** |
-| ramp + 2 MB | 119.3 · 114.1 · 124.8 | 8.8 · 8.4 · 9.2 | **119.3** |
+| build | fps | median fps |
+|---|---|---|
+| `0.0.4` (step at half the inbox) | 103.5 · 101.0 · 100.1 | **101.0** |
+| ramp (`util/Pace`) | 124.6 · 119.4 · 115.0 | **119.4** |
 
-**+14% in the generator's own fps, and the three new runs are all above the three
-old ones** — the separation is clean, not the noise band. The absolute numbers are
-of the machine at half clock, which is why the canonical table is still the
-`schedutil` one and has to be re-taken.
+**+18%, and every new run is above every old one.** An earlier series on an
+intermediate build measured +14% (104.7 → 119.3): that build also held a
+`synchronized` around every feed, and at full clock the lock cost **339 → 237
+fps** — the ramp's win was real, the lock's loss was bigger. The lock is gone,
+replaced by a counter of feeds in flight that the photograph waits out.
+
+**Still open: the full-clock number.** The `schedutil` A/B was taken on the
+locked build, so the only full-clock comparison there is the one the lock
+poisoned. Until the ramp is re-measured at `schedutil` — one 55-second run, the
+governor switched there and back — there is **no claim here about full clock**,
+and the canonical `schedutil` tables above remain those of `0.0.3`.
 
 Two more measurements from the same session, both on the installed build:
 
@@ -185,6 +191,5 @@ running, the old build tore its own photograph —
 `ConcurrentModificationException` in `Term.snapshot()`, thrown on the event loop
 while the reader thread was feeding the grid, so `window.json` was written and the
 tab snapshots were **not**. The grid is now taken away from every feeder before
-the picture is taken (`Main.stopFeeding`, a flag inside the lock the feeders
-hold), which is what makes the exit deterministic.
-
+the picture is taken (`Main.stopFeeding`: a flag, then a wait on the counter of
+feeds in flight), which is what makes the exit deterministic.

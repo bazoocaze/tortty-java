@@ -1845,11 +1845,13 @@ whole set of tab snapshots in two of three runs. `Main.stopFeeding` now takes th
 grid away from every feeder, the flag set inside the very lock the feeders hold,
 before the picture is taken.
 
-**Result.** Measured on the battery at 1.4 GHz (so the canonical `schedutil` table
-has to be re-taken): throughput **104.7 → 119.3 fps** median, +14%, with every
-new run above every old one; the lines kept from a `cat` interrupted 200 ms in
-**5 212 → 33 705**; an idle quit costs 407–417 ms where it was 392–402, and a
-quit mid-dump 819–904 ms where the old build took 637 and often wrote no
-snapshots at all. `selftest` 1641 checks (`pace` is a new area), `render-check`
-98.
+**Result.** Measured on the battery at 1.4 GHz, so no full-clock claim is made:
+throughput **101.0 → 119.4 fps** median, **+18%**, every new run above every old
+one; the lines kept from a `cat` interrupted 200 ms in **5 212 → 33 705**; an idle
+quit costs 407–417 ms where it was 392–402, and a quit mid-dump 819–904 ms where
+the old build took 637 and often wrote no snapshots at all. The first attempt at
+the photograph's barrier was a `synchronized` on the feed — which at full clock
+cost **339 → 237 fps**, so the barrier became a counter of feeds in flight and the
+lock left the hot path entirely; that full-clock comparison is still owed.
+`selftest` 1641 checks (`pace` is a new area), `render-check` 98.
 
