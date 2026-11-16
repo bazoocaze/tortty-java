@@ -172,19 +172,31 @@ intermediate build measured +14% (104.7 → 119.3): that build also held a
 fps** — the ramp's win was real, the lock's loss was bigger. The lock is gone,
 replaced by a counter of feeds in flight that the photograph waits out.
 
-**Then at full clock**, with the notebook on the charger and `schedutil` free to
-reach 2.9 GHz (same 800 frames, same grid, interleaved):
+**Then at full clock.** Taken twice, on purpose. First with the notebook on the
+charger and `schedutil` free to boost, everything else as before:
 
 | build | fps | median fps |
 |---|---|---|
 | `0.0.3` (step at half the inbox) | 323.0 · 321.7 · 320.5 | **321.7** |
 | ramp (`util/Pace`) | 345.1 · 361.4 · 360.2 | **360.2** |
 
-**+12%**, every new run above every old one, and the base is tightly grouped
-(±0.4%) so the separation is not noise. The first new run is the JIT warming up;
-the steady state is 360–361. That also settles the lock question from the other
-direction: the same ramp with a `synchronized` on the feed measured **237** where
-the counter measures **360** against a base of 322.
+And again on a quiet machine, with the grid **pinned** (`--cols 80 --rows 24`, so
+the window size cannot move the picture) on a display of its own:
+
+| build | fps | median fps | feeds per MB |
+|---|---|---|---|
+| `0.0.3` | 308.9 · 317.7 · 295.0 | **308.9** | 0.13 |
+| ramp (`util/Pace`) | 344.8 · 338.7 · 330.6 | **338.7** | 0.13 |
+
+**+12% and +9.6%** — the ratio is the same claim from two conditions, and in both
+every new run is above every old one. So: **≈+10–12% at full clock, +18% at the
+floor**, which is the honest way to state a change that depends on the clock.
+The absolute numbers in the second table are lower than the first (295–345 against
+320–361) even though that machine was empty: the grid is pinned at 80x24 there
+where the earlier run drew whatever the window gave it, and a paint-bound loop
+counts cells, not machines. The first table also settles the lock question from the
+other direction: the same ramp with a `synchronized` on the feed measured **237**
+where the counter measures **360** against a base of 322.
 
 Two more measurements from the same session, both on the installed build:
 
@@ -214,9 +226,11 @@ money. Measured, on the charger at `schedutil`, 800 frames, 80x24, interleaved:
 | `0.0.6` (one chunk per feed) | 298.0 · 303.1 · 287.5 | **298.0** | 0.017 |
 | chunks merged up to 64 KB | 317.2 · 294.9 · 301.9 | **301.9** | 0.017 |
 
-**+1%, inside the noise, and the last column says why**: the pty already hands
-over 58 KB per read, so a run of 58 MB is 1 009 feeds — there is nothing to
-merge. The change was reverted; the counters that measured it stayed (`state`
-reports `feeds`, `feed_bytes`, `feeds_per_mb`), because the next lever — yielding
-only when the event queue has work — needs exactly that number.
+**+1%, inside the noise.** The merge did what it promised — 0.13 feeds per MB
+became 0.017, eight chunks in one call — and the frame rate did not move, which is
+the useful half of the answer: the per-feed work (clipboard, title, badge,
+progress, repaint) is not what costs, the number of **yields** is. The change was
+reverted; the counters that measured it stayed (`state` reports `feeds`,
+`feed_bytes`, `feeds_per_mb`), because the next lever — yielding only when the
+event queue has work — needs exactly that number.
 
