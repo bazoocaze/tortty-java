@@ -27,6 +27,8 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
   `--cols/--rows`, interleaves the pairs and prints the governor. Never measure
   on the shared display or with the window free to size itself: a paint-bound
   loop counts cells, and one wrong verdict already came from exactly that.
+- `README.md` belongs to the owner: never edit it. Developer-facing material goes
+  in `docs/`, and a tool documents itself in its own docstring.
 - Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
 - Commits: conventional commits, maximum of 3 lines.
 - File names, symbols, commits, comments, and text in English.
