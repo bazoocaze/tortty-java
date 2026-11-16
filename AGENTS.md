@@ -26,6 +26,15 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
 - Commits: conventional commits, maximum of 3 lines.
 - File names, symbols, commits, comments, and text in English.
+- Version: `<version>` in `pom.xml` is the single source and moves with the code.
+  Bump the patch in **every commit that changes code** (`src/main/java/`,
+  `run.sh`, `install.sh`) — closing an item of `docs/BACKLOG.md` is one of those
+  cases, not a separate one — and let the bump ride in the commit that earns it. A
+  commit that only touches `docs/`, `README.md` or `AGENTS.md` does not bump. A
+  batch of tasks handed over together earns **one** bump, carried by the last code
+  commit of the batch. `--version` prints the number: the shade plugin stamps it
+  into the manifest as `Implementation-Version` and `config/Cli.version()` reads
+  it back.
 
 ## Run
 

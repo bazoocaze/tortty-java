@@ -1,14 +1,14 @@
 #!/usr/bin/env zsh
-# Roda o TorTTY-Java usando zsh como shell do terminal.
+# Run TorTTY-Java with zsh as the terminal's shell.
 set -euo pipefail
 
 cd -- "${0:A:h}"
 
 if [[ ! -f target/tortty-java.jar ]]; then
-  echo "run.sh: jar não encontrado, compilando..." >&2
+  echo "run.sh: no jar yet, building it..." >&2
   mvn -q package
 fi
 
-# ChildPty usa $SHELL quando --cmd não é passado; assim o filho é zsh.
+# ChildPty falls back to $SHELL when --cmd is not given, so the child is zsh.
 export SHELL="$(command -v zsh)"
 exec ./tortty-java "$@"

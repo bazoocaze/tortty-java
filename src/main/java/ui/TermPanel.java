@@ -111,8 +111,8 @@ public final class TermPanel extends JPanel implements KeyListener {
         // the find bar is a child at a fixed place, not a flow layout's next item
         setLayout(null);
         setFocusable(true);
-        // Sem isto o Swing consome Tab para navegação de foco e o terminal
-        // nunca recebe 0x09 (completion do shell, troca de painel do mc).
+        // Without this Swing eats Tab for focus traversal and the terminal never
+        // sees 0x09 (the shell's completion, mc's panel switch).
         setFocusTraversalKeysEnabled(false);
         addKeyListener(this);
         addFocusListener(new java.awt.event.FocusAdapter() {

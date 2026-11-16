@@ -11,6 +11,8 @@ hs_err_pid*
 replay_pid*
 
 # Editors / IDEs
+*.swp
+*.swo
 .idea/
 *.iml
 .vscode/
