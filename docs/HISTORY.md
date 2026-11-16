@@ -1737,7 +1737,13 @@ half). Driven through the socket and `xdotool` on `Xvfb :98`:
 dragging the first card two places down gave `[TWO, THREE, ONE]` with the front
 workspace keeping its index, dragging it back gave the original order, and a drag
 held in the strip walked a card through a twenty-card list while the column
-scrolled under it. `selftest` 1618 checks (`cards` is a new area),
+scrolled under it. The live proof of `B71` was measured on the installed build at
+130 dpi with `color1 #CD0000`, `color9 #00ABCD` and the flag on: `PLAIN-31` drew
+433 pixels of the low red and `BOLD-31` 688 of the bright cyan, in the same row —
+an earlier probe of the same pair printed `0` and `0` because it wrote the
+coloured line *before* forty lines of history, which scrolled it off the screen
+before the screenshot; the feature was never at fault, the probe was.
+`selftest` 1618 checks (`cards` is a new area),
 `render-check` 93.
 
 ## 2026-11-15 — a keycap is a picture
