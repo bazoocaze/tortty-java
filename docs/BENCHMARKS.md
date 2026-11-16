@@ -221,15 +221,22 @@ chunk itself — every `feed()` also checks the clipboard, the title, the badge 
 the progress, and asks for a repaint, so fewer and larger calls looked like free
 money. Measured, on the charger at `schedutil`, 800 frames, 80x24, interleaved:
 
+The first attempt at that table was taken on the shared display with the window
+free to size itself, and two of its six runs did not produce a number at all — too
+weak to hang a verdict on. It was re-run on a quiet machine, a display of its own
+and the grid pinned (`--cols 80 --rows 24`), four interleaved pairs, both sides
+instrumented:
+
 | build | fps | median fps | feeds per MB |
 |---|---|---|---|
-| `0.0.6` (one chunk per feed) | 298.0 · 303.1 · 287.5 | **298.0** | 0.017 |
-| chunks merged up to 64 KB | 317.2 · 294.9 · 301.9 | **301.9** | 0.017 |
+| `0.0.6` (one chunk per feed) | 340.9 · 329.0 · 349.4 · 338.8 | **340.9** | 0.145 |
+| chunks merged up to 64 KB | 348.7 · 337.0 · 342.2 · 336.6 | **342.2** | 0.017 |
 
-**+1%, inside the noise.** The merge did what it promised — 0.13 feeds per MB
-became 0.017, eight chunks in one call — and the frame rate did not move, which is
-the useful half of the answer: the per-feed work (clipboard, title, badge,
-progress, repaint) is not what costs, the number of **yields** is. The change was
+**+0.4%, and the two ranges overlap** (plain 329–349, merged 337–349). The merge
+did exactly what it promised — **0.145 feeds per MB became 0.017**, eight chunks
+in one call — and the frame rate did not move. That is the useful half of the
+answer, and it is now a firm one: the per-feed work (clipboard, title, badge,
+progress, repaint) is not what costs; the number of **yields** is. The change was
 reverted; the counters that measured it stayed (`state` reports `feeds`,
 `feed_bytes`, `feeds_per_mb`), because the next lever — yielding only when the
 event queue has work — needs exactly that number.
