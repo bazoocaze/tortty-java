@@ -1,6 +1,6 @@
 # AGENTS
 
-TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behavior of features from the main version, current or future, as well as performance analysis.
+TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behaviour of features from the main version, current or future, and to analyse performance.
 
 ## Before changing
 
@@ -17,20 +17,21 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - Gate: `tools/quality-check.sh` — javac with every lint but `serial` and
   warnings fatal, the build, `--selftest` and the `render-check`. `--fast` drops
   the render-check. `.editorconfig` carries the code shape (four spaces, LF).
-- Do not kill processes by name (`pkill`); use PID file `/tmp/tortty-java.pid`.
+- Do not kill processes by name (`pkill`); use the PID file `/tmp/tortty-java.pid`.
 - Visual tests in Xvfb `:99`, not on the owner's screen.
 - Load and stress tests are bounded: a few seconds per run, a unique marker per run,
   and the cleanup kills those children by exact cmdline and PID — never leave a
   flooding child (a loop of `echo`, `yes`, `cat`) behind.
-- Benchmark: font 17, follow the protocol in `docs/BENCHMARKS.md`, and measure
+- Benchmark: font 17; follow the protocol in `docs/BENCHMARKS.md`, and measure
   with `tools/bench-ab.py` — it owns its display, pins the grid with
   `--cols/--rows`, interleaves the pairs and prints the governor. Never measure
   on the shared display or with the window free to size itself: a paint-bound
   loop counts cells, and one wrong verdict already came from exactly that.
-- `README.md` belongs to the owner: never edit it. Developer-facing material goes
-  in `docs/`, and a tool documents itself in its own docstring.
+- `README.md` and `AGENTS.md` belong to the owner: never edit them, propose the
+  change instead. Developer-facing material goes in `docs/`, and a tool documents
+  itself in its own docstring.
 - Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
-- Commits: conventional commits, maximum of 3 lines.
+- Commits: conventional commits, at most three lines.
 - File names, symbols, commits, comments, and text in English.
 - Version: `<version>` in `pom.xml` is the single source and moves with the code.
   Bump the patch in **every commit that changes code** (`src/main/java/`,
