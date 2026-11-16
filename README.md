@@ -3,7 +3,7 @@
 Minimal functional port of the TorTTY terminal to **Java 21 + Swing**.
 VT parser, pty via pty4j, xterm keyboard/mouse, and alternate screen.
 
-This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behavior of features from the main version, current or future, as well as performance analysis.
+This project is an experimental implementation created from the main TorTTY version (in Rust). The goal of the Java version is to evaluate the behaviour of features from the main version, current or future, and to analyse performance.
 
 ## Running
 
@@ -12,7 +12,7 @@ This project is an experimental implementation created from the main TorTTY vers
 ```
 
 The script uses **zsh** as the terminal shell, compiles the jar if necessary
-(`mvn package`), and runs `target/tortty-java.jar`. Requires JDK 21 and Maven.
+(`mvn package`), and runs `target/tortty-java.jar`. It requires JDK 21 and Maven.
 
 Arguments are passed to the app, for example:
 
@@ -23,8 +23,8 @@ Arguments are passed to the app, for example:
 ```
 
 The optional config file is read from
-`$XDG_CONFIG_HOME/tortty-java/tortty.conf` (or `~/.config/...`) and reloads on
-edit; see [`docs/CONFIG.md`](docs/CONFIG.md).
+`$XDG_CONFIG_HOME/tortty-java/tortty.conf` (or `~/.config/...`) and the app
+reloads it on edit; see [`docs/CONFIG.md`](docs/CONFIG.md).
 
 ## Installing
 
@@ -77,9 +77,9 @@ The Sleuth Kit is a different program and does not draw anything.
 ## Testing the keyboard
 
 `tools/super-e2e.py` starts the app, presses real keys with `xdotool` and reads
-back what the child received: a Super chord reaches the child only when it asked
+back what the child received: a Super chord reaches the child only when it asks
 for the modifiers (`CSI > 8 u`), and Super+N stays the app's. It needs a window
-manager on the display — without one AWT drops the key events under Xvfb:
+manager on the display — without one, AWT drops the key events under Xvfb:
 
 ```sh
 Xvfb :99 -screen 0 1280x800x24 & DISPLAY=:99 metacity --replace &
