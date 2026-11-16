@@ -22,7 +22,11 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - Load and stress tests are bounded: a few seconds per run, a unique marker per run,
   and the cleanup kills those children by exact cmdline and PID — never leave a
   flooding child (a loop of `echo`, `yes`, `cat`) behind.
-- Benchmark: font 17, follow the protocol in `docs/BENCHMARKS.md`.
+- Benchmark: font 17, follow the protocol in `docs/BENCHMARKS.md`, and measure
+  with `tools/bench-ab.py` — it owns its display, pins the grid with
+  `--cols/--rows`, interleaves the pairs and prints the governor. Never measure
+  on the shared display or with the window free to size itself: a paint-bound
+  loop counts cells, and one wrong verdict already came from exactly that.
 - Keep docs concise; update `FEATURES`/`BACKLOG`/`LIMITATIONS`/`HISTORY` when the scope changes.
 - Commits: conventional commits, maximum of 3 lines.
 - File names, symbols, commits, comments, and text in English.

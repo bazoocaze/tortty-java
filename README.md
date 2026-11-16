@@ -56,6 +56,18 @@ Before committing, `tools/quality-check.sh` runs the gate: javac with every lint
 but `serial` enabled and every warning fatal, the build, the `--selftest` suite
 and the `render-check` (headless, ~12 s; `--fast` drops the render-check).
 
+`tools/bench-ab.py` compares two jars under the protocol of
+`docs/BENCHMARKS.md`: a display of its own, the grid pinned, the pairs
+interleaved, the governor printed with the result, and every child killed by its
+own pid.
+
+```sh
+tools/bench-ab.py --a /tmp/old.jar --b target/tortty-java.jar --frames 800 --pairs 3
+```
+A baseline jar comes from a checkout of the commit, without disturbing this one:
+`git worktree add --detach /tmp/wt <commit> && (cd /tmp/wt && mvn -q -DskipTests
+package)`.
+
 ## Testing kitty images
 
 `tools/imgtest.py` sends a kitty graphics image to the terminal it runs in and
