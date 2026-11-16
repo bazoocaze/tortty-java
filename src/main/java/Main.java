@@ -228,6 +228,13 @@ public final class Main {
         private static final long QUIT_WATCHDOG_MS = 3000;
         /** How long the exit may spend feeding what was already read (`L23`). */
         private static final long EXIT_DRAIN_MS = 100;
+        /**
+         * The ceiling on waiting for the children to leave once the hangup went
+         * out (`B48`). It is a ceiling, not a schedule: a shell leaves on
+         * `SIGHUP` in single-digit milliseconds (`B73`), and only a child that
+         * traps it spends the cap.
+         */
+        private static final long FAREWELL_MS = 250;
         /** The content photographed before the exit, written by the hook. */
         private volatile java.util.List<Snapshots.Snap> exitSnaps;
         private boolean debugResizing;
@@ -661,14 +668,23 @@ public final class Main {
             forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
             draining = true;
             try {
-                long deadline = System.currentTimeMillis() + 250;
-                while (System.currentTimeMillis() < deadline && anyChildAlive()) {
-                    try { Thread.sleep(10); } catch (InterruptedException e) { break; }
-                }
+                waitForChildren();
             } finally {
                 draining = false;
             }
             return sessionSnapshots();
+        }
+
+        /**
+         * Waits for the children the hangup just went out to, and no longer than
+         * {@link #FAREWELL_MS}: the loop stops on the child, not on the clock, so
+         * a shell that leaves at once costs milliseconds (`B73`).
+         */
+        private void waitForChildren() {
+            long deadline = System.currentTimeMillis() + FAREWELL_MS;
+            while (System.currentTimeMillis() < deadline && anyChildAlive()) {
+                try { Thread.sleep(5); } catch (InterruptedException e) { break; }
+            }
         }
 
         /** True while any tab still has a live child. */
@@ -702,10 +718,7 @@ public final class Main {
                     // once costs nothing and one that lingers still gets its last
                     // line into the picture (`L24`)
                     forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
-                    long deadline = System.currentTimeMillis() + 250;
-                    while (System.currentTimeMillis() < deadline && anyChildAlive()) {
-                        try { Thread.sleep(10); } catch (InterruptedException ignored) { break; }
-                    }
+                    waitForChildren();
                     try {
                         snaps = sessionSnapshots();
                     } catch (Exception e) {

@@ -23,6 +23,61 @@ public final class PtyChecks {
         theProgramsTheChildStartedDieWithIt(c);
         theTitleFollowsWhatRunsInFront(c);
         theProcessWearsItsOwnName(c);
+        theHangupIsASighup(c);
+        aChildThatTrapsTheHangupStillGetsItsCap(c);
+    }
+
+    /**
+     * `B73`: the hangup is a `SIGHUP`, not pty4j's `SIGTERM`. An interactive
+     * shell keeps `SIGTERM` in its ignored set — measured on `zsh`, `SigIgn` bit
+     * 15 — and outlives it for ever, which is why the farewell's wait used to
+     * spend its whole 250 ms cap on every single quit. The child here is exactly
+     * that shell, and it has to be gone well inside the cap.
+     */
+    private static void theHangupIsASighup(Check c) {
+        ChildPty p = null;
+        try {
+            p = new ChildPty(null, 80, 24);
+            p.start();
+            Thread.sleep(500);
+            c.is("the shell is up and running", !p.childExited());
+            long t0 = System.nanoTime();
+            p.hangup();
+            boolean gone = false;
+            while ((System.nanoTime() - t0) / 1_000_000 < 900) {
+                if (p.childExited()) { gone = true; break; }
+                Thread.sleep(5);
+            }
+            long ms = (System.nanoTime() - t0) / 1_000_000;
+            c.is("a shell that ignores SIGTERM leaves on the hangup", gone);
+            c.is("and it leaves far inside the cap (took " + ms + " ms)", ms < 500);
+        } catch (Exception e) {
+            c.is("the pty spawns: " + e, false);
+        } finally {
+            if (p != null) p.destroy();
+        }
+    }
+
+    /**
+     * The other half of `B73`: a child that traps `SIGHUP` is the reason the cap
+     * exists, and it still gets it — the wait stops on the child, not before it
+     * has had a chance to say something.
+     */
+    private static void aChildThatTrapsTheHangupStillGetsItsCap(Check c) {
+        ChildPty p = null;
+        try {
+            p = new ChildPty("trap '' HUP TERM; sleep 30", 80, 24);
+            p.start();
+            Thread.sleep(500);
+            p.hangup();
+            Thread.sleep(300);
+            c.is("a child that traps the hangup outlives it, so the cap is the ceiling",
+                    !p.childExited());
+        } catch (Exception e) {
+            c.is("the pty spawns: " + e, false);
+        } finally {
+            if (p != null) p.destroy();
+        }
     }
 
     /**

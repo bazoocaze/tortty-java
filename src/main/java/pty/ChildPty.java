@@ -235,9 +235,21 @@ public final class ChildPty {
      * Asks the child to leave without cutting the wire (`B48`): the reader keeps
      * delivering, so whatever the child prints on its way out still lands in the
      * grid before the picture is taken. {@link #destroy()} is the hard version.
+     *
+     * <p>This is a `SIGHUP`, the signal a terminal sends when it closes — not
+     * pty4j's `destroy()`, which sends `SIGTERM` and is ignored by every
+     * interactive shell (measured: `zsh` keeps `SIGTERM` in `SigIgn` and never
+     * leaves, so the farewell waited its whole cap on every quit, `B73`).
      */
     public void hangup() {
-        try { proc.destroy(); } catch (Exception ignored) { }
+        boolean sent = Hangup.send((int) proc.pid());
+        // no JNA, or a pty that is not the Unix one: SIGTERM is all there is
+        if (!sent) try { proc.destroy(); } catch (Exception ignored) { }
+    }
+
+    /** The child's pid, or 0 when the pty does not say. */
+    public int pid() {
+        try { return (int) proc.pid(); } catch (Exception e) { return 0; }
     }
 
     public void destroy() {

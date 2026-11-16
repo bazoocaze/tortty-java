@@ -613,10 +613,13 @@ what the hot reload watches.
   run ──` marker drawn as decoration (a chrome row), so the screenshot is not
   content: it never enters the next snapshot — and the mark follows the bytes,
   not the row, so a row an app repaints is content again.
-  On the way out the children are hung up first and drained for up to 250 ms
-  before the picture is taken (Rust `B48`): the last words — a `pi` leaving the
-  alt screen with its resume hint, a `cargo` printing its final line — are in
-  the snapshot instead of being cut by the hangup. A wide snapshot reflows in a narrow
+  On the way out the children are hung up first — a real `SIGHUP`, through
+  `pty/Hangup` and JNA, because pty4j's `destroy()` sends `SIGTERM` and an
+  interactive shell keeps that in its ignored set (`B73`) — and the wait for them
+  ends **on the child**, with 250 ms only as a ceiling, before the picture is
+  taken (Rust `B48`): the last words — a `pi` leaving the alt screen with its
+  resume hint, a `cargo` printing its final line — are in the snapshot instead of
+  being cut by the hangup. A wide snapshot reflows in a narrow
   window by the same code a live resize uses. The picture is what the tab was
   **showing**: when the app owns the alt screen its grid is photographed too, at
   the end of the stream with the primary screen kept above it in the history, and

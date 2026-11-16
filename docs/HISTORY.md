@@ -1771,3 +1771,55 @@ pixels (the keycap cell wears the font's blue and is not the grey glyph, the old
 spelling is pixel-identical, the digit alone carries no blue), `selftest` 1623
 checks, `render-check` 98.
 
+## 2026-11-15 — the limits, said in prose
+
+**Context.** `LIMITATIONS.md` was a table with one long cell per row, which read
+as a wall; the Python sibling keeps the same facts as prose under thematic
+headings. `L24` was also stating a number nobody had measured since the exit path
+changed: it claimed the picture could be gone for "up to the 250 ms drain plus
+the snapshot write".
+
+**Activities.** The file is now five sections — text and colour, performance,
+exit and lifecycle, graphics, scope — with the ids kept, because
+`FEATURES`/`CONFIG`/`BENCHMARKS` and the code comments cite them. `L24` was
+re-measured on the installed build (130 dpi, from the quit order to the last
+thread): 376 ms with `restore_state none`, 390 ms with `layout`, 637 ms with
+`content`, the ~250 ms in between being the farewell's wait.
+
+**Result.** The prose is shorter than the table it replaced, no id moved, and
+`L24` now carries the measurement and the finding it exposed: a child that traps
+`TERM` and `HUP` costs the same as a plain shell, so the 250 ms cap is spent in
+full even when the shell is already dead — the wait does not end on the child.
+
+## 2026-11-15 — the hangup is a hangup
+
+**Context.** `L24` claimed the picture could be gone for "up to the 250 ms drain
+plus the snapshot write", so it was measured: with `restore_state content` a quit
+took **637 ms** against 390 ms with `layout`, and the ~250 ms in between was the
+farewell — always the whole cap. The cause was found underneath: pty4j's
+`destroy()`, which `ChildPty.hangup()` called, sends **`SIGTERM`**, and an
+interactive shell keeps `SIGTERM` in its ignored set (`zsh` here reports
+`SigIgn` bit 15). A `hangup()` that sends `TERM` to a shell never hung anything
+up: measured with a probe that watched the child's own pid, `zsh` outlived it for
+more than three seconds while `sh -c 'sleep 300'` died in 5.9.
+
+**Activities.** `pty/Hangup` sends a real `SIGHUP` through JNA — one libc call,
+returning without waiting, the same choice Rust makes in `pty.rs` — and
+`ChildPty.hangup()` uses it, falling back to `destroy()` only when the signal
+cannot be sent. The two places that waited for children now share
+`Main.FAREWELL_MS` (250 ms) through `waitForChildren()`, which stops on the child
+and polls every 5 ms instead of guessing by the clock.
+
+**Result.** A `content` quit is **392–402 ms**, the same as `layout`, where it
+used to be 637: the farewell's 240 ms are gone and the picture still carries the
+last words. `PtyChecks` proves both halves — an interactive shell is gone well
+inside the cap (measured under 500 ms, and it used to be never), and a child that
+traps `SIGHUP` still outlives it, which is why the cap stays. `selftest` 1627
+checks.
+
+**A note for whoever tests with ptys.** The probe that found this left shells
+behind and the cleanup matched them by name, which also matched the shells of the
+owner's own terminal — `tortty-python` opens tabs as `sh -c zsh` + `zsh`, the
+same shape. A probe records the pid it spawns and the cleanup kills that pid;
+`pgrep` in a kill list is the same mistake as `pkill`, and it cost a session.
+
