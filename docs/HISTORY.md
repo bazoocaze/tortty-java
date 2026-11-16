@@ -1823,3 +1823,33 @@ owner's own terminal — `tortty-python` opens tabs as `sh -c zsh` + `zsh`, the
 same shape. A probe records the pid it spawns and the cleanup kills that pid;
 `pgrep` in a kill list is the same mistake as `pkill`, and it cost a session.
 
+## 2026-11-15 — the drain paces itself, and the exit waits for the child
+
+**Context.** `L23` was two complaints in one: a child that writes faster than the
+grid pays for the backpressure (`doomfire` 489 fps against 791 unthrottled), and
+quitting during a flood threw away everything the exit had not reached in 100 ms.
+Both were measured before anything was touched — the throughput with an
+interleaved A/B, the exit by counting the lines of a 200 001-line `cat` that
+survived into the restored picture.
+
+**Activities.** The slice stopped stepping at half the inbox and now ramps with
+the backlog (`util/Pace`: 1 ms per 32 KB over a 4 ms floor, 48 ms ceiling), with
+the policy alone in a file the checks can read. The exit flushes each tab's queue
+under the inbox lock, hands the feeding to that tab's reader inside the same
+critical section — so a chunk is either queued before the handover or fed after
+it, never both and never neither — and then waits for **silence** (30 ms, ceiling
+300 ms) instead of the clock. Taking a photograph while a `cat` was still running
+turned out to be unsafe, and that was already true before this work: the old
+build threw `ConcurrentModificationException` in `Term.snapshot()` and lost the
+whole set of tab snapshots in two of three runs. `Main.stopFeeding` now takes the
+grid away from every feeder, the flag set inside the very lock the feeders hold,
+before the picture is taken.
+
+**Result.** Measured on the battery at 1.4 GHz (so the canonical `schedutil` table
+has to be re-taken): throughput **104.7 → 119.3 fps** median, +14%, with every
+new run above every old one; the lines kept from a `cat` interrupted 200 ms in
+**5 212 → 33 705**; an idle quit costs 407–417 ms where it was 392–402, and a
+quit mid-dump 819–904 ms where the old build took 637 and often wrote no
+snapshots at all. `selftest` 1641 checks (`pace` is a new area), `render-check`
+98.
+

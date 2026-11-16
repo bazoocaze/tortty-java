@@ -146,3 +146,45 @@ The shipped compromise is 2 MB with a 4 ms slice, 32 ms while the inbox is deep:
 ~20 MB/s** at 70x21 (the pre-`L23` table says 691 and 563). The readable paint rate is ~60/s in both, so
 the window does not get smoother by chasing the number — closing the rest of the
 gap means reading more per wake and doing the handoff off the event loop.
+
+## The slice that ramps, and the exit that waits for the child (2026-11-15)
+
+`B73` closed and `L23` attacked on two fronts: the drain's slice now ramps with
+the backlog (`util/Pace`, one millisecond per 32 KB over a 4 ms floor, up to
+48 ms) instead of stepping at half the inbox, and the way out waits for the child
+to stop talking (`EXIT_QUIET_MS` 30 ms, ceiling 300 ms) instead of a flat 100 ms.
+
+**Condition of this table, said plainly.** The notebook was on **battery** with
+`acpi-cpufreq` at the **`powersave`** governor, which pins the clock at its floor
+(1397 of 2900 MHz) — so these numbers are **not** comparable with the `schedutil`
+table above, and they are not a claim about the app's ceiling. They are an
+interleaved A/B (`base`, `new`, `base`, `new`, …) of two jars on the same
+condition, which is what makes the ratio worth reading. 1200 frames, font 17,
+80x24, `--no-vsync`, Xvfb `:98`, median of 3:
+
+| build | fps | MB/s | median fps |
+|---|---|---|---|
+| `0.0.3` (step at half the inbox) | 99.2 · 104.7 · 106.2 | 7.3 · 7.7 · 7.8 | **104.7** |
+| ramp + 2 MB | 119.3 · 114.1 · 124.8 | 8.8 · 8.4 · 9.2 | **119.3** |
+
+**+14% in the generator's own fps, and the three new runs are all above the three
+old ones** — the separation is clean, not the noise band. The absolute numbers are
+of the machine at half clock, which is why the canonical table is still the
+`schedutil` one and has to be re-taken.
+
+Two more measurements from the same session, both on the installed build:
+
+| what | before | after |
+|---|---|---|
+| lines of a `cat` of 200 001 kept in the restored picture (quit 200 ms into the dump) | 4047 · 9160 · 5212, median **5212** | 31368 · 33705 · 33710, median **33 705** |
+| quit with an idle shell, `restore_state content` | 392–402 ms | **407–417 ms** |
+| quit mid-dump | 637 ms, and **no snapshot at all in 2 of 3 runs** | **819–904 ms**, snapshot written every time |
+
+The last row is a bug the work exposed rather than introduced: with a `cat` still
+running, the old build tore its own photograph —
+`ConcurrentModificationException` in `Term.snapshot()`, thrown on the event loop
+while the reader thread was feeding the grid, so `window.json` was written and the
+tab snapshots were **not**. The grid is now taken away from every feeder before
+the picture is taken (`Main.stopFeeding`, a flag inside the lock the feeders
+hold), which is what makes the exit deterministic.
+

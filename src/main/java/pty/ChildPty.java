@@ -252,6 +252,19 @@ public final class ChildPty {
         try { return (int) proc.pid(); } catch (Exception e) { return 0; }
     }
 
+    /**
+     * Stops the reader delivering chunks, without killing the child: the caller
+     * has taken the grid away from it (the picture is about to be taken) and a
+     * chunk landing mid-photograph is a torn snapshot — measured, a
+     * `ConcurrentModificationException` in `Term.snapshot()` with a `cat` still
+     * running (`L23`). A read already blocked in the pty is abandoned by the
+     * caller's own guard, which is why this only has to be best effort.
+     */
+    public void stopReading() {
+        closed = true;
+        try { reader.interrupt(); } catch (Exception ignored) { }
+    }
+
     public void destroy() {
         closed = true;
         final PtyProcess p = proc;

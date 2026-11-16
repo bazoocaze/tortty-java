@@ -92,6 +92,21 @@ public final class Main {
         int inboxBytes;
         /** True while a drain of this inbox is queued on the event loop. */
         boolean drainPosted;
+        /**
+         * True once the app is leaving: this tab's reader feeds the grid itself,
+         * because the event loop is spending the farewell and cannot take the
+         * queue (`B48`). Flipped under the inbox lock, so a chunk is either
+         * queued before it or fed directly after it — never both, never neither.
+         */
+        volatile boolean directFeed;
+        /**
+         * Guards the grid: every chunk that reaches {@code Term} is fed inside
+         * it, and the photograph sets {@link #stopFeed} inside it too, so no
+         * feed can be in flight while the picture is taken (`L23`).
+         */
+        final Object feedLock = new Object();
+        /** Set once the picture is about to be taken: nothing feeds any more. */
+        boolean stopFeed;
 
         Tab(Term term, TermPanel panel) {
             this.term = term;
@@ -199,11 +214,12 @@ public final class Main {
         private final java.awt.Rectangle normalBounds = new java.awt.Rectangle();
         private boolean maximized;
         /**
-         * True while the app is leaving: the reader threads feed the grids
-         * themselves because the event loop is busy in {@link #lastWords()}
-         * (`B48`). Only touched on the event loop, read by the readers.
+         * When a chunk last reached a grid, from whichever thread fed it. The
+         * exit reads it to tell "the child has nothing more to say" from "it is
+         * still writing" — the difference between a `cat` whose tail is in the
+         * picture and one whose tail was thrown away (`L23`).
          */
-        private volatile boolean draining;
+        private volatile long lastFeedNs = System.nanoTime();
         /**
          * Set the moment a way out is asked for — the close button, `SIGTERM`,
          * the socket, `--quit-after`. The drain of a flooded child stops instead
@@ -211,23 +227,13 @@ public final class Main {
          * megabytes of output (`L23`).
          */
         private volatile boolean quitting;
-        /** Most bytes waiting per tab before the reader stops reading (backpressure). */
-        private static final int INBOX_MAX = 2 * 1024 * 1024;
-        /** How long one drain may hold the event loop before it yields. */
-        private static final long DRAIN_BUDGET_MS = 4;
-        /**
-         * The same, while the inbox is deep: a child that writes faster than the
-         * grid can take it is waiting on us, and paying an event-loop round trip
-         * every 4 ms costs it most of its throughput — measured `doomfire` 130
-         * fps against 265 with no yielding at all and 791 with no backpressure.
-         * A deep inbox therefore drains in longer slices, which is still far
-         * shorter than a person notices (`L23`).
-         */
-        private static final long DRAIN_DEEP_MS = 32;
+        /** The pacing rules live in one place so they can be checked (`L23`). */
+        private static final int INBOX_MAX = util.Pace.INBOX_MAX;
         /** Grace for the exit to finish before the watchdog halts the process. */
         private static final long QUIT_WATCHDOG_MS = 3000;
-        /** How long the exit may spend feeding what was already read (`L23`). */
-        private static final long EXIT_DRAIN_MS = 100;
+        /** How long the exit waits for the child to stop talking (`L23`). */
+        private static final long EXIT_QUIET_MS = util.Pace.EXIT_QUIET_MS;
+        private static final long EXIT_DRAIN_MAX_MS = util.Pace.EXIT_DRAIN_MAX_MS;
         /**
          * The ceiling on waiting for the children to leave once the hangup went
          * out (`B48`). It is a ceiling, not a schedule: a shell leaves on
@@ -666,12 +672,8 @@ public final class Main {
         private java.util.List<Snapshots.Snap> lastWords() {
             if (o.noState || cfg.restoreState != Config.RESTORE_CONTENT) return null;
             forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
-            draining = true;
-            try {
-                waitForChildren();
-            } finally {
-                draining = false;
-            }
+            waitForChildren();
+            stopFeeding();
             return sessionSnapshots();
         }
 
@@ -717,8 +719,10 @@ public final class Main {
                     // wait only while one is still alive, so a child that goes at
                     // once costs nothing and one that lingers still gets its last
                     // line into the picture (`L24`)
+                    enterExitFeed();
                     forEachTab(t -> { if (t.pty != null) t.pty.hangup(); });
                     waitForChildren();
+                    stopFeeding();
                     try {
                         snaps = sessionSnapshots();
                     } catch (Exception e) {
@@ -1551,12 +1555,15 @@ public final class Main {
         private void wire(final Tab t) {
             final Term term = t.term;
             t.pty.setConsumer(chunk -> {
-                // while the app is leaving, the event loop is parked in the drain
-                // and would never run an `invokeLater`: the reader feeds the grid
-                // itself, which is what puts the child's last words in the
-                // picture (`B48`)
-                if (draining) { feedChunk(t, chunk, false); return; }
-                offer(t, chunk);
+                // while the app is leaving, the event loop is spending the
+                // farewell and would never run an `invokeLater`: the reader feeds
+                // the grid itself, which is what puts the child's last words in
+                // the picture (`B48`). `offer` answers false once that has been
+                // decided, so the choice is made once, under the inbox lock.
+                synchronized (t.feedLock) {
+                    if (t.stopFeed) return;
+                    if (!offer(t, chunk)) feedChunk(t, chunk, false);
+                }
             });
             wireRest(t);
         }
@@ -1568,23 +1575,25 @@ public final class Main {
          * `write` — the backpressure a real terminal gives — instead of growing a
          * queue until the JVM dies (`L23`).
          */
-        private void offer(Tab t, byte[] chunk) {
+        private boolean offer(Tab t, byte[] chunk) {
             synchronized (t.inbox) {
-                while (t.inboxBytes >= INBOX_MAX && !quitting && !t.closed) {
+                while (t.inboxBytes >= INBOX_MAX && !t.directFeed && !t.closed) {
                     try {
                         t.inbox.wait(50); // the drain signals, or we look again
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                        return;
+                        return false;
                     }
                 }
-                if (quitting || t.closed) return;
+                // the exit took over while we queued: the caller feeds it
+                if (t.directFeed || t.closed) return false;
                 t.inbox.addLast(chunk);
                 t.inboxBytes += chunk.length;
-                if (t.drainPosted) return;
+                if (t.drainPosted) return true;
                 t.drainPosted = true;
             }
             SwingUtilities.invokeLater(() -> drain(t));
+            return true;
         }
 
         /**
@@ -1594,6 +1603,12 @@ public final class Main {
          * rather than feed it (`L23`).
          */
         private void drain(Tab t) {
+            synchronized (t.inbox) {
+                if (t.directFeed) {          // the reader owns the feeding now
+                    t.drainPosted = false;
+                    return;
+                }
+            }
             long deadline = System.nanoTime() + slice(t) * 1_000_000L;
             while (true) {
                 byte[] chunk;
@@ -1609,7 +1624,10 @@ public final class Main {
                     t.inboxBytes -= chunk.length;
                     if (t.inboxBytes < INBOX_MAX / 2) t.inbox.notifyAll();
                 }
-                feedChunk(t, chunk, true);
+                synchronized (t.feedLock) {
+                    if (t.stopFeed) return;
+                    feedChunk(t, chunk, true);
+                }
                 if (System.nanoTime() >= deadline) {
                     yieldDrain(t);
                     return;
@@ -1618,44 +1636,77 @@ public final class Main {
         }
 
         /**
-         * The bytes that were already read and waiting when the exit was asked
-         * for. The drain throws a backlog away once {@link #quitting} is set, and
-         * the farewell only sees what the children write after the hangup, so
-         * without this the restored picture would be missing the screens that
-         * were on their way — a middle of a build, the tail of a `cat`. Bounded by
-         * {@link #EXIT_DRAIN_MS} in total, and the rest is dropped (`L23`).
+         * Hands the feeding of every tab to its own reader, without losing a
+         * byte (`B48`, `L23`). The queued chunks are fed here, on the thread that
+         * is leaving, **while the inbox lock is held** so the reader cannot be
+         * feeding at the same time; the flag then flips inside the same critical
+         * section, so every chunk is either in the queue before it or fed
+         * directly after it. From here on nothing the child writes is dropped,
+         * which is what used to cut the tail off a `cat` (`B73` measured the
+         * same handover going wrong on the way in).
          */
-        private void flushInboxes() {
-            long deadline = System.nanoTime() + EXIT_DRAIN_MS * 1_000_000L;
+        private void enterExitFeed() {
             forEachTab(t -> {
-                while (System.nanoTime() < deadline) {
-                    byte[] chunk;
-                    synchronized (t.inbox) {
-                        chunk = t.inbox.pollFirst();
-                        if (chunk == null) {
-                            t.inboxBytes = 0;
-                            t.inbox.notifyAll();      // the reader may resume, if any
-                            return;
-                        }
+                java.util.ArrayList<byte[]> queued = new java.util.ArrayList<>();
+                synchronized (t.inbox) {
+                    for (byte[] chunk; (chunk = t.inbox.pollFirst()) != null; ) {
                         t.inboxBytes -= chunk.length;
-                        t.inbox.notifyAll();
+                        queued.add(chunk);
                     }
-                    feedChunk(t, chunk, true);
+                    t.inboxBytes = 0;
+                    t.inbox.notifyAll();          // the reader may resume, if any
+                    t.directFeed = true;          // ... and feed what comes next
+                }
+                synchronized (t.feedLock) {
+                    if (t.stopFeed) return;
+                    for (byte[] chunk : queued) feedChunk(t, chunk, true);
                 }
             });
         }
 
-        /** How long this drain may run before it has to let the loop breathe. */
-        private static long slice(Tab t) {
-            synchronized (t.inbox) {
-                return t.inboxBytes >= INBOX_MAX / 2 ? DRAIN_DEEP_MS : DRAIN_BUDGET_MS;
+        /**
+         * Takes the grid away from every feeder before the picture is taken:
+         * the flag goes inside the same lock the feeders hold, so once this
+         * returns nothing can start feeding, and the reader is told to stop as
+         * well — otherwise a chunk landing mid-photograph tears it (`L23`).
+         */
+        private void stopFeeding() {
+            forEachTab(t -> { synchronized (t.feedLock) { t.stopFeed = true; } });
+            forEachTab(t -> { if (t.pty != null) t.pty.stopReading(); });
+        }
+
+        /**
+         * Waits for the child to stop talking, not for a clock: the exit keeps
+         * what it needs by watching {@link #lastFeedNs} and leaves
+         * {@link #EXIT_QUIET_MS} after the last byte, with
+         * {@link #EXIT_DRAIN_MAX_MS} as the ceiling so a flood cannot hold the
+         * way out (`L23`).
+         */
+        private void waitQuiet() {
+            long start = System.nanoTime();
+            while (!util.Pace.exitDone(start, lastFeedNs, System.nanoTime())) {
+                try { Thread.sleep(2); } catch (InterruptedException e) { return; }
             }
+        }
+
+        /**
+         * How long this drain may run before it has to let the loop breathe: one
+         * millisecond per {@link #SLICE_STEP_BYTES} of backlog over the floor, up
+         * to {@link #DRAIN_MAX_MS}. It ramps instead of stepping because the
+         * measurement never showed a threshold, only a trade — a deeper inbox
+         * deserves a longer slice, a trickle deserves 4 ms so a keystroke is
+         * never behind more than a few (`L23`).
+         */
+        private static long slice(Tab t) {
+            int bytes;
+            synchronized (t.inbox) { bytes = t.inboxBytes; }
+            return util.Pace.sliceMs(bytes);
         }
 
         /** Puts the drain back on the queue after it spent its budget. */
         private void yieldDrain(Tab t) {
             synchronized (t.inbox) {
-                if (t.inbox.isEmpty() || quitting) {
+                if (t.inbox.isEmpty() || t.directFeed) {
                     t.inbox.clear();
                     t.inboxBytes = 0;
                     t.drainPosted = false;
@@ -1668,6 +1719,7 @@ public final class Main {
 
         /** One chunk of the child, on the event loop (or on the reader, draining). */
         private void feedChunk(Tab t, byte[] chunk, boolean ui) {
+            lastFeedNs = System.nanoTime();
             Term term = t.term;
             {
                 boolean lat = Boolean.getBoolean("tortty.debug.latency");
@@ -2405,6 +2457,7 @@ public final class Main {
                 // no drain at all — the loop is wedged, there is nobody to wait
                 // for (`L23`)
                 if (exitSnaps == null) {
+                    try { stopFeeding(); } catch (Throwable ignored) { }
                     try { exitSnaps = sessionSnapshots(); } catch (Throwable ignored) { }
                 }
                 try { saveSession(); } catch (Throwable ignored) { }
@@ -2436,7 +2489,8 @@ public final class Main {
             } catch (Exception ignored) {
             }
             debug.Log.ln("quit: " + why);
-            flushInboxes();
+            enterExitFeed();
+            waitQuiet();
             exitSnaps = lastWords();
             forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
             System.exit(0);

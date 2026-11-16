@@ -636,7 +636,13 @@ what the hot reload watches.
   not support reporting screen sizes in pixels"; `icat --print-window-size`
   prints the real size now. `pty/PtyChecks` reads the struct back from a real
   child.
-- Leaving is bounded (`L23`): every way out sets the flag the drain reads, so a
+- Leaving is bounded (`L23`): the drain's slice ramps with the backlog (4 ms for a
+  trickle, up to 48 ms when 2 MB are waiting — `util/Pace`), the way out hands the
+  feeding of each grid to its own reader without losing a queued byte and then
+  **waits for the child to stop talking** (30 ms of silence, 300 ms at most)
+  before taking the picture, and the grid is taken away from every feeder first,
+  so a `cat` still running can neither lose its tail nor tear the photograph;
+  every way out sets the flag the drain reads, so a
   flooded child stops being fed at once; the frame is `DO_NOTHING_ON_CLOSE`, so
   `windowClosing` owns the exit and the farewell (`B48`) still runs instead of a
   toolkit `System.exit` cutting it short; the window is hidden **before** that

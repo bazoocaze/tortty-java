@@ -30,16 +30,19 @@ reused.
 ## Performance (the price of the bounded inbox)
 
 - **`L23` — a child that writes faster than the grid can take it pays for the
-  backpressure, and leaving during a flood throws the backlog away.** The reader
-  stops past a 2 MB inbox, which is what keeps a `yes` from growing a queue until
-  the JVM dies, and every wake of the drain is one round trip through the event
-  loop: `doomfire` reaches 461–533 fps (median 489) where the same inbox with no
-  slice bound reaches 791, and the Rust 965 that day (the ladder that decomposes
-  the gap is in [`BENCHMARKS.md`](BENCHMARKS.md)). On the
-  way out the drain feeds what was already read for at most 100 ms and then drops
-  the rest, so the screen can miss the tail of a `cat` of a big file; and if the
-  event loop is wedged, the 3 s watchdog photographs the tabs itself from another
-  thread, without draining anything.
+  backpressure, and a flood makes the way out slower.** The reader stops past a
+  2 MB inbox, which is what keeps a `yes` from growing a queue until the JVM dies,
+  and every wake of the drain is one round trip through the event loop: `doomfire`
+  reaches 461–533 fps (median 489) where the same inbox with no slice bound
+  reaches 791, and the Rust 965 that day (the ladder that decomposes the gap is in
+  [`BENCHMARKS.md`](BENCHMARKS.md)). The slice now ramps with the backlog
+  (`util/Pace`: 1 ms per 32 KB over a 4 ms floor, 48 ms ceiling) and the exit
+  waits for the child to go quiet — 30 ms of silence, 300 ms at most — instead of
+  dropping everything a fixed 100 ms had not reached, so a `cat` mid-dump keeps
+  its tail (measured: 5 212 → 33 705 lines) at the price of an exit that lasts
+  819–904 ms instead of 637 while it does. What is left: a flood is still slower
+  than an unthrottled reader, and if the event loop is wedged the 3 s watchdog
+  photographs the tabs from another thread without draining anything.
 
 ## Exit and lifecycle (what the way out costs)
 
