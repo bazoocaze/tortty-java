@@ -1,0 +1,37 @@
+# tests.yml — the gate on every push to `main`.
+#
+# One step, and it is `tools/quality-check.sh`, the same command run by hand and
+# by `tools/release.sh`. The workflow deliberately does not restate the gate:
+# anything spelled out here would drift from the script the developer runs.
+#
+# It needs no display — the selftest and the render-check both paint off screen —
+# and no secret: the dependencies come from Maven Central, the pty from the
+# runner's own `/dev/ptmx`. No retry: a check that fails on time is a check to
+# look at, not one to paper over.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: gate
+        run: tools/quality-check.sh
