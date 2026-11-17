@@ -1876,3 +1876,43 @@ already delivers 58 KB per read. The merge was reverted rather than kept "in
 case"; the counters stayed, and `L23` now names the yield, not the chunk, as what
 is left. `selftest` 1641 checks, `render-check` 98.
 
+
+## 2026-11-16 — the JVM is decided at install, and decided again at start
+
+**Context.** The installer copied the jar and generated a launcher that called a
+bare `java`. A desktop entry is not started by a shell: it inherits the
+*display session's* `PATH`, which on this machine has `/usr/bin/java` but never
+the `~/.zshrc` line that puts sdkman's JDK in front. So `./run.sh` in a terminal
+worked while the menu entry could start a JVM that cannot read the jar — and
+nothing anywhere recorded which java the install had actually proved.
+
+**Activities.** `install.sh` now finds a **Java 21** — `PATH` first, then
+`JAVA_HOME` — and refuses to install without one, naming both places it looked;
+`zsh` missing is a warning, because the app opens and the *shell* is what is
+missing. The `BUILD` file became a `key=value` record: commit, version, date,
+`knownValid` and `lastGood`. The launcher decides at every start, in that order,
+each candidate passing `java -version` through a `21+` test — measured at
+**20–30 ms**, against the app's 300–400 ms, so there was no reason to cache the
+answer — and when none of the three passes it prints all three and exits 1
+instead of trying anyway. The record gained a writer: `state/InstallState` reads,
+renders and replaces it atomically, and `Main` marks `lastGood` **after the frame
+is up**, off the event loop, so a JDK that dies during startup is never promoted.
+A `BUILD` with no keys — an older install — is read and never rewritten. The
+`PATH` note stopped being one line: it now prints the directory and the exact
+`export` line to paste, and nothing is written into `~/.zshrc`, `~/.bashrc` or
+`~/.profile`.
+
+**Result.** `selftest` **1671** checks (`install` is a new area, +30),
+`render-check` 98. Verified against real files, not intentions: the resolution
+matrix — `PATH` 21 wins, `PATH` 17 falls to `lastGood`, a dead `lastGood` falls
+to `knownValid`, and none of the three errors with exit 1 naming each — done with
+shim JVMs so the chosen one is visible; an install with only a 17 on `PATH`
+refuses and leaves nothing behind, while the same `PATH` with a 21 in
+`JAVA_HOME` installs and records that path; the app run from `/usr/bin/java`
+rewrote `lastGood` from the installer's sdkman path to
+`/usr/lib/jvm/java-21-openjdk-amd64/bin/java` and left `knownValid` alone; a
+legacy two-line `BUILD` was byte-identical after a run; and a dev run beside
+`target/` created no `BUILD` at all. One slip worth recording: the launcher was
+first written with `#!/bin/sh`, and `exec -a` is a **bash** feature — dash
+answered `exec: -a: not found`, which is exactly the kind of thing the shim
+matrix exists to catch.

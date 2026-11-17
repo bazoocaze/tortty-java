@@ -365,6 +365,12 @@ public final class Main {
             }
             if (session.maximized) frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
             frame.setVisible(true);
+            // the installer's record learns which JVM really started us (`B75`),
+            // and only a run that got this far counts: off the event loop, and it
+            // writes nothing unless the value changed
+            Thread mark = new Thread(state.InstallState::markLastGood, "install-state");
+            mark.setDaemon(true);
+            mark.start();
             rememberGeometry();
             frame.addComponentListener(new ComponentAdapter() {
                 @Override public void componentResized(ComponentEvent e) { rememberGeometry(); }

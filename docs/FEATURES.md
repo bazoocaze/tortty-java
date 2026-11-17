@@ -585,6 +585,20 @@ what the hot reload watches.
 
 ## CLI / build / operation
 
+- The installed copy carries a **record** (`B75`): `install.sh` writes `BUILD`
+  beside the jar — commit, version, date and two JVM paths — and refuses to
+  install without a **Java 21**, because the jar is compiled for it. `knownValid`
+  is the java the installer proved, `lastGood` the one that actually started the
+  app: only a JVM that got as far as a window may write it (a JDK that passes the
+  version test and dies before the frame is up is never promoted), atomically and
+  only when the value changes. The launcher decides again at **every start** —
+  the `java` on the session's `PATH` when it is 21 or newer, then `lastGood`,
+  then `knownValid` — because the default java is the one an upgrade keeps
+  current and the record can go stale; with none of the three it names them all
+  and exits instead of starting a JVM that cannot run the jar. A `BUILD` from an
+  older install (two bare lines) is read and never rewritten. This is what makes
+  the menu entry work from a session whose `PATH` never saw the `~/.zshrc` entry
+  that holds the JDK.
 - Session (`B22`): the window geometry (position, size, maximized kept apart
   from the normal size) and the layout of the last run — workspace names, the
   directory of each tab, and which workspace **and which tab of each workspace**

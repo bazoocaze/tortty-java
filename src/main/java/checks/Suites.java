@@ -26,6 +26,7 @@ public final class Suites {
         l.add(new Area("fonts", FontsChecks::run));
         l.add(new Area("toast", ToastChecks::run));
         l.add(new Area("session", SessionChecks::run));
+        l.add(new Area("install", InstallStateChecks::run));
         l.add(new Area("graphics", GraphicsChecks::run));
         l.add(new Area("placeholder", PlaceholderChecks::run));
         l.add(new Area("sixel", SixelChecks::run));
