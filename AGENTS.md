@@ -10,6 +10,7 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - `docs/LIMITATIONS.md` — accepted or still unresolved limitations, id `L<n>`.
 - `docs/HISTORY.md` — what has already been done.
 - `docs/BENCHMARKS.md` — measurements and benchmark protocol.
+- `docs/RELEASING.md` — what **make release** does, step by step.
 
 ## Rules
 
@@ -42,6 +43,16 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
   commit of the batch. `--version` prints the number: the shade plugin stamps it
   into the manifest as `Implementation-Version` and `config/Cli.version()` reads
   it back.
+
+## Release
+
+When the owner says **make release**, follow `docs/RELEASING.md`: the gate, then
+an annotated tag `v<version>` taken from `pom.xml`, then `./install.sh` and
+`tortty-java --version` proving the number, then a report with the gate's
+figures. A release does not bump `<version>` — the rule above already moved it
+with the code — and it never edits `README.md`. Until `B75` lands there are no
+published artefacts and no `curl | bash`, so the report says exactly that
+instead of offering one.
 
 ## Run
 
