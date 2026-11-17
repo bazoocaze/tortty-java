@@ -718,6 +718,13 @@ what the hot reload watches.
   after the tag it installs from the real release into a throwaway HOME.
   `dist/install.sh` is the stable URL — it carries no version and asks
   `/releases/latest`. Windows and macOS get the jar, run with their own Java.
+- Window chrome follows the palette: the tab strip, the workspace cards, the
+  context menu, the dialog fonts, the tooltip's size — and the 4 px bar that the
+  hand drags between the column and the grid. That bar was the last piece of
+  Metal left in the window: a light gradient with a dark line down its middle and
+  a 1 px bevel around the split, none of which belonged to either side. It is now
+  one blend, 20% of the way from `background` to `foreground` (`#2b2b2b` on the
+  default theme), and it moves with a reload.
 - CI (`B75`, the tests half): `.github/workflows/tests.yml` runs
   `tools/quality-check.sh` on every push to `main` — one step, on a clean Ubuntu
   runner with Temurin 21 and a Maven cache, so lint, `--selftest` and the

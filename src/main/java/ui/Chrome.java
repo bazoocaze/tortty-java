@@ -175,6 +175,57 @@ public final class Chrome {
                 Math.round(a.getBlue() + (b.getBlue() - a.getBlue()) * t));
     }
 
+    /** How far the divider leans from the background toward the ink. */
+    private static final float DIVIDER_MIX = 0.20f;
+
+    /**
+     * The bar the hand drags between the workspace column and the grid, in the
+     * theme's grey instead of the desktop's.
+     *
+     * <p>Metal paints it as a light gradient with a dark line down the middle: two
+     * colours that belong to neither side of the window, which beside a black
+     * column reads as a seam and beside a themed tab strip as a leftover. One blend
+     * of {@code background} and {@code foreground} joins it to the chrome, and it
+     * follows a reload like everything else here.
+     */
+    public static void divider(javax.swing.JSplitPane split, int bg, int fg) {
+        if (split == null) return;
+        FlatDividerUI ui;
+        if (split.getUI() instanceof FlatDividerUI own) {
+            ui = own;
+        } else {
+            int size = split.getDividerSize();
+            ui = new FlatDividerUI();
+            split.setUI(ui);
+            split.setDividerSize(size); // setUI would reset it to the desktop's
+            // and `installDefaults` puts Metal's 1 px bevel back: a dark line along
+            // the top and left of the split, white along the bottom and right, which
+            // is the frame that survived a `setBorder(null)` made before this call
+            split.setBorder(null);
+        }
+        ui.ink = mix(new Color(bg), new Color(fg), DIVIDER_MIX);
+        // Both routes, the same colour, on purpose: the divider paints it, and the
+        // split's background is what shows in the 4 px gap when the divider does not
+        // paint at all (which is what happens while the split is not showing — a
+        // headless check sees only this one).
+        split.setBackground(ui.ink);
+        split.repaint();
+    }
+
+    /** A divider that is one flat colour, and reads its colour from the UI. */
+    private static final class FlatDividerUI extends javax.swing.plaf.basic.BasicSplitPaneUI {
+        java.awt.Color ink = java.awt.Color.DARK_GRAY;
+
+        @Override public javax.swing.plaf.basic.BasicSplitPaneDivider createDefaultDivider() {
+            return new javax.swing.plaf.basic.BasicSplitPaneDivider(this) {
+                @Override public void paint(java.awt.Graphics g) {
+                    g.setColor(((FlatDividerUI) splitPaneUI).ink);
+                    g.fillRect(0, 0, getWidth(), getHeight());
+                }
+            };
+        }
+    }
+
     /**
      * The selected card — workspace or tab: the background leaned a third of
      * the way toward the palette's green, dark on a dark theme and tinted on
@@ -189,7 +240,8 @@ public final class Chrome {
      * The tab strip wears the terminal palette too (`B61`): Metal's light tab
      * cards and content border beside a black grid were the second piece of
      * chrome that did not follow `background`/`foreground`. This class and the
-     * `TabbedPane.*` keys are all it takes; the divider keeps the desktop's.
+     * `TabbedPane.*` keys are all it takes, plus {@link #divider} for the bar
+     * between the workspace column and the grid.
      */
     /**
      * The ink of a progress bar (`OSC 9;4`): the colour, its alpha and the share

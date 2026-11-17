@@ -2062,3 +2062,25 @@ its 43.5 MB of app-image had no reader. The commit that produced it (`32e4164`)
 stays in the history, which is where a superseded decision belongs; the release page
 is not. `latest` resolves to `v0.0.9`, so the installer in `README.md` and the code
 in `main` name the same version.
+
+## 2026-11-17 — the last piece of Metal in the window
+
+The divider between the workspace column and the grid was still the desktop's: a
+light gradient, a dark line down its middle, and a 1 px bevel around the whole
+split (dark along the top and left, white along the bottom and right). Beside a
+black column it read as a seam; beside the themed tab strip it read as a leftover.
+
+It is a `JSplitPane` divider, so the fix is a `BasicSplitPaneUI` whose divider
+paints one colour — 20% of the way from `background` to `foreground`, `#2b2b2b` on
+the default theme. Two things made it more than a one-liner. First, `setUI` calls
+`installDefaults`, which puts Metal's `SplitPane.border` *back* after
+`Main` had cleared it, and that border is the bevel: it has to be cleared again
+afterwards. Second, while the split is not showing — which is every headless check —
+the divider component is never painted at all, and the 4 px gap shows the *split's*
+background instead; both are set to the ink, so the check and the window agree even
+though only one of them paints.
+
+Verified in a real window on Xvfb at 130 dpi with two workspaces: columns 171..174
+are `#2b2b2b` for the full height of the content, between a black column and a
+black grid. `render-check` gained `theDividerWearsTheChromesGrey`, which asserts the
+whole band, the dark-grey range, and the absence of white, Metal blue and holes.

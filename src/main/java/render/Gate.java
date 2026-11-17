@@ -82,6 +82,7 @@ public final class Gate {
         theBoldLowColourTakesTheBrightHalf();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
+        theDividerWearsTheChromesGrey();
         theProgressBarFollowsTheReport();
         thePopupWearsTheTheme();
         theDialogsTakeTheChromesFont();
@@ -617,6 +618,49 @@ public final class Gate {
      * used to arrive as a white highlight over a blue shadow that no
      * `PopupMenuSeparator.*` key could reach.
      */
+    /**
+     * The bar between the workspace column and the grid: one flat grey, the theme's
+     * blend, the full height of the split, and no light Metal gradient anywhere on
+     * it. The grid is magenta underneath so a hole in the paint shows as a hole.
+     */
+    private static void theDividerWearsTheChromesGrey() {
+        Chrome.dpi(96f);
+        Chrome.theme(0x000000, 0xD6D6D6, 0x00FF00);
+        javax.swing.JSplitPane sp = new javax.swing.JSplitPane(javax.swing.JSplitPane.HORIZONTAL_SPLIT,
+                new javax.swing.JPanel(), new javax.swing.JPanel());
+        sp.setBorder(null);
+        sp.setDividerSize(4);
+        Chrome.divider(sp, 0x000000, 0xD6D6D6);
+        sp.setSize(200, 60);
+        sp.doLayout();
+        BufferedImage img = new BufferedImage(200, 60, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = img.createGraphics();
+        g.setColor(new Color(0xFF00FF)); // a frame, so a hole shows as a hole
+        g.fillRect(0, 0, img.getWidth(), img.getHeight());
+        sp.paint(g);
+        g.dispose();
+        save("divider", img);
+        int want = Chrome.mix(new Color(0x000000), new Color(0xD6D6D6), 0.20f).getRGB() & 0xFFFFFF;
+        eq("the divider size survives the look", sp.getDividerSize(), 4);
+        // The divider component itself paints nothing outside a showing window, so
+        // what the check sees in the gap is the split's background — the same colour,
+        // set by the same call.
+        int x = sp.getDividerLocation();
+        int off = 0;
+        for (int dx = 0; dx < 4; dx++)
+            for (int y = 0; y < img.getHeight(); y++)
+                if ((img.getRGB(x + dx, y) & 0xFFFFFF) != want) off++;
+        eq("every pixel of the bar is the theme's grey", off, 0);
+        is("and it is a dark grey, not the desktop's light one", (want & 0xFF) < 0x60 && (want & 0xFF) > 0x10);
+        boolean noMetal = true;
+        for (int dx = 0; dx < 4; dx++)
+            for (int y = 0; y < img.getHeight(); y++) {
+                int rgb = img.getRGB(x + dx, y) & 0xFFFFFF;
+                if (rgb == 0xFFFFFF || rgb == 0x6382BF || rgb == 0xFF00FF) noMetal = false;
+            }
+        is("no white, no Metal blue, no hole", noMetal);
+    }
+
     private static void thePopupWearsTheTheme() {
         Chrome.dpi(96f);
         Chrome.theme(0x000000, 0xD6D6D6, 0x00FF00);

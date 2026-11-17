@@ -327,6 +327,7 @@ public final class Main {
             split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, side, host);
             split.setBorder(null);
             split.setDividerSize(4);
+            Chrome.divider(split, cfg.theme().bg, cfg.theme().fg);
             split.setContinuousLayout(true);
             split.setFocusable(false);
             split.setRequestFocusEnabled(false);
@@ -909,6 +910,7 @@ public final class Main {
         /** Keys and every living strip; new strips dress themselves at birth. */
         private void syncChrome() {
             Chrome.theme(theme.bg, theme.fg, theme.palette[2]);
+            Chrome.divider(split, theme.bg, theme.fg);
             for (Workspace w : workspaces) {
                 Chrome.chromePane(w.pane, theme.bg, i -> progressInk(w.tabs, i));
             }
