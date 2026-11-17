@@ -2084,3 +2084,22 @@ Verified in a real window on Xvfb at 130 dpi with two workspaces: columns 171..1
 are `#2b2b2b` for the full height of the content, between a black column and a
 black grid. `render-check` gained `theDividerWearsTheChromesGrey`, which asserts the
 whole band, the dark-grey range, and the absence of white, Metal blue and holes.
+
+## 2026-11-17 — F2 leaves, and rename becomes a line of the table
+
+`F2` renamed the workspace in front. It was not in the keymap and not from the
+Rust version — a second `KeyEventDispatcher` in `Main.bindKeys()` took the bare key
+whenever there were two workspaces or more, with a comment claiming parity that
+was never true (`rename_key` in the Rust app is the *inline editor's* key handler,
+not a shortcut). The cost only showed up in use: `mc` uses `F2` for its user menu,
+and it received nothing. Measured with a child reading a raw pty — one workspace,
+`F2` arrives as `ESC O Q`; two workspaces, zero bytes and a modal rename dialog on
+screen.
+
+The dispatcher is gone. Renaming keeps the two paths it always had — double click
+a card, or right button → *Rename…* — and the action `ws_rename` was added to the
+keymap **with no default chord**, so the way to a key is a line the owner writes:
+`map super+shift+r ws_rename`. A key that a terminal eats silently is worth less
+than a key the config hands out. `render-check` unchanged at 102; `selftest` 1687,
+with the new `KeymapChecks` asserting that no default chord renames anything,
+that a mapped one does, and that the action refuses a number it does not take.

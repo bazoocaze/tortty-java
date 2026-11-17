@@ -89,7 +89,7 @@ public final class Keymap {
             "copy", "paste", "new_tab", "close_tab", "new_workspace", "close_workspace",
             "prev_prompt", "next_prompt", "open_config", "search",
             "scroll_page_up", "scroll_page_down", "scroll_top", "scroll_bottom",
-            "ws_prev", "ws_next", "ws_move_up", "ws_move_down",
+            "ws_prev", "ws_next", "ws_move_up", "ws_move_down", "ws_rename",
             "select_tab N", "select_workspace N");
 
     private final Map<String, Bound> table = new LinkedHashMap<>();

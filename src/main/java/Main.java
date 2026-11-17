@@ -943,7 +943,7 @@ public final class Main {
             // moment the screen or the config grew
             private final int head;      // room for the caption
             private final int row;       // one workspace card
-            private final int hint;      // the `F2 rename` line at the bottom
+            private final int hint;      // the hint line at the bottom
             private final int rowBase;   // baseline of a card's text, inside the row
             private final int labelX;    // where the names start, clear of the numbers
             private final int minW;      // a column where the caption still fits
@@ -1134,7 +1134,7 @@ public final class Main {
                 if (i < 0) {
                     if (overPlus(e.getY())) return "New workspace (Ctrl+Shift+N)";
                     return workspaces.size() > 1
-                            ? "Click a workspace to switch; F2 renames the one in front" : null;
+                            ? "Click a workspace to switch; a double click renames it" : null;
                 }
                 Workspace w = workspaces.get(i);
                 StringBuilder sb = new StringBuilder("<html><b>Workspace " + (i + 1) + "</b>");
@@ -1145,7 +1145,7 @@ public final class Main {
                 if (t != null) sb.append(": ").append(escape(t.term.windowTitle()));
                 if (w.alert()) sb.append("<br>has a notification");
                 sb.append("<br><i>Ctrl+Shift+").append(i + 1)
-                        .append(" select \u00b7 F2 rename \u00b7 middle click close</i>");
+                        .append(" select \u00b7 double click rename \u00b7 middle click close</i>");
                 return sb.toString();
             }
 
@@ -1245,7 +1245,7 @@ public final class Main {
                 g.setClip(clip);
 
                 g.setFont(tiny);
-                String hint = "F2 rename";
+                String hint = "double click renames";
                 g.drawString(hint, Math.max(TEXT_X, getWidth() - TEXT_X - fmTiny.stringWidth(hint)),
                         getHeight() - fmTiny.getDescent() - 2);
             }
@@ -1868,20 +1868,13 @@ public final class Main {
         }
 
         /**
-         * The fixed shortcuts, taken before the panel sees the key, so the child
-         * never gets a `Ctrl+Shift+T`. `Ctrl+Shift+<n>` picks a workspace,
-         * `Alt+<n>` picks a tab. The debug socket's `keys` verb calls this same
-         * one (`B23`), so a shortcut driven from a test is not a second table;
-         * F2 (rename) stays out of it because the socket must not open a dialog.
-         */
-        /**
          * The shortcut table (`M-H`): the chord is looked up in {@code keymap},
          * which starts from the built-in `map` lines and takes the config's on
          * top. An `unmap`ped chord falls through, so the program sees the key —
          * which is also why nothing here hard-codes a chord. The debug socket's
          * `keys` verb calls this same one (`B23`), so a shortcut driven from a
-         * test is not a second table; F2 (rename) stays out of it because the
-         * socket must not open a dialog.
+         * test is not a second table — but a `ws_rename` triggered that way does
+         * open the dialog, since it is an ordinary action now.
          */
         private boolean localShortcut(int kc, boolean ctrl, boolean alt, boolean shift, boolean meta) {
             String chord = Keymap.chord(kc, ctrl, alt, shift, meta);
@@ -1902,6 +1895,9 @@ public final class Main {
                 case "close_tab" -> { if (t != null && w != null) closeTab(w, t); }
                 case "new_workspace" -> newWorkspace(cwdOf(t), false);
                 case "close_workspace" -> closeWorkspace(ws);
+                // no default chord on purpose: renaming is the mouse's job (double
+                // click, context menu) until the owner maps a key of his own
+                case "ws_rename" -> rename(ws);
                 case "prev_prompt" -> promptJump(t, true);
                 case "next_prompt" -> promptJump(t, false);
                 case "open_config" -> openConfig();
@@ -1923,7 +1919,7 @@ public final class Main {
             return true;
         }
 
-        /** Both dispatchers: the fixed shortcuts, then F2 (rename). */
+        /** The two dispatchers: Super by hand, then the shortcut table. */
         private void bindKeys() {
             java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
                 // Super by hand: AWT hands over the key but never the modifier
@@ -1947,18 +1943,6 @@ public final class Main {
                 if (tab == null || !tab.panel.isFocusOwner()) return true;
                 return !input.Keys.superGoesToChild(e.getKeyCode(), e.getKeyChar(),
                         e.getModifiersEx(), tab.term.kbdFlags);
-            });
-            // F2 renames the workspace in front (the Rust version does the same)
-            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(e -> {
-                if (e.getID() != KeyEvent.KEY_PRESSED) return false;
-                if (e.getKeyCode() != KeyEvent.VK_F2) return false;
-                if (e.isControlDown() || e.isShiftDown() || e.isAltDown() || e.isMetaDown()
-                        || input.SuperKey.held()) {
-                    return false;
-                }
-                if (workspaces.size() < 2) return false;
-                rename(ws);
-                return true;
             });
         }
 

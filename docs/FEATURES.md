@@ -414,8 +414,8 @@ Features implemented in the Java version of TorTTY.
   toward the palette's green and marked with a `palette[12]` bar — and its text,
   like the tab strip's, is **15 points at the desktop's dpi**, the same scale the
   grid uses, and **plain**: Metal's `Dialog bold 12` was never a decision here.
-  The caption over the column and the `F2 rename` hint under it run two points
-  down. The geometry follows the fonts — a row is a font height, not a constant —
+  The caption over the column and the `double click renames` hint under it run two
+  points down. The geometry follows the fonts — a row is a font height, not a constant —
   and the column's width is never narrower than its caption needs. The tab strip
   wears the palette too — the selected card leaned toward the palette's green, no
   content border (`B61`) — and so does the **context menu**: black page, light
@@ -443,7 +443,7 @@ Features implemented in the Java version of TorTTY.
   selected in that workspace. Ctrl+Shift+N creates — the new one opens where the
   old one was —, Ctrl+Shift+Q closes it with every pty it owns,
   Ctrl+Shift+1..9 selects, `+ new` creates, the popup (right button) has
-  new/rename/close, a double click or `F2` renames, the middle button closes. A
+  new/rename/close, a double click renames, the middle button closes. A
   parked tab with a pending notification puts an amber dot on its row, and
   entering the workspace acknowledges its tabs. The column scrolls (`B32`): the
   wheel over it walks the card list one card per detent (a touchpad's travel
@@ -509,9 +509,10 @@ editor is open on it, so a font or a palette is a keystroke away from being
 changed — and the change is live as soon as it is saved, because the same file is
 what the hot reload watches.
 
-- **`Ctrl+Shift+F2`**, not `F2`: the plain key is the workspace rename, so the
-  config gets the `Ctrl+Shift` block (Ctrl and Shift alone — no Alt, no Super),
-  taken before encoding, so an editor never sees the chord.
+- **`Ctrl+Shift+F2`**: the config gets the `Ctrl+Shift` block (Ctrl and Shift
+  alone — no Alt, no Super), taken before encoding, so an editor never sees the
+  chord. It used to be `Ctrl+Shift+F2` *because* a bare `F2` renamed a workspace;
+  that binding is gone (it stole `mc`'s menu), and the chord stayed.
 - It resolves **the file this run reads**, so `--config PATH` and
   `$XDG_CONFIG_HOME` are honoured, not the default path; the directory is
   created first, since an editor only creates the file when you save it.
@@ -545,7 +546,7 @@ what the hot reload watches.
   path as the keyboard: the fixed shortcut first, then the panel's own keys
   (copy/paste, history scroll), then the encoder — and answers `keys: [n]`,
   `hex` and `handled`, so a test asserts the bytes without a screen. It does
-  not open the F2 rename dialog.
+  not open a dialog, but a `ws_rename` the config mapped does open one.
 - `log` turns the debug log on, off (`off`) or elsewhere at runtime; the same
   sink is `debug_log` in the config and `--debug-log` on the CLI.
 - `drop` takes a path (`data`) or several (`paths`), quotes them as the drop

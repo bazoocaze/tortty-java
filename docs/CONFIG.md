@@ -65,11 +65,16 @@ canonical one (`ctrl+alt+shift+super`).
 | `select_tab N` / `select_workspace N` | `N` is 1..10, where 10 is key `0` |
 | `ws_prev` / `ws_next` | walk the workspaces |
 | `ws_move_up` / `ws_move_down` | carry the workspace in front one card up or down, as dragging its card does |
+| `ws_rename` | rename the workspace in front — **no default chord**: map one if you want it |
 
 The defaults are the same syntax, one line per chord: `Ctrl+Shift+C/V`, `T/W`,
-`N/Q`, `Up/Down`, `F`/`F2`, `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab),
+`N/Q`, `Up/Down`, `F`, `Shift+PgUp/PgDn/Home/End`, `Alt+1`…`0` (tab),
 `Ctrl+Shift+1`…`9` and `Super+1`…`9` (workspace), `Super+N/Q`, `Super+Up/Down`
 and `Super+Shift+Up/Down`.
+One action has no chord at all: `ws_rename`. Renaming is the mouse's job —
+double click a card, or right button → *Rename…* — and the key was left free on
+purpose, because a terminal that eats a bare `F2` takes it from `mc`'s menu.
+`map super+shift+r ws_rename` is yours to write if you want one.
 Copying one into your file reproduces the app's table, changing the action
 changes it for you, and **deleting a line frees the key** as surely as `unmap`
 does — an unbound key goes to the program.

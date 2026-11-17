@@ -16,6 +16,7 @@ public final class KeymapChecks {
         remapping(c);
         freedChords(c);
         crooked(c);
+        renameIsMappable(c);
         try {
             fromConfig(c);
         } catch (java.io.IOException e) {
@@ -35,6 +36,14 @@ public final class KeymapChecks {
         c.eq("alt+0 is the tenth", m.match("alt+0").arg(), 10);
         c.eq("super+shift+up carries the workspace up", action(m, "shift+super+up"), "ws_move_up");
         c.eq("and down carries it down", action(m, "shift+super+down"), "ws_move_down");
+        // Rename is an action with no default chord (`M-H`): a key that looked
+        // harmless here was stealing F2 from `mc`'s own menu (2026-11-17), so the
+        // table offers the action and the owner picks the key.
+        for (String k : new String[]{"f2", "shift+f2", "ctrl+shift+r", "super+shift+r"})
+            c.eq("no default chord renames the workspace (" + k + ")", action(m, k), null);
+        boolean offered = false;
+        for (Keymap.Bound b : new Keymap().all()) offered |= b.action().equals("ws_rename");
+        c.is("and nothing in the defaults binds it", !offered);
         c.eq("super+1 picks the first workspace",
                 m.match("super+1").action() + " " + m.match("super+1").arg(), "select_workspace 1");
         c.is("every default chord is bound", m.size() >= 40);
@@ -59,6 +68,24 @@ public final class KeymapChecks {
         // a number only where the action takes one
         m.parseLine("map alt+7 select_tab 7", 0);
         c.eq("the argument travels with the chord", m.match("alt+7").arg(), 7);
+    }
+
+    private static void renameIsMappable(Check c) {
+        // the config's own composition: the defaults, then the file's lines on top
+        Keymap m = new Keymap();
+        m.parseLine("map super+shift+r ws_rename", 1);
+        c.eq("the owner can map the rename", action(m, "shift+super+r"), "ws_rename");
+        c.eq("and the defaults are still there", action(m, "ctrl+shift+t"), "new_tab");
+        Keymap free = new Keymap();
+        free.parseLine("map f2 ws_rename", 1);
+        c.eq("`f2` is a key like any other once asked for", action(free, "f2"), "ws_rename");
+        boolean bad = false;
+        try {
+            free.parseLine("map ctrl+shift+r ws_rename 3", 2);
+        } catch (RuntimeException e) {
+            bad = e.getMessage().contains("ws_rename");
+        }
+        c.is("an action that takes no number refuses one", bad);
     }
 
     private static void freedChords(Check c) {
