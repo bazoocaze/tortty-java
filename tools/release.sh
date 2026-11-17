@@ -38,6 +38,13 @@ bad() { echo "release.sh: $*" >&2; exit 1; }
 #    release is cut from, and at the same commit as the remote.
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || bad "not a git repository"
 [ "$BRANCH" = main ] || bad "on '$BRANCH', not main; a release is cut from main"
+# The gate's `t=t` checks put fixtures in `target/` and prove they are *kept*
+# because that is not a temp dir; a checkout under `/tmp` turns them into false
+# failures, so the rehearsal has a home outside the temp dirs or none at all.
+case "$ROOT" in
+    /tmp/*|/var/tmp/*|/dev/shm/*)
+        bad "the checkout is inside a temp dir; the t=t checks need a real one" ;;
+esac
 DIRTY=$(git status --porcelain)
 [ -z "$DIRTY" ] || bad "the tree is not clean:
 $DIRTY"
