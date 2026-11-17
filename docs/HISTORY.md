@@ -2010,3 +2010,16 @@ A rehearsal run is 14 seconds.
 workflow to publish (bounded at 20 minutes), then install from the release into a
 fresh HOME and print the version. The claim "a user can install this" is made by
 the same script that cuts the tag, against what was actually published.
+
+The first release went out on the same day, and it went the whole way on the first
+attempt: `tools/release.sh` printed `v0.0.8` at `32e4164`, the workflow answered
+with eight green steps (tag against `pom.xml`, gate, artefacts, the selftest from
+inside the app-image, publish), and four assets appeared — the 8.5 MB jar, the
+43.5 MB tarball, `SHA256SUMS` and the release's own `install.sh`. Two independent
+checks after the fact: the published tarball re-verified against the published
+`SHA256SUMS` (`OK`), and the script's own last step installed from the release
+into an empty HOME and printed `0.0.8`. A user now needs no JDK:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bazoocaze/tortty-java/main/dist/install.sh | sh
+```
