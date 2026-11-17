@@ -1916,3 +1916,31 @@ legacy two-line `BUILD` was byte-identical after a run; and a dev run beside
 first written with `#!/bin/sh`, and `exec -a` is a **bash** feature — dash
 answered `exec: -a: not found`, which is exactly the kind of thing the shim
 matrix exists to catch.
+
+## 2026-11-16 — the gate runs on somebody else's machine
+
+The gate was always described as the command *a pre-commit hook or CI would run*,
+and `tools/quality-check.sh` says in its own docstring that neither the selftest
+nor the render-check needs a display — but until today nothing ran it except a
+hand and `tools/release.sh`. Every one of the 1671 checks was a fact about *this*
+machine.
+
+`.github/workflows/tests.yml` closes that: one job, one step, the script itself,
+on `ubuntu-latest` with Temurin 21 and `cache: maven`, triggered by a push to
+`main` (plus `workflow_dispatch`, so a red run can be repeated without inventing a
+commit), `contents: read`, and a concurrency group that cancels the previous run of
+the same ref. The workflow deliberately restates nothing: a gate spelled out in
+YAML drifts from the gate the developer runs. No retry either — a check that fails
+on time is a check to look at.
+
+The first run earned its keep in zero seconds: `tools/quality-check.sh: 26: cannot
+create target/quality-check.log: Directory nonexistent`. The script redirected its
+log before anything had created `target/`, so it only ever worked where a build had
+already run — which is why `tools/release.sh`, with its own `mkdir -p target` three
+lines above the call, rehearsed green and CI went red. Fixed above the redirect and
+proved twice: a clone with no `target/` running the whole gate (no warnings, 1671
+checks, 98 render-checks, 19.8 s), then the second run — 44 s for the run, 35 s for
+the gate, and the same three figures in its log as at home.
+
+Left for the owner: the badge line in `README.md`, and the rest of `B75` — tags,
+release artefacts, `dist/install.sh`.

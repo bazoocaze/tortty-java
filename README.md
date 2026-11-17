@@ -1,5 +1,7 @@
 # TorTTY-Java
 
+[![tests](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml)
+
 Minimal functional port of the TorTTY terminal to **Java 21 + Swing**.
 VT parser, pty via pty4j, xterm keyboard/mouse, and alternate screen.
 

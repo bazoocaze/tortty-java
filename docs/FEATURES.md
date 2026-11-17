@@ -704,6 +704,14 @@ what the hot reload watches.
   from a real face, and the search painted — the match amber in its own cells,
   the other match underlined, the bar at the top right with its border.
   `--keep DIR` writes the PNGs.
+- CI (`B75`, the tests half): `.github/workflows/tests.yml` runs
+  `tools/quality-check.sh` on every push to `main` — one step, on a clean Ubuntu
+  runner with Temurin 21 and a Maven cache, so lint, `--selftest` and the
+  render-check see a machine that is not this one. The workflow restates nothing:
+  it calls the same script, and the figures in its log are the figures above. No
+  display, no secret, no retry — a red run is a check to look at. The first run
+  paid for itself at once: it caught the gate writing its log before `target/`
+  existed, which only a fresh checkout exposes.
 - The toast is covered headlessly too (`checks/ToastChecks`): the model's life
   driven with an injected clock (durations, queue, the swap, the click, the
   220 ms slide), the python palette's contrast measured as WCAG ratios, and the
