@@ -2053,3 +2053,12 @@ with an empty `PATH`, the installer refuses, names Java 21 and says where to get
 one, and writes nothing. It also asserts that a session whose `PATH` has no java
 starts anyway, from the JVM recorded in `BUILD` — the promise the whole arrangement
 depends on.
+
+`v0.0.9` went out the same night with three assets — the 8.5 MB jar, `SHA256SUMS`
+and `install.sh` — and the workflow's selftest ran against the published jar
+(`1678 checks`), not against a build of the checkout. `v0.0.8` was then withdrawn,
+release and tag both deleted: it published a shape that is no longer the policy, and
+its 43.5 MB of app-image had no reader. The commit that produced it (`32e4164`)
+stays in the history, which is where a superseded decision belongs; the release page
+is not. `latest` resolves to `v0.0.9`, so the installer in `README.md` and the code
+in `main` name the same version.
