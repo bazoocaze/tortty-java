@@ -10,7 +10,6 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - `docs/LIMITATIONS.md` — accepted or still unresolved limitations, id `L<n>`.
 - `docs/HISTORY.md` — what has already been done.
 - `docs/BENCHMARKS.md` — measurements and benchmark protocol.
-- `docs/RELEASING.md` — what **make release** does, step by step.
 
 ## Rules
 
@@ -46,13 +45,25 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 
 ## Release
 
-When the owner says **make release**, follow `docs/RELEASING.md`: the gate, then
-an annotated tag `v<version>` taken from `pom.xml`, then `./install.sh` and
-`tortty-java --version` proving the number, then a report with the gate's
-figures. A release does not bump `<version>` — the rule above already moved it
-with the code — and it never edits `README.md`. Until `B75` lands there are no
-published artefacts and no `curl | bash`, so the report says exactly that
-instead of offering one.
+When the owner says **make release**, in this order:
+
+1. On `main`, tree clean, `main` == `origin/main`: a tag must point at commits.
+2. `tools/quality-check.sh`, the whole thing (no `--fast`), and keep the numbers.
+   A failure stops it — no tag, report what broke.
+3. Read the last `docs/HISTORY.md` entries against `docs/BACKLOG.md`: an item
+   closed in code but still open in the backlog is fixed before tagging.
+4. `git tag -a v<version> -m "tortty-java <version>"` with the version from
+   `pom.xml`, then `git push origin v<version>`. The `v` belongs to the tag; the
+   version stays bare in `pom.xml`, in the manifest and in `--version`.
+5. `./install.sh`, then `tortty-java --version` must print `<version>` — `dev`
+   means the jar is not the shaded one, `v<version>` means the prefix leaked.
+6. Report version, commit, tag and the gate's figures, and say what a user can
+   download today: nothing. Until `B75` lands there is no CI, no artefact and no
+   `curl | bash`, and the repository is private, so going public comes first.
+
+A release never bumps `<version>` (the rule above already moved it with the code;
+a minor or a major is a commit of its own, before the tag) and never edits
+`README.md`. The rehearsal's cleanup kills by recorded PID, never `pkill`.
 
 ## Run
 
