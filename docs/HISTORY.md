@@ -1944,3 +1944,27 @@ the gate, and the same three figures in its log as at home.
 
 Left for the owner: the badge line in `README.md`, and the rest of `B75` — tags,
 release artefacts, `dist/install.sh`.
+
+## 2026-11-16 — public, under MIT
+
+The repository opened. Before that, its history was rewritten once, for a reason
+worth keeping: a Vim swap file had been committed, and a swap file carries the
+user, the host and the pid of the session that wrote it. `git filter-repo` dropped
+it — and, in the same pass, the `/home/<user>/` paths and the hostname that a few
+tests and one `HISTORY` entry carried. The sweep that preceded the rewrite found
+no credential at all in 670 blobs and 125 commits; what it found was metadata, and
+metadata was enough to matter.
+
+The old objects were then taken out of GitHub entirely: the repository was
+deleted and recreated, and the rewritten history pushed into the empty one. A
+force-push leaves the previous objects reachable by hash on the server for a
+while; a repository that never received them cannot serve them. Everything on the
+GitHub side that a delete could have destroyed was counted first — issues, pull
+requests, releases, tags, forks, watchers, webhooks, Actions runs: zero of each,
+because the repository only ever held code.
+
+`LICENSE` is MIT, and GitHub detects it as such (`license: MIT`), so the sidebar
+and the API agree. Nothing else had to change for the flip: the workflow on
+`ubuntu-latest` now runs on free minutes, and the badge that 404s for an
+anonymous reader in a private repository answers `200` with `tests passing` — the
+URL was right all along, which is worth knowing before blaming the badge.
