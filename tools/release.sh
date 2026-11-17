@@ -3,10 +3,11 @@
 #
 # The owner's "make release" is this script. It refuses a dirty tree, a branch
 # that is not `main`, a `main` behind `origin/main` and a tag that already
-# exists; runs the whole gate; tags `v<version>` from `pom.xml`; pushes the tag;
-# installs the copy and proves `--version`; then reports the figures and says
-# what a user can download today (nothing, until `B75` lands and the repository
-# is public).
+# exists; runs the whole gate; rehearses the published installer against a local
+# fake release (`tools/install-check.sh`); tags `v<version>` from `pom.xml`;
+# pushes the tag, which starts `.github/workflows/release.yml`; waits for that
+# workflow to publish the artefacts; and finally installs from the release itself,
+# into a throwaway HOME, to prove what a user would get.
 #
 #   tools/release.sh --check     # preconditions and the gate, touch nothing
 #   tools/release.sh --dry-run   # print what would be tagged, run nothing
@@ -92,6 +93,19 @@ if [ "$MODE" != dry ]; then
     say "  render-check: $RENDER checks"
 fi
 
+# 2b. The installer, rehearsed before anything is tagged: a published installer
+#     that cannot install is not worth a tag. Local server, throwaway HOME, no
+#     GitHub — `tools/install-check.sh` owns the detail.
+if [ "$MODE" != dry ]; then
+    say ""
+    say "== install rehearsal =="
+    if ! tools/install-check.sh >"$LOG.install" 2>&1; then
+        tail -20 "$LOG.install" >&2
+        bad "the installer rehearsal failed; nothing was tagged (full log: $LOG.install)"
+    fi
+    sed 's/^/  /' "$LOG.install" | grep -E 'ok:|PASSED'
+fi
+
 if [ "$MODE" = dry ]; then
     say ""
     say "dry run: nothing was run and nothing was tagged."
@@ -104,6 +118,18 @@ if [ "$MODE" = check ]; then
     exit 0
 fi
 
+# 2c. The owner's own copy, refreshed, so the machine runs what is about to be
+#     tagged. Before the tag on purpose: an install that cannot print the version
+#     is a reason not to tag, not a thing to discover afterwards.
+say ""
+say "== local install =="
+./install.sh 2>&1 | tail -4 | sed 's/^/  /'
+CMD="${XDG_BIN_HOME:-$HOME/.local/bin}/tortty-java"
+[ -x "$CMD" ] || bad "install.sh left no command at $CMD"
+GOT=$("$CMD" --version 2>&1 | awk '{print $2}')
+[ "$GOT" = "$VERSION" ] || bad "--version printed '$GOT', expected '$VERSION'"
+say "  --version: $GOT"
+
 # 3. The tag. Annotated, because it carries the message a bare tag cannot.
 say ""
 say "== tag =="
@@ -111,22 +137,46 @@ git tag -a "$TAG" -m "tortty-java $VERSION"
 git push -q origin "$TAG"
 say "  $TAG created at $HEAD and pushed"
 
-# 4. Install and prove it. `dev` means the jar is not the shaded one; a `v` in
-#    the number means the tag's prefix leaked into the manifest.
+# 4. The release itself. The artefacts are built where they must be — a runner —
+#    so the tag is the input and this waits for the output. Bounded: a release
+#    workflow that never publishes is a failure, not a wait.
 say ""
-say "== install =="
-./install.sh 2>&1 | tail -6 | sed 's/^/  /'
-CMD="${XDG_BIN_HOME:-$HOME/.local/bin}/tortty-java"
-[ -x "$CMD" ] || bad "install.sh left no command at $CMD"
-GOT=$("$CMD" --version 2>&1 | awk '{print $2}')
-[ "$GOT" = "$VERSION" ] || bad "--version printed '$GOT', expected '$VERSION'"
-say "  --version: $GOT"
+say "== publish =="
+command -v gh >/dev/null 2>&1 || bad "needs gh to follow the release workflow"
+say "  waiting for the release workflow to publish $TAG (ceiling 20 minutes)"
+DEADLINE=$(( $(date +%s) + 1200 ))
+ASSETS=""
+while :; do
+    ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)
+    case "$ASSETS" in
+        *"tortty-java-$VERSION-linux-x64.tar.gz"*) [ -n "$ASSETS" ] && break ;;
+    esac
+    [ "$(date +%s)" -lt "$DEADLINE" ] || bad "no release for $TAG after 20 minutes; see the Actions tab"
+    sleep 15
+done
+printf '%s\n' "$ASSETS" | sed 's/^/  asset: /'
+
+# 5. From the release, the way a user does it: the published `dist/install.sh`,
+#    the published tarball, a throwaway HOME. This is the only step that proves
+#    the download, the checksum and the app-image together.
+say ""
+say "== install from the release =="
+FHOME=$(mktemp -d "${TMPDIR:-/tmp}/tortty-release.XXXXXX")
+trap 'rm -rf "$FHOME"' EXIT INT TERM
+if ! env -i HOME="$FHOME" PATH="/usr/bin:/bin" \
+        XDG_DATA_HOME="$FHOME/.local/share" XDG_BIN_HOME="$FHOME/.local/bin" \
+        TMPDIR="$FHOME" sh "$ROOT/dist/install.sh" >"$FHOME/out.txt" 2>&1; then
+    tail -5 "$FHOME/out.txt" >&2
+    bad "the published installer failed"
+fi
+RGOT=$("$FHOME/.local/bin/tortty-java" --version 2>&1 | awk '{print $2}')
+[ "$RGOT" = "$VERSION" ] || bad "the published install prints '$RGOT', expected '$VERSION'"
+say "  installed $RGOT from the release into a throwaway HOME"
 
 say ""
 say "released tortty-java $VERSION ($TAG) at $HEAD"
 say "  gate: $CHECKS checks, render-check $RENDER"
-say "  installed and verified: $CMD"
+say "  release: $(gh release view "$TAG" --json url --jq .url)"
 say ""
-say "what a user can download today: nothing."
-say "  no CI, no artefacts and no curl|bash yet (BACKLOG B75), and the"
-say "  repository is private, so going public comes before the pipeline."
+say "a user installs it with:"
+say "  curl -fsSL https://raw.githubusercontent.com/bazoocaze/tortty-java/main/dist/install.sh | sh"

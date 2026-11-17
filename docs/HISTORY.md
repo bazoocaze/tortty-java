@@ -1968,3 +1968,45 @@ and the API agree. Nothing else had to change for the flip: the workflow on
 `ubuntu-latest` now runs on free minutes, and the badge that 404s for an
 anonymous reader in a private repository answers `200` with `tests passing` — the
 URL was right all along, which is worth knowing before blaming the badge.
+
+## 2026-11-16 — the release publishes itself
+
+`B75` was the last item of the backlog that was not a decision about behaviour:
+nothing was published, so a user had to clone and own a JDK 21. It took four
+pieces, and one of them was a discovery.
+
+`tools/make-release.sh` builds the artefacts — the shaded jar, and a `jpackage`
+app-image that carries its own JRE. The first app-image was 172 MB, which is a
+lot to ask someone to download for a terminal; `--add-modules` with the set
+`jdeps` reports plus `java.logging`/`java.naming`, and `--strip-debug
+--no-man-pages --no-header-files --compress=zip-6`, took it to 68 MB on disk and
+44 MB of tar.gz, and the full selftest runs inside the trimmed image — 1671
+checks, so the module list is not a guess. (A first attempt passed
+`--add-modules` inside `--jlink-options`, which `jpackage` rejects; it is a
+top-level option.)
+
+`dist/install.sh` is the installer that URL can point at forever: it carries no
+version, resolves the tag from the redirect `/releases/latest` answers with, checks
+`SHA256SUMS` *before* unpacking, and installs `versions/<version>` beside a
+`current` symlink. Old copies are the rollback, and the prune keeps three because
+each one is 68 MB.
+
+`.github/workflows/release.yml` runs on `v*`: it refuses a tag that is not the
+version in `pom.xml`, runs the gate, calls `make-release.sh`, runs the selftest
+*from inside the app-image*, and publishes jar, tarball, `SHA256SUMS` and the
+release's own `install.sh`.
+
+`tools/install-check.sh` is the rehearsal that makes the tag safe, and it paid
+immediately. It builds a real fake release, serves it on a free port, answers
+`/latest` with the same 302 GitHub does, and installs into a throwaway HOME — then
+tampers with one byte of the tarball to prove the checksum refuses. Two things it
+caught before a tag existed: the version cannot be faked, because `--version` comes
+from the jar manifest rather than `--app-version` (so the prune is tested with
+planted `versions/` directories), and the resolution path is not covered by the
+gate at all — it is a redirect, not code, which is exactly why it needed a stand-in.
+A rehearsal run is 14 seconds.
+
+`tools/release.sh` now reads: gate, rehearsal, local install, tag, wait for the
+workflow to publish (bounded at 20 minutes), then install from the release into a
+fresh HOME and print the version. The claim "a user can install this" is made by
+the same script that cuts the tag, against what was actually published.

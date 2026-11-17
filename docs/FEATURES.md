@@ -704,6 +704,18 @@ what the hot reload watches.
   from a real face, and the search painted — the match amber in its own cells,
   the other match underlined, the bar at the top right with its border.
   `--keep DIR` writes the PNGs.
+- Release (`B75`): the only way in is a `v<version>` tag.
+  `.github/workflows/release.yml` refuses a tag that is not the version in
+  `pom.xml`, runs the gate, and calls `tools/make-release.sh` — never restating
+  either — to build the shaded jar and a `jpackage` app-image (68 MB on disk,
+  44 MB of tar.gz, carrying a trimmed JRE) with `SHA256SUMS`. Before the tag,
+  `tools/release.sh` rehearses the published installer against a local fake
+  release (`tools/install-check.sh`: redirect resolution, checksum refusal,
+  `current`, the prune); after it, the same script installs from the real release
+  into a throwaway HOME. `dist/install.sh` is the stable URL — it carries no
+  version, asks `/releases/latest`, verifies the checksum before unpacking, and
+  installs `versions/<version>` with a `current` symlink for rollback (two older
+  copies kept), with no JDK, no `sudo` and no shell start-up files.
 - CI (`B75`, the tests half): `.github/workflows/tests.yml` runs
   `tools/quality-check.sh` on every push to `main` — one step, on a clean Ubuntu
   runner with Temurin 21 and a Maven cache, so lint, `--selftest` and the

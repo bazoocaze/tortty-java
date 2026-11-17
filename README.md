@@ -1,6 +1,6 @@
 # TorTTY-Java
 
-[![tests](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml)
+[![tests](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/bazoocaze/tortty-java/actions/workflows/tests.yml) [![licence](https://img.shields.io/github/license/bazoocaze/tortty-java)](LICENSE)
 
 Minimal functional port of the TorTTY terminal to **Java 21 + Swing**.
 VT parser, pty via pty4j, xterm keyboard/mouse, and alternate screen.
@@ -30,8 +30,28 @@ reloads it on edit; see [`docs/CONFIG.md`](docs/CONFIG.md).
 
 ## Installing
 
+### From a release
+
+The quickest way, and it needs no JDK, Maven or checkout — the release carries its
+own trimmed JRE:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bazoocaze/tortty-java/main/dist/install.sh | sh
+```
+
+That URL never carries a version: the script asks GitHub for
+`/releases/latest`, verifies the tarball's `SHA256SUMS` before unpacking, and
+installs
+`$XDG_DATA_HOME/tortty-java/versions/<version>/` with a `current` symlink beside
+it — so rolling back is `ln -sfn versions/<older> current`. Two older copies are
+kept. `TORTTY_JAVA_VERSION=0.0.8` pins a version, and `TORTTY_JAVA_HOME` moves the
+whole install; nothing is written outside your own directories and nothing touches
+your shell's start-up files.
+
+### From this checkout
+
 To get a `tortty-java` command, an application menu entry and a desktop
-shortcut:
+shortcut, built from the sources here:
 
 ```sh
 ./install.sh

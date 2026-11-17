@@ -1,0 +1,63 @@
+# release.yml — publish a release when a `v<version>` tag is pushed.
+#
+# `tools/release.sh` owns the decision and the gate; this workflow owns the
+# artefacts, because they must be built somewhere that is not the owner's
+# machine. It refuses a tag whose name is not the version in `pom.xml`, runs the
+# same `tools/quality-check.sh` as always, and then calls
+# `tools/make-release.sh` — the YAML does not restate either of them.
+#
+# Published assets: the shaded jar, the `jpackage` app-image tarball (it carries a
+# trimmed JRE, so an install needs no Java), `SHA256SUMS`, and this release's own
+# `install.sh`. `dist/install.sh` is version-agnostic and reads `/releases/latest`,
+# so `README.md` points at `main` and never moves.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: the tag is the version in pom.xml
+        run: |
+          version=$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -1)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match v$version in pom.xml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_ENV"
+
+      - name: gate
+        run: tools/quality-check.sh
+
+      - name: artefacts
+        run: tools/make-release.sh "$version" dist-out
+
+      - name: the app-image passes the selftest too
+        run: |
+          target/release-image/tortty-java/bin/tortty-java --selftest | tail -1
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ env.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag --generate-notes --title "TorTTY (Java) $VERSION" \
+            "dist-out/tortty-java-$VERSION.jar" \
+            "dist-out/tortty-java-$VERSION-linux-x64.tar.gz" \
+            dist-out/SHA256SUMS dist/install.sh
+          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'
