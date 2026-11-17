@@ -23,6 +23,7 @@ case "${1:-}" in
 esac
 
 LOG=target/quality-check.log
+mkdir -p target                # a fresh checkout has none, and the log is the first write
 : >"$LOG"
 
 # 1. Lint. Every javac lint except `serial` (there is no serialVersionUID in the
