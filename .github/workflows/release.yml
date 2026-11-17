@@ -6,10 +6,11 @@
 # same `tools/quality-check.sh` as always, and then calls
 # `tools/make-release.sh` — the YAML does not restate either of them.
 #
-# Published assets: the shaded jar, the `jpackage` app-image tarball (it carries a
-# trimmed JRE, so an install needs no Java), `SHA256SUMS`, and this release's own
-# `install.sh`. `dist/install.sh` is version-agnostic and reads `/releases/latest`,
-# so `README.md` points at `main` and never moves.
+# Published assets: the shaded jar, `SHA256SUMS`, and this release's own
+# `install.sh`. No runtime is bundled — the user's JDK 21 is the JVM, which is what
+# keeps a release at 8.5 MB and makes one artefact serve every platform.
+# `dist/install.sh` is version-agnostic and reads `/releases/latest`, so
+# `README.md` points at `main` and never moves.
 name: release
 
 on:
@@ -46,9 +47,8 @@ jobs:
       - name: artefacts
         run: tools/make-release.sh "$version" dist-out
 
-      - name: the app-image passes the selftest too
-        run: |
-          target/release-image/tortty-java/bin/tortty-java --selftest | tail -1
+      - name: the published jar passes the selftest too
+        run: java -jar "dist-out/tortty-java-$version.jar" --selftest | tail -1
 
       - name: publish
         env:
@@ -58,6 +58,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --verify-tag --generate-notes --title "TorTTY (Java) $VERSION" \
             "dist-out/tortty-java-$VERSION.jar" \
-            "dist-out/tortty-java-$VERSION-linux-x64.tar.gz" \
             dist-out/SHA256SUMS dist/install.sh
           gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'

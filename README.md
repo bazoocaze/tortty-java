@@ -32,21 +32,26 @@ reloads it on edit; see [`docs/CONFIG.md`](docs/CONFIG.md).
 
 ### From a release
 
-The quickest way, and it needs no JDK, Maven or checkout — the release carries its
-own trimmed JRE:
+A release is the shaded jar plus a checksum — there is no bundled runtime, so a
+JDK 21 has to be on your `PATH` or named by `JAVA_HOME`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bazoocaze/tortty-java/main/dist/install.sh | sh
 ```
 
 That URL never carries a version: the script asks GitHub for
-`/releases/latest`, verifies the tarball's `SHA256SUMS` before unpacking, and
-installs
+`/releases/latest`, refuses before downloading anything if it finds no Java 21,
+verifies the jar's `SHA256SUMS` before installing, and puts
 `$XDG_DATA_HOME/tortty-java/versions/<version>/` with a `current` symlink beside
 it — so rolling back is `ln -sfn versions/<older> current`. Two older copies are
-kept. `TORTTY_JAVA_VERSION=0.0.8` pins a version, and `TORTTY_JAVA_HOME` moves the
-whole install; nothing is written outside your own directories and nothing touches
-your shell's start-up files.
+kept, and each is 8.5 MB. The JVM it used is recorded in `BUILD`, so a later
+launch still finds one when the session's `PATH` changes. `TORTTY_JAVA_VERSION=
+0.0.9` pins a version and `TORTTY_JAVA_HOME` moves the whole install; nothing is
+written outside your own directories and nothing touches your shell's start-up
+files.
+
+On Windows and macOS the release is the same jar and nothing else:
+`java -jar tortty-java-0.0.9.jar` (the installer is a POSIX shell script).
 
 ### From this checkout
 

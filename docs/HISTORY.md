@@ -2023,3 +2023,33 @@ into an empty HOME and printed `0.0.8`. A user now needs no JDK:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bazoocaze/tortty-java/main/dist/install.sh | sh
 ```
+
+## 2026-11-17 — a release is the jar, and the JVM is the user's
+
+The first cut of the release pipeline bundled a JRE: `jpackage` built an
+app-image, trimmed from 172 MB to 68 MB, and one line installed the app on a
+machine with no Java at all. It worked — `v0.0.8` went out that way and installed
+cleanly into an empty HOME.
+
+It was still the wrong shape, for a reason that only arithmetic shows. The bundle
+is per-platform: 59 MB on Linux, and 59 MB again for Windows and again for macOS,
+in *every* release, and again in each of the copies kept for rollback. Three
+platforms times infinite releases times three kept copies is a bill that grows
+while the app does not. A jar is 8.5 MB, identical everywhere, and it is the only
+thing that actually changes between versions.
+
+So the release is now the jar, `SHA256SUMS` and `install.sh`. What pays for that
+is a requirement, stated in `README.md` and enforced by the installer before it
+downloads a byte: a JDK 21 on the `PATH` or at `JAVA_HOME`, with the address of a
+download in the refusal. The installer, the launcher and the `BUILD` record are
+now the same machinery the checkout install always had — `versions/<version>/`,
+`current`, the recorded `knownValid`/`lastGood`, the fallbacks — so there is one
+story about which JVM runs the app instead of two, and `InstallState.hasRecord()`
+accepts a version where a commit used to be required, because a release install
+knows its tag and no longer its SHA.
+
+The rehearsal gained the case that matters most and had no way to happen before:
+with an empty `PATH`, the installer refuses, names Java 21 and says where to get
+one, and writes nothing. It also asserts that a session whose `PATH` has no java
+starts anyway, from the JVM recorded in `BUILD` — the promise the whole arrangement
+depends on.

@@ -56,10 +56,36 @@ public final class InstallStateChecks {
         InstallState noJdk = InstallState.parse("commit=6e83553\nlastGood=/opt/x/bin/java\n");
         c.is("a record with no proven JDK is not a record", !noJdk.hasRecord());
 
+        // a release install knows no commit — the release tag is its identity — but
+        // it does know the JDK it proved, which is what the launcher needs
+        InstallState released = InstallState.parse(
+                "version=0.0.9\ndate=2026-11-17T00:00:00Z\nknownValid=/usr/bin/java\n"
+                        + "lastGood=/usr/bin/java\n");
+        c.eq("a release record has no commit", released.commit, "");
+        c.eq("but it knows its version", released.version, "0.0.9");
+        c.is("and that is enough to be a record", released.hasRecord());
+
         // junk does not break the parse
         InstallState odd = InstallState.parse("commit=a\nwat=b\n\n=x\nknownValid\n");
         c.eq("unknown keys are ignored", odd.commit, "a");
         c.eq("so are lines with no value", odd.knownValid, "");
+
+        // the app rewrites the record of a release install too, or a rollback would
+        // never learn which JVM actually started it
+        try {
+            Path dir = Files.createTempDirectory("tortty-build-release-");
+            dir.toFile().deleteOnExit();
+            Path build = dir.resolve(InstallState.FILE);
+            Files.writeString(build, released.render(), StandardCharsets.UTF_8);
+            c.is("a release install's lastGood is rewritten",
+                    InstallState.markLastGoodIn(build, "/opt/other/bin/java"));
+            InstallState after = InstallState.read(build);
+            c.eq("with the new JVM", after.lastGood, "/opt/other/bin/java");
+            c.eq("and the version untouched", after.version, "0.0.9");
+            c.eq("and the proven JDK untouched", after.knownValid, "/usr/bin/java");
+        } catch (java.io.IOException e) {
+            c.is("release record: " + e, false);
+        }
 
         try {
             // a new value is written, and only that value moves

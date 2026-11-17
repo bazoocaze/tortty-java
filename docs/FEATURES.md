@@ -707,15 +707,17 @@ what the hot reload watches.
 - Release (`B75`): the only way in is a `v<version>` tag.
   `.github/workflows/release.yml` refuses a tag that is not the version in
   `pom.xml`, runs the gate, and calls `tools/make-release.sh` — never restating
-  either — to build the shaded jar and a `jpackage` app-image (68 MB on disk,
-  44 MB of tar.gz, carrying a trimmed JRE) with `SHA256SUMS`. Before the tag,
-  `tools/release.sh` rehearses the published installer against a local fake
-  release (`tools/install-check.sh`: redirect resolution, checksum refusal,
-  `current`, the prune); after it, the same script installs from the real release
-  into a throwaway HOME. `dist/install.sh` is the stable URL — it carries no
-  version, asks `/releases/latest`, verifies the checksum before unpacking, and
-  installs `versions/<version>` with a `current` symlink for rollback (two older
-  copies kept), with no JDK, no `sudo` and no shell start-up files.
+  either — to build the shaded jar with `SHA256SUMS`. **A release is the jar and
+  nothing else**: no app-image, no bundled runtime, so 8.5 MB instead of 68 MB, one
+  artefact for every platform, and a rollback copy that costs 8.5 MB rather than
+  59. The price is a requirement, checked before anything is downloaded: a JDK 21
+  on the `PATH` or at `JAVA_HOME`, recorded in `BUILD` so the launcher can find it
+  again. `tools/release.sh` rehearses the published installer against a local fake
+  release (`tools/install-check.sh`: the redirect, the refusal without Java, the
+  checksum, `current`, the launcher's fallback to the recorded JVM, the prune);
+  after the tag it installs from the real release into a throwaway HOME.
+  `dist/install.sh` is the stable URL — it carries no version and asks
+  `/releases/latest`. Windows and macOS get the jar, run with their own Java.
 - CI (`B75`, the tests half): `.github/workflows/tests.yml` runs
   `tools/quality-check.sh` on every push to `main` — one step, on a clean Ubuntu
   runner with Temurin 21 and a Maven cache, so lint, `--selftest` and the

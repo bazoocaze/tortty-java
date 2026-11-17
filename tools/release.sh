@@ -149,7 +149,7 @@ ASSETS=""
 while :; do
     ASSETS=$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)
     case "$ASSETS" in
-        *"tortty-java-$VERSION-linux-x64.tar.gz"*) [ -n "$ASSETS" ] && break ;;
+        *"tortty-java-$VERSION.jar"*) [ -n "$ASSETS" ] && break ;;
     esac
     [ "$(date +%s)" -lt "$DEADLINE" ] || bad "no release for $TAG after 20 minutes; see the Actions tab"
     sleep 15
@@ -158,7 +158,7 @@ printf '%s\n' "$ASSETS" | sed 's/^/  asset: /'
 
 # 5. From the release, the way a user does it: the published `dist/install.sh`,
 #    the published tarball, a throwaway HOME. This is the only step that proves
-#    the download, the checksum and the app-image together.
+#    the download, the checksum and the jar together.
 say ""
 say "== install from the release =="
 FHOME=$(mktemp -d "${TMPDIR:-/tmp}/tortty-release.XXXXXX")

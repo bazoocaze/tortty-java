@@ -36,9 +36,17 @@ public final class InstallState {
     public String knownValid = "";
     public String lastGood = "";
 
-    /** True when the file carries the installer's keys, so it may be rewritten. */
+    /**
+     * True when the file carries the installer's keys, so it may be rewritten.
+     *
+     * <p>An install made from a checkout knows its commit; one made from a release
+     * knows its version and has no commit to name, because the release tag is the
+     * identity. Either one is enough, as long as {@code knownValid} is there to fall
+     * back to — that is the key the launcher needs and the reason this file is
+     * rewritten at all.
+     */
     public boolean hasRecord() {
-        return !commit.isEmpty() && !knownValid.isEmpty();
+        return (!commit.isEmpty() || !version.isEmpty()) && !knownValid.isEmpty();
     }
 
     /** The {@code BUILD} beside a jar, or {@code null} when there is none. */
