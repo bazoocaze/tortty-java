@@ -47,7 +47,7 @@ public final class Term {
     /** `CSI 22 t` pushes here, `CSI 23 t` pops; cap 16 as in the Rust version. */
     private final java.util.ArrayList<String> titleStack = new java.util.ArrayList<>();
     public String cwd = "";
-    /** Working directory of the child, kept by the app from /proc (no OSC 7). */
+    /** Working directory of the child, asked of the platform (no OSC 7). */
     public String shellCwd = "";
 
     /** Palette in effect; OSC 4/10/11/12 query and change it. */
@@ -2072,8 +2072,8 @@ public final class Term {
      */
     public String windowTitle() {
         if (titleExplicit && !title.isEmpty()) return title;
-        // A shell that does not write OSC 7: the app keeps the cwd here from
-        // /proc, as the Rust version does.
+        // A shell that does not write OSC 7: the app keeps the cwd here, taken
+        // from the platform's own answer, as the Rust version does.
         if (shellCwd != null && !shellCwd.isEmpty()) {
             String n = new java.io.File(shellCwd).getName();
             if (!n.isEmpty()) return n;

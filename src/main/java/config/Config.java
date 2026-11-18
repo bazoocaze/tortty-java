@@ -46,12 +46,10 @@ public final class Config {
     /** The `map`/`unmap` lines as written, in file order (`M-H`). */
     public final List<String> shortcutLines = new ArrayList<>();
 
+    /** Where the file lives, asked of the platform and not guessed here. */
     public static Path defaultPath() {
-        String xdg = System.getenv("XDG_CONFIG_HOME");
-        Path dir = (xdg != null && !xdg.isEmpty())
-                ? Paths.get(xdg)
-                : Paths.get(System.getProperty("user.home"), ".config");
-        return dir.resolve("tortty-java").resolve("tortty.conf");
+        Path dir = platform.Platforms.current().configDir();
+        return dir == null ? null : dir.resolve("tortty.conf");
     }
 
     public static Config load(Path path) {

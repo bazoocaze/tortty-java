@@ -10,7 +10,8 @@ import java.awt.Toolkit;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import config.Keymap;
-import pty.ProcName;
+import platform.Platform;
+import platform.Platforms;
 import ui.Cards;
 import ui.Chrome;
 import ui.Toast;
@@ -44,6 +45,12 @@ import state.Snapshots;
 
 public final class Main {
 
+    /** What the process table calls us; the platform writes it. */
+    private static final String PROCESS_NAME = "tortty-java";
+
+    /** The system this run is on, chosen once: everything else names a capability. */
+    private static final Platform plat = Platforms.current();
+
     public static void main(String[] args) {
         Cli.Opts o = Cli.Opts.parse(args);
         // `--version` is the one flag that answers and leaves: no AWT, no state
@@ -57,8 +64,8 @@ public final class Main {
             System.exit(checks.Suites.run(System.out) == 0 ? 0 : 1);
         }
         // the process table says `java` for anything a JVM runs; ask the kernel
-        // for our own name so `ps`, `top` and the pid file agree (`ProcName`)
-        ProcName.set(ProcName.NAME);
+        // for our own name so `ps`, `top` and the pid file agree
+        plat.nameProcess(PROCESS_NAME);
         // PID file (DEBUG rules: kill only by our own PID).
         try { Files.writeString(Paths.get("/tmp/tortty-java.pid"), Long.toString(ProcessHandle.current().pid())); } catch (IOException ignored) {}
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -256,26 +263,15 @@ public final class Main {
 
         App(Cli.Opts o) { this.o = o; }
 
-        /**
-         * The desktop's dots per inch. The X11 toolkit answers the XSETTINGS
-         * value under `gnome.Xft/DPI`, in 1024ths; `Xft.dpi` is the name it
-         * carries in `xrdb`, not a property the JDK serves — asking for that
-         * (as this did) fell through to 96 and left every point 26% smaller on
-         * a 130 dpi screen. Both names are tried, then 96, as on a bare server.
-         */
-        private static float desktopDpi() {
-            Toolkit t = Toolkit.getDefaultToolkit();
-            Object v = t.getDesktopProperty("gnome.Xft/DPI");
-            if (v instanceof Number n && n.floatValue() > 0) return n.floatValue() / 1024f;
-            v = t.getDesktopProperty("Xft.dpi");
-            if (v instanceof Number n && n.floatValue() > 0) return n.floatValue();
-            return 96f;
-        }
 
         void start() {
             if (o.prof) Prof.set(true);
             dpi = o.dpi;
-            if (dpi <= 0) dpi = desktopDpi();
+            if (dpi <= 0) {
+                // what the desktop asks for, or 96 as on a bare server
+                dpi = plat.defaultDpi();
+                if (dpi <= 0) dpi = 96f;
+            }
             Chrome.dpi(dpi);
             final java.nio.file.Path cfgPath = (o.configPath != null)
                     ? Paths.get(o.configPath) : Config.defaultPath();
@@ -415,8 +411,8 @@ public final class Main {
             }));
             watcher.start();
 
-            // cwd and title with no OSC 7: the shell's own /proc entry is the
-            // source, as in the Rust version
+            // cwd and title with no OSC 7: the platform's answer is the source,
+            // as in the Rust version
             new javax.swing.Timer(1000, e -> refreshCwd()).start();
 
             // A window manager may grab the Super chord and swallow its release;
@@ -1492,7 +1488,7 @@ public final class Main {
             }
         }
 
-        /** Keeps the /proc cwd of every tab fresh, so the title follows `cd`. */
+        /** Keeps the cwd of every tab fresh, so the title follows `cd`. */
         private void refreshCwd() {
             boolean changed = false;
             for (Workspace w : workspaces) {
@@ -1979,8 +1975,9 @@ public final class Main {
         }
 
         /**
-         * `--debug-socket auto` becomes `$XDG_RUNTIME_DIR/tortty-java-<pid>.sock`
-         * (or `/tmp` without it), so two instances do not fight over one path —
+         * `--debug-socket auto` becomes the platform's runtime directory plus
+         * `tortty-java-<pid>.sock` (or `/tmp` when it has none), so two instances
+         * do not fight over one path —
          * the Rust name carries `-java` and the pid for the same reason.
          */
         private String debugSocketPath() {
@@ -2448,29 +2445,14 @@ public final class Main {
         }
 
         /**
-         * `SIGUSR1` dumps, `SIGTERM` dumps and leaves cleanly, as in Rust. The
-         * handler only queues the work: reading the grid and the state of every
-         * tab is the event loop's business, not a signal's.
+         * A dump request and a polite exit, as in Rust. The platform installs what
+         * its system offers; this only says what to do, queued, because reading the
+         * grid and the state of every tab is the event loop's business and not a
+         * signal's.
          */
         private void installSignals() {
-            // separate, so a `USR1` this platform will not take cannot cost the
-            // `TERM` handler as well
-            try {
-                sun.misc.Signal.handle(new sun.misc.Signal("USR1"),
-                        sig -> SwingUtilities.invokeLater(this::dump));
-            } catch (Throwable e) {
-                System.err.println("tortty-java: SIGUSR1: " + e);
-            }
-            try {
-                sun.misc.Signal.handle(new sun.misc.Signal("TERM"), sig -> {
-                    // the dump goes first: it reads the tabs, which the exit is
-                    // about to close. Both are queued, so the order holds.
-                    SwingUtilities.invokeLater(this::dump);
-                    requestQuit("SIGTERM");
-                });
-            } catch (Throwable e) {
-                System.err.println("tortty-java: SIGTERM: " + e);
-            }
+            plat.installSignals(() -> SwingUtilities.invokeLater(this::dump),
+                    () -> requestQuit("SIGTERM"));
         }
 
         /**

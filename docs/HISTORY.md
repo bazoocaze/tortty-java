@@ -2103,3 +2103,38 @@ keymap **with no default chord**, so the way to a key is a line the owner writes
 than a key the config hands out. `render-check` unchanged at 102; `selftest` 1687,
 with the new `KeymapChecks` asserting that no default chord renames anything,
 that a mapped one does, and that the action refuses a number it does not take.
+
+## 2026-11-17 — the platform seam
+
+Everything a terminal cannot do portably was spread over `pty`, `Main` and `ui`:
+a `/proc` walk for the cwd, `prctl` and `/proc/self/comm` for the process name, a
+`SIGHUP` through JNA, an `ioctl` for the pixel half of the window size, the X11
+desktop property for the dots per inch, `sun.misc.Signal` for the two handlers,
+XDG directories for the config and the session, and `sh -c` and `/bin/sh` for the
+child. Each one was correct, none of them said *where* they were correct.
+
+`src/main/java/platform/` now owns all of it, with a rule that is the whole
+design: **`platform` names the operating system, the rest of the code names the
+capability**. The app asks `Platform.knownCwd`, `hangup`, `openPty`, `shell`,
+`command`, `defaultDpi`, `installSignals`, `configDir`, `stateDir`, `runtimeDir`,
+`processName` and `nameProcess` — and `platform.linux` answers. `platform.windows`
+and `platform.macos` exist as `Unimplemented`: named, chosen by `Platforms.forName`,
+and answering `implemented() == false` with the reason, so the first tab on those
+systems fails saying what is missing instead of inside a pty library.
+
+Three things came out of it that are worth keeping. The **gate**:
+`tools/platform-gate.sh` fails when `/proc`, JNA, pty4j, `sun.misc.Signal`,
+`Xft.dpi`, `os.name`, an `XDG_*` variable or `/bin/sh` appears outside the seam —
+it found seven leftovers, one of them a real XDG read in a check. The **trap**:
+Java resolves a package name as absolute, so `new linux.Linux()` from package
+`platform` does not compile (it needs `new platform.linux.Linux()` — or an
+import), and `"darwin".contains("win")`, so the Apple check has to come before the
+Windows one; the new `platform` suite caught the second on its first run. And the
+**JNA struct**: a `Structure` subclass has to be `public`, or the reflective read
+comes back `null` — which the pixel-size checks reported as "no pixels" rather
+than as an error.
+
+`selftest` 1728 checks (41 in the new `platform` area), `render-check` 102, gate
+green in ~17 s. `docs/PORTABILITY.md` carries the capability table and what each
+system would need; `docs/LIMITATIONS.md` `L5` is no longer "Unix only by design"
+but "Linux only by construction, and one package away".

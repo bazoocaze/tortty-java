@@ -281,7 +281,14 @@ Features implemented in the Java version of TorTTY.
 
 ## PTY
 
-- Spawn via pty4j, with `TERM=xterm-256color` and `COLORTERM=truecolor`.
+- Spawn through the **platform seam** (`docs/PORTABILITY.md`): the app asks for
+  `openPty`, `knownCwd`, `hangup` and `shell`, and only `platform.linux` knows
+  that a pty is pty4j and a hangup is `SIGHUP`. With `TERM=xterm-256color` and
+  `COLORTERM=truecolor`.
+- The seam is **closed before it is filled**: `platform.windows` and
+  `platform.macos` exist and answer every capability with the reason they are not
+  written yet, so a JVM on one of them fails at the first tab saying so, instead
+  of dying inside a library that was never going to load.
 - Reader thread with a **bounded inbox** per tab and an exit watcher: the reader
   stops once a tab's inbox passes 2 MB, so a child that floods fills the pty and
   blocks on `write` — the backpressure a real terminal gives — instead of growing
@@ -289,8 +296,11 @@ Features implemented in the Java version of TorTTY.
   the inbox is deep (the round trip out of `invokeLater` costs the child more
   than the slice itself — see `BENCHMARKS`), so a click, a repaint or the way out
   is never behind megabytes of output (`L23`).
-- Resize via `TIOCSWINSZ`/`setWinSize`.
-- Configurable shell (config `shell`, `--cmd`) or `$SHELL`/`/bin/sh`.
+- Resize via the platform: the grid and the pixel half of `TIOCSWINSZ` in one
+  call, because the wire clears the pixels whenever it carries the grid.
+- Configurable shell (config `shell`, `--cmd`), resolved by the platform: the one
+  asked for if it exists, else `$SHELL`, else the same name on `$PATH`, else the
+  system's own fallback.
 - The process is **`tortty-java`** in the process table, not `java`: `ps`,
   `top`, `pidof` and `killall` read the **leader** thread's `comm`, which a JVM
   leaves as the binary it ran, and Java's `main()` does not run on that thread at

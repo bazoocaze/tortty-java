@@ -1,7 +1,8 @@
 package checks;
 
 import pty.ChildPty;
-import pty.ProcName;
+import platform.Platform;
+import platform.Platforms;
 
 /**
  * The window size the child reads through `TIOCGWINSZ`, which is how a client
@@ -227,15 +228,15 @@ public final class PtyChecks {
      * the kernel took it — not that the string was accepted.
      */
     private static void theProcessWearsItsOwnName(Check c) {
-        String before = ProcName.get();
-        if (before == null) return;                       // no /proc: nothing to read
-        boolean set = ProcName.set("tortty-probe");
+        String before = Platforms.current().processName();
+        if (before == null) return;                       // the platform cannot read it
+        boolean set = Platforms.current().nameProcess("tortty-probe");
         if (!set) return;                                 // not Linux, or no permission
-        c.eq("the process table says the name we asked for", ProcName.get(), "tortty-probe");
+        c.eq("the process table says the name we asked for", Platforms.current().processName(), "tortty-probe");
         c.is("and the name is short enough for the kernel", "tortty-probe".length() <= 15);
-        ProcName.set(before);
-        c.eq("the name goes back", ProcName.get(), before);
-        c.is("the application's own name fits", ProcName.NAME.length() <= 15);
+        Platforms.current().nameProcess(before);
+        c.eq("the name goes back", Platforms.current().processName(), before);
+        c.is("the application's own name fits", "tortty-java".length() <= 15);
     }
 
     private static void aBadCellSizeIsIgnored(Check c) {

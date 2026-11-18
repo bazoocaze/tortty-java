@@ -25,8 +25,8 @@ public final class Cli {
 
     /** The `--debug-socket auto` path: the runtime dir, the name and our pid. */
     public static String autoSocketPath() {
-        String run = System.getenv("XDG_RUNTIME_DIR");
-        String dir = (run != null && !run.isBlank()) ? run : "/tmp";
+        java.nio.file.Path run = platform.Platforms.current().runtimeDir();
+        String dir = run == null ? "/tmp" : run.toString();
         return dir + "/tortty-java-" + ProcessHandle.current().pid() + ".sock";
     }
 

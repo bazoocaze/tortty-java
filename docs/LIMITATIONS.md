@@ -63,9 +63,14 @@ reused.
 
 ## Scope (decision, not lack)
 
-- **`L5` — Unix-only, by design.** The AF_UNIX debug socket, `$SHELL`, `/proc`,
-  `/tmp`, `Xft.dpi` and the X11 fonts are not portable as they are. This is an
-  X11-native application, not portability promised for later.
+- **`L5` — Linux-only today, and now by construction.** Every system-specific
+  thing — `/proc`, `SIGHUP`, pty4j, `sun.misc.Signal`, `Xft.dpi`, `$XDG_*`,
+  `/bin/sh` — lives behind `src/main/java/platform/` and nowhere else, and
+  `tools/platform-gate.sh` fails the gate when one of them leaks out. Windows and
+  macOS exist as packages that answer every capability with the reason they have
+  not been written yet (`docs/PORTABILITY.md` has the cost of each). So "Unix
+  only" is no longer a shape the code has; it is an implementation nobody has
+  written.
 - **`L7` — no splits.** Tabs (`B20`) and workspaces (`B21`) exist; two terminals
   side by side in one view does not, and it needs the layout and the shortcuts
   that go with it before it is worth having.

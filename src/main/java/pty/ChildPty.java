@@ -1,48 +1,39 @@
 package pty;
 
-import com.pty4j.PtyProcess;
-import com.pty4j.PtyProcessBuilder;
-import com.pty4j.WinSize;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import platform.Platform;
+import platform.Platforms;
+import platform.Pty;
+import platform.PtySpec;
 import prof.Prof;
 
-/** Child on a pty: spawn, read on its own thread, resize with SIGWINCH. */
+/**
+ * Child on a pty: spawn, read on its own thread, resize with the window.
+ *
+ * <p>The wire belongs to {@link Platform} ({@code platform.linux} today); what is
+ * here is the part that is the same everywhere — the inbox the reader fills, the
+ * thread that does it, the farewell, the pixel size the font implies, and the
+ * directory the tab is really in, which the platform answers and this only asks.
+ */
 public final class ChildPty {
 
     private static final boolean LATENCY = Boolean.getBoolean("tortty.debug.latency");
-    private final PtyProcess proc;
+    private final Platform platform;
+    private final Pty pty;
     private final OutputStream out;
     private final InputStream in;
     private final Thread reader;
     private final java.util.concurrent.BlockingQueue<byte[]> queue =
             new java.util.concurrent.LinkedBlockingQueue<>();
     private volatile int cols, rows;
-    /** Cell size in pixels, from the font; the pixel half of `TIOCSWINSZ`. */
+    /** Cell size in pixels, from the font; the pixel half of the window size. */
     private volatile int cellW, cellH;
     private volatile boolean closed;
-
-    private static String resolveShell(String shell) {
-        if (shell == null || shell.isEmpty()) shell = System.getenv("SHELL");
-        if (shell == null || shell.isEmpty()) return "/bin/sh";
-        File f = new File(shell);
-        if (f.exists()) return shell;
-        if (!shell.contains("/")) {
-            String path = System.getenv("PATH");
-            if (path != null) {
-                for (String dir : path.split(File.pathSeparator)) {
-                    File c = new File(dir, shell);
-                    if (c.canExecute()) return c.getPath();
-                }
-            }
-        }
-        return "/bin/sh";
-    }
 
     public ChildPty(String cmd, int cols, int rows) throws IOException {
         this(cmd, null, cols, rows, null, DEFAULT_TERM);
@@ -72,31 +63,29 @@ public final class ChildPty {
      */
     public ChildPty(String cmd, String shell, int cols, int rows, String dir, String term) throws IOException {
         this.cols = cols; this.rows = rows;
+        this.platform = Platforms.current();
+        // the shell, its command line and the wire are the platform's business;
+        // this only says which of the two it wants
         String[] command;
         if (cmd != null) {
-            command = new String[] {"sh", "-c", cmd};
+            command = platform.command(cmd);
         } else {
-            command = new String[] {resolveShell(shell)};
+            String sh = platform.shell(shell);
+            command = new String[] {sh == null ? "sh" : sh};
         }
         Map<String, String> env = new HashMap<>(System.getenv());
         env.put("TERM", term == null || term.isEmpty() ? DEFAULT_TERM : term);
         env.put("COLORTERM", "truecolor");
         env.put("TERM_PROGRAM", "tortty-java");
         env.put("SHELL", command[0]);
-        // $COLUMNS/$LINES? vim/mc don't use them; TIOCSWINSZ is the source.
+        // $COLUMNS/$LINES? vim/mc don't use them; the window size is the source.
         env.put("COLUMNS", Integer.toString(cols));
         env.put("LINES", Integer.toString(rows));
 
-        PtyProcessBuilder builder = new PtyProcessBuilder(command);
-        builder.setEnvironment(env);
-        builder.setConsole(false);
-        builder.setInitialColumns(cols);
-        builder.setInitialRows(rows);
         String workDir = (dir != null && !dir.isEmpty()) ? dir : System.getProperty("user.dir");
-        if (workDir != null && !workDir.isEmpty()) builder.setDirectory(workDir);
-        this.proc = builder.start();
-        this.in = proc.getInputStream();
-        this.out = proc.getOutputStream();
+        this.pty = platform.openPty(new PtySpec(command, env, workDir, cols, rows));
+        this.in = pty.in();
+        this.out = pty.out();
 
         byte[] buf = new byte[65536];
         this.reader = new Thread(() -> {
@@ -156,17 +145,16 @@ public final class ChildPty {
         if (cols <= 0 || rows <= 0) return;
         if (cols == this.cols && rows == this.rows) return;
         this.cols = cols; this.rows = rows;
-        proc.setWinSize(new WinSize(cols, rows));
-        // pty4j's WinSize is rows and columns only, so it has just cleared what
-        // `setCellSize` wrote: the two go together, always in this order.
-        applyPixels();
+        // the grid and the pixels travel together: the wire clears the pixel half
+        // whenever it carries the grid, so a second call would undo the first
+        pty.resize(cols, rows, cellW, cellH);
         System.out.flush();
     }
 
     /**
      * Tells the child how big a cell is, in pixels: with the grid it gives the
-     * window size in pixels a client asks `TIOCGWINSZ` for (`kitten icat`
-     * refuses to draw without it). A font change lands here.
+     * window size in pixels a client asks the terminal for (`kitten icat` refuses
+     * to draw without it). A font change lands here.
      */
     public synchronized void setCellSize(int w, int h) {
         if (w <= 0 || h <= 0) return;
@@ -179,78 +167,52 @@ public final class ChildPty {
     public int[] cellSize() { return new int[] {cellW, cellH}; }
 
     /**
-     * What the child reads back through `TIOCGWINSZ`: {@code {rows, cols,
-     * xpixels, ypixels}}, or {@code null} when it cannot be read.
+     * What the child reads back through the window size — {@code {rows, cols,
+     * xpixels, ypixels}} — or {@code null} when it cannot be read.
      */
-    public int[] winSize() { return WinPixels.read(proc); }
+    public int[] winSize() { return pty.pixels(); }
 
-    /** `TIOCSWINSZ` with the pixels: rows, cols, xpixel, ypixel. */
+    /** The grid and the pixels, in the one call the wire takes. */
     private void applyPixels() {
         if (cols <= 0 || rows <= 0) return;
-        WinPixels.apply(proc, cols, rows, cellW, cellH);
+        pty.resize(cols, rows, cellW, cellH);
     }
 
-    public boolean isAlive() { return !closed && proc.isAlive(); }
+    public boolean isAlive() { return !closed && pty.alive(); }
 
     public boolean childExited() {
-        try { return !proc.isAlive(); } catch (Exception e) { return closed; }
-    }
-
-    /** Working directory of the child, read from /proc; null when it is gone. */
-    /**
-     * The directory the tab is really in: the cwd of the last descendant of the
-     * shell, which is what a full-screen program like `mc` changes, the way the
-     * Rust version reads it. Falls back to nothing when `/proc` says no.
-     */
-    public String cwd() {
         try {
-            int pid = (int) proc.pid();
-            for (int i = 0; i < 8; i++) {
-                int child = firstChild(pid);
-                if (child <= 0) break;
-                pid = child;
-            }
-            return java.nio.file.Files.readSymbolicLink(
-                    java.nio.file.Paths.get("/proc/" + pid + "/cwd")).toString();
+            return !pty.alive();
         } catch (Exception e) {
-            return null;
+            return closed;
         }
     }
 
-    /** The first child of a process (`/proc/<pid>/task/<pid>/children`), or 0. */
-    private static int firstChild(int pid) {
-        try {
-            String txt = java.nio.file.Files.readString(
-                    java.nio.file.Paths.get("/proc/" + pid + "/task/" + pid + "/children"));
-            for (String s : txt.trim().split("\\s+")) {
-                if (!s.isEmpty()) return Integer.parseInt(s);
-            }
-        } catch (Exception ignored) {
-            // no children, or no /proc: the walk stops here
-        }
-        return 0;
-    }
+    /**
+     * The directory the tab is really in: the platform's answer (on Linux, the cwd
+     * of the shell's last descendant, which is what a full-screen program like
+     * `mc` changes). {@code null} when the system cannot say.
+     */
+    public String cwd() { return platform.knownCwd(pid()); }
 
     /**
      * Asks the child to leave without cutting the wire (`B48`): the reader keeps
      * delivering, so whatever the child prints on its way out still lands in the
      * grid before the picture is taken. {@link #destroy()} is the hard version.
      *
-     * <p>This is a `SIGHUP`, the signal a terminal sends when it closes — not
-     * pty4j's `destroy()`, which sends `SIGTERM` and is ignored by every
+     * <p>On Linux this is a `SIGHUP`, the signal a terminal sends when it closes —
+     * not pty4j's `destroy()`, which sends `SIGTERM` and is ignored by every
      * interactive shell (measured: `zsh` keeps `SIGTERM` in `SigIgn` and never
      * leaves, so the farewell waited its whole cap on every quit, `B73`).
      */
     public void hangup() {
-        boolean sent = Hangup.send((int) proc.pid());
-        // no JNA, or a pty that is not the Unix one: SIGTERM is all there is
-        if (!sent) try { proc.destroy(); } catch (Exception ignored) { }
+        boolean sent = platform.hangup(pid());
+        // no hangup on this system: SIGTERM is all there is
+        if (!sent) pty.destroy();
     }
 
-    /** The child's pid, or 0 when the pty does not say. */
-    public int pid() {
-        try { return (int) proc.pid(); } catch (Exception e) { return 0; }
-    }
+    /** The child's pid, or 0 when the wire does not say. */
+    public int pid() { return pty.pid(); }
 
     /**
      * Stops the reader delivering chunks, without killing the child: the caller
@@ -267,21 +229,21 @@ public final class ChildPty {
 
     public void destroy() {
         closed = true;
-        final PtyProcess p = proc;
-        try { p.destroy(); } catch (Exception ignored) {}
-        try { reader.interrupt(); } catch (Exception ignored) {}
+        final Pty p = pty;
+        p.destroy();
+        try { reader.interrupt(); } catch (Exception ignored) { }
         // A shell that ignores SIGTERM (a `trap '' TERM` in the profile) would
-        // outlive its tab: the grace is followed by SIGKILL, the way a pty
-        // hangup ends it in the Rust version.
+        // outlive its tab: the grace is followed by a kill, the way a pty hangup
+        // ends it in the Rust version.
         Thread t = new Thread(() -> {
-            for (int i = 0; i < 10 && p.isAlive(); i++) {
+            for (int i = 0; i < 10 && p.alive(); i++) {
                 try { Thread.sleep(100); } catch (InterruptedException e) { return; }
             }
-            if (p.isAlive()) {
-                // pty4j's `raise` is a **group** kill, which is what takes the
-                // programs the child started with it (`L24`) — measured: a shell
-                // that ignores `TERM`/`HUP` and the `sleep` it forked both went
-                try { p.destroyForcibly(); } catch (Exception ignored) { }
+            if (p.alive()) {
+                // the platform's group kill, which is what takes the programs the
+                // child started with it (`L24`) — measured: a shell that ignores
+                // `TERM`/`HUP` and the `sleep` it forked both went
+                p.destroyForcibly();
             }
         }, "pty-kill");
         t.setDaemon(true);

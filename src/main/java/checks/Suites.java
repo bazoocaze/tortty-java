@@ -35,6 +35,7 @@ public final class Suites {
         l.add(new Area("frame", FrameGateChecks::run));
         l.add(new Area("find", FindChecks::run));
         l.add(new Area("pty", PtyChecks::run));
+        l.add(new Area("platform", PlatformChecks::run));
         return l;
     }
 

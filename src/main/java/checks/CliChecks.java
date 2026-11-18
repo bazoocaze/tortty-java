@@ -43,9 +43,9 @@ public final class CliChecks {
         String auto = Cli.autoSocketPath();
         c.is("auto ends in tortty-java-<pid>.sock",
                 auto.endsWith("/tortty-java-" + ProcessHandle.current().pid() + ".sock"));
-        String run = System.getenv("XDG_RUNTIME_DIR");
+        java.nio.file.Path run = platform.Platforms.current().runtimeDir();
         c.is("auto lives in the runtime dir when there is one",
-                (run == null || run.isBlank()) ? auto.startsWith("/tmp/") : auto.startsWith(run + "/"));
+                run == null ? auto.startsWith("/tmp/") : auto.startsWith(run.toString() + "/"));
 
         String v = Cli.version();
         c.is("--version has something to print", v != null && !v.isBlank());

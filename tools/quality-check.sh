@@ -1,11 +1,11 @@
 #!/bin/sh
-# quality-check.sh — the gate: warnings, build, selftest, render-check.
+# quality-check.sh — the gate: warnings, platform seam, build, selftest, render-check.
 #
 # One command, the same one a pre-commit hook or CI would run, and it never
 # needs a display: the selftest and the render-check are both headless (the
 # windowed side stays manual, as in the Rust `tools/quality-check.sh`).
 #
-#   tools/quality-check.sh          # lint, build, selftest, render-check
+#   tools/quality-check.sh          # lint, seam, build, selftest, render-check
 #   tools/quality-check.sh --fast   # the same without the render-check
 #
 # Exits 0 only if everything passes.
@@ -47,11 +47,16 @@ if grep 'warning:' "$LOG" | grep -v 'internal proprietary API' >"$LOG.warn"; the
 fi
 echo "no warnings"
 
-# 2. The shaded jar the checks (and `install.sh`) run.
+# 2. The platform seam: nothing outside `src/main/java/platform/` may name a
+#    system — a syscall, a path, a signal, a shell or a desktop property.
+echo "== platform =="
+tools/platform-gate.sh
+
+# 3. The shaded jar the checks (and `install.sh`) run.
 echo "== build =="
 mvn -q -DskipTests package
 
-# 3. The checks. `--selftest` prints one line per failure and exits non-zero.
+# 4. The checks. `--selftest` prints one line per failure and exits non-zero.
 echo "== selftest =="
 if ! java -jar target/tortty-java.jar --selftest >"$LOG.selftest" 2>&1; then
     cat "$LOG.selftest" >&2

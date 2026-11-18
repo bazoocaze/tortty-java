@@ -17,6 +17,8 @@ TorTTY-Java: terminal emulator in Java 21 + Swing. This project is an experiment
 - Gate: `tools/quality-check.sh` — javac with every lint but `serial` and
   warnings fatal, the build, `--selftest` and the `render-check`. `--fast` drops
   the render-check. `.editorconfig` carries the code shape (four spaces, LF).
+- Platform: `src/main/java/platform/` is the only place that names a system; the
+  rest names the capability. `tools/platform-gate.sh` (a gate step) is the ruler.
 - Do not kill processes by name (`pkill`); use the PID file `/tmp/tortty-java.pid`.
 - Visual tests in Xvfb `:99`, not on the owner's screen.
 - Load and stress tests are bounded: a few seconds per run, a unique marker per run,

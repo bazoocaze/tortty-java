@@ -52,16 +52,10 @@ public final class Session {
     public int tab;
     public List<Mem> workspaces = new ArrayList<>();
 
-    /** {@code $XDG_STATE_HOME/tortty-java/window.json}, with `~/.local/state` as fallback. */
+    /** The session file: the platform says where a session belongs here. */
     public static Path path() {
-        String base = System.getenv("XDG_STATE_HOME");
-        if (base == null || base.isEmpty()) {
-            String home = System.getenv("HOME");
-            if (home == null || home.isEmpty()) home = System.getProperty("user.home");
-            if (home == null || home.isEmpty()) return null;
-            base = home + "/.local/state";
-        }
-        return Paths.get(base, "tortty-java", "window.json");
+        Path dir = platform.Platforms.current().stateDir();
+        return dir == null ? null : dir.resolve("window.json");
     }
 
     /**
