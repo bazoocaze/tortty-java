@@ -16,6 +16,40 @@ import java.awt.Font;
  */
 public final class Fonts {
 
+    /**
+     * The names a `font_family` line carries: `Cascadia Mono, Consolas` is two,
+     * in the order the reader wrote them (`B80`). Blanks and empty entries are
+     * dropped, so a trailing comma is not a family called "".
+     */
+    public static java.util.List<String> list(String line) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (line == null) return out;
+        for (String part : line.split(",")) {
+            String n = part.trim();
+            if (!n.isEmpty()) out.add(n);
+        }
+        return out;
+    }
+
+    /**
+     * The first of {@code wanted} that this machine actually has, or
+     * {@code missing} when none of them is installed — Java2D substitutes a
+     * default silently, so "it painted something" is not the same as "it exists".
+     */
+    public static String first(java.util.List<String> wanted, String[] available, String missing) {
+        java.util.Set<String> have = new java.util.HashSet<>(java.util.Arrays.asList(available));
+        for (String n : wanted) if (have.contains(n)) return n;
+        return missing;
+    }
+
+    /** The families that exist, in the order they were asked for. */
+    public static java.util.List<String> present(java.util.List<String> wanted, String[] available) {
+        java.util.Set<String> have = new java.util.HashSet<>(java.util.Arrays.asList(available));
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        for (String n : wanted) if (have.contains(n) && !out.contains(n)) out.add(n);
+        return out;
+    }
+
     /** Plain. */
     public static final int PLAIN = 0;
     /** Bold. */

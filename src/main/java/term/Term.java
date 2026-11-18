@@ -13,7 +13,8 @@ import java.util.ArrayDeque;
 public final class Term {
 
     public static final int DEFAULT = -1;
-    public static final byte BOLD = 1, FAINT = 2, ITALIC = 4, UNDERLINE = 8, INVERSE = 16, BLINK = 32, STRIKE = 64;
+    public static final byte BOLD = 1, FAINT = 2, ITALIC = 4, UNDERLINE = 8, INVERSE = 16, BLINK = 32,
+            STRIKE = 64, OVERLINE = (byte) 128;
     public int cols, rows;
 
     // current screen: code point per cell (0 = continuation of a wide cell)
@@ -1235,8 +1236,10 @@ public final class Term {
                     }
                 }
                 case ESC_ONE -> {
-                    // charset designators & friends: swallow one byte
-                    if (charsetTarget == 0) {
+                    // charset designators and `ESC #`, one byte each
+                    if (charsetTarget == 4) {
+                        if (b == '8') decaln();
+                    } else if (charsetTarget == 0) {
                         charsetG0 = (b == '0') ? Charset.DEC_GRAPHICS : Charset.ASCII;
                     } else {
                         charsetG1 = (b == '0') ? Charset.DEC_GRAPHICS : Charset.ASCII;
@@ -2542,6 +2545,8 @@ public final class Term {
                         penUl = (byte) Math.max(1, Math.min(5, style));
                     }
                 }
+                case 53 -> penAttr |= OVERLINE;
+                case 55 -> penAttr &= ~OVERLINE;
                 case 5, 6 -> penAttr |= 0x20;
                 case 7 -> penAttr |= 0x10;
                 case 9 -> penAttr |= 0x40;
@@ -2604,6 +2609,27 @@ public final class Term {
                 }
             }
         }
+    }
+
+    /**
+     * `DECALN` (`ESC # 8`): the alignment screen — every cell an `E` in the
+     * default colours. The cursor and the margins stay where they are, which is
+     * what the Rust version does too: this is a screen to look at, not a mode.
+     * `vttest` and every manual that checks a grid ask for it, and a terminal that
+     * swallows it looks broken exactly when someone is checking.
+     */
+    private void decaln() {
+        for (int i = 0; i < cp.length; i++) {
+            cp[i] = 'E';
+            cluster[i] = null;
+            fg[i] = DEFAULT;
+            bg[i] = DEFAULT;
+            attr[i] = 0;
+            ul[i] = 0;
+            ulColor[i] = DEFAULT;
+            link[i] = 0;
+        }
+        dirtyAll = true;
     }
 
     private void blankCell(int i) {

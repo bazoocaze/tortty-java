@@ -140,29 +140,68 @@ public final class Toast {
         public Msg(String title, Sev sev) { this(title, "", sev, sev.millis); }
     }
 
-    /** What the painter needs: the pair, the colours it implies, and the slide. */
-    public record Shown(String title, String detail, Sev sev, float progress) {}
+    /**
+     * What the painter needs: the pair, the colours it implies, the slide, and how
+     * many times the same words arrived (`×3`). The count is a property of the box,
+     * not of the text, so the painter can place it where it likes.
+     */
+    public record Shown(String title, String detail, Sev sev, float progress, int count) {
+        /** A box painted as it was written once — the shape the checks build by hand. */
+        public Shown(String title, String detail, Sev sev, float progress) {
+            this(title, detail, sev, progress, 1);
+        }
+    }
 
-    private Msg current;
+    /** One box on screen or in the queue, with the count the same words earned. */
+    private static final class Entry {
+        final Msg msg;
+        int count = 1;
+
+        Entry(Msg m) { msg = m; }
+
+        boolean same(Msg m) {
+            return m.title().equals(msg.title())
+                    && (m.detail() == null ? "" : m.detail()).equals(msg.detail() == null ? "" : msg.detail())
+                    && m.sev() == msg.sev();
+        }
+    }
+
+    private Entry current;
     private long until, revealAt, hidingAt;
-    private final java.util.ArrayDeque<Msg> queue = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<Entry> queue = new java.util.ArrayDeque<>();
 
     /** A new notice waits in the queue while one is on screen, as in python. */
     public void show(Msg m) { show(m, System.currentTimeMillis()); }
 
-    /** The same with the time given: the checks drive whole lives of a toast. */
+    /**
+     * The same with the time given: the checks drive whole lives of a toast.
+     *
+     * <p>The same words do not open a second box: they raise a count on the one
+     * they match, and the clock is <b>not</b> restarted — three failed builds are
+     * one box saying `×3`, not three boxes of ten seconds (Rust `B38`).
+     */
     public void show(Msg m, long now) {
         if (m == null || m.title() == null || m.title().isEmpty()) return;
+        if (current != null && hidingAt == 0 && current.same(m)) {
+            current.count++;
+            return;
+        }
+        // the same words waiting behind a different one also count together
+        Entry last = queue.peekLast();
+        if (current != null && hidingAt == 0 && last != null && last.same(m)) {
+            last.count++;
+            return;
+        }
         if (current == null || hidingAt > 0) {
             adopt(m, now);
             return;
         }
         if (queue.size() >= QUEUE_MAX) queue.pollFirst();
-        queue.addLast(m);
+        queue.addLast(new Entry(m));
     }
 
     private void adopt(Msg m, long now) {
-        current = m;
+        current = new Entry(m);
         until = now + m.millis();
         revealAt = now;
         hidingAt = 0;
@@ -176,10 +215,10 @@ public final class Toast {
             // noticed it: a window that was busy or minimised must not stretch
             // the notice by however long it took to look
             long deadline = Math.max(until, revealAt);
-            Msg next = queue.pollFirst();
+            Entry next = queue.pollFirst();
             if (next != null) {
                 current = next;                       // swaps in place, no new slide
-                until = deadline + next.millis();
+                until = deadline + next.msg.millis();
             } else {
                 hidingAt = deadline;                  // slides down, then goes
             }
@@ -193,7 +232,7 @@ public final class Toast {
         float p = hidingAt > 0
                 ? 1f - Math.min(1f, (now - hidingAt) / (float) ANIM_MS)
                 : Math.min(1f, (now - revealAt) / (float) ANIM_MS);
-        return new Shown(current.title(), current.detail(), current.sev(), p);
+        return new Shown(current.msg.title(), current.msg.detail(), current.msg.sev(), p, current.count);
     }
 
     /**

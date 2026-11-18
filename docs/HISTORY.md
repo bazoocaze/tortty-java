@@ -2186,3 +2186,36 @@ guessing that cost an hour: `user.home` comes from the password entry, not from
 `$HOME`, so a probe with its own `HOME` still labelled tabs with the owner's home.
 Measured on Xvfb: `~`, `dados`, `~/dados/desenv`, and `/home/jose2/x` untouched.
 `selftest` 1747 checks.
+
+## 2026-11-18 — four small ones the Rust version already had
+
+`B77`–`B80`, all verified against the Rust source before writing a line.
+
+`DECALN` (`ESC # 8`) — the alignment screen. The parser sent `#` into
+`charsetTarget = 4` and the `ESC_ONE` handler only knew the four charset slots,
+so `#8` vanished: a terminal that ignores the screen `vttest` fills looks broken
+exactly when someone is checking the grid. Now every cell is an `E` in the default
+colours, cursor and margins untouched, and any other `ESC #` byte does nothing.
+`SGR 53`/`55` — overline. The attribute byte had the bit free (`1,2,4,8,16,32,64`
+were spent) and the painter drew nothing above the glyph; the rule is one pixel,
+in the ink the glyph itself uses, one pixel inside the cell so a frame of them
+does not merge with the row above. The toast counts repeats: the same title,
+detail and severity raise a `×N` on the box they match and the clock is **not**
+restarted, so three failed builds are one box instead of thirty seconds of the
+same one. `font_family` is a list: `Cascadia Mono, Consolas` takes the first name
+that is installed and puts the rest ahead of the built-in per-glyph chain
+(`ui/Fonts.list/first/present`, pure and checked headless).
+
+Measured: `selftest` 1761 → 1789 checks (`decaln` 14, `overline` 9, the toast
+count 4, the family list 14), `render-check` 102 → 106 — the overline is asserted
+in pixels, three cells of spaces under the rule being three cells of ink and
+nothing above the cell without `53`. Two of those checks failed first, both
+because the assertion was wrong and the code was right: the parser kept the G0
+charset after `#8` (which is correct), and the gate's grid is 20x6 cells of 14 px,
+so a rule three cells wide is 42 px and not the width of the picture.
+
+`B81` was a mistake and is no longer in the table: underline styles `4:2`…`4:5`
+were already implemented (`Term.java` clamps `penUl` to `1..5`, `drawUnderline`
+has the four strokes, `TermChecks:194` asserts `4:3` is the curly one). The id
+went to dragging a tab to another place in the strip instead, which the Rust
+version does with half a label as the threshold and Java does not do at all.

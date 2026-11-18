@@ -80,6 +80,7 @@ public final class Gate {
         aOneCellRunIsShaped();
         boldIsARealFace();
         theBoldLowColourTakesTheBrightHalf();
+        theOverlineIsARuleAboveTheGlyph();
         theSearchIsPainted();
         theTabStripWearsTheTheme();
         theDividerWearsTheChromesGrey();
@@ -406,6 +407,26 @@ public final class Gate {
         eq("on: and no bright ink without bold", count(plain, 0, 0, plain.getWidth(), h, bright), 0);
         is("a reverse-video cell keeps the low half", count(rev, 0, 0, rev.getWidth(), h, low) > 0);
         eq("and never the bright one", count(rev, 0, 0, rev.getWidth(), h, bright), 0);
+    }
+
+    /**
+     * `SGR 53` (`B78`): a one-pixel rule above the glyph, in the ink the glyph
+     * uses. Measured as pixels, in cells, not in the width of the picture: three
+     * cells of spaces under the rule are three cells of ink and nothing else.
+     */
+    private static void theOverlineIsARuleAboveTheGlyph() {
+        final int ink = 0x00ABCD;
+        Theme th = gateTheme(false, ink, ink);
+        BufferedImage on = shot(th, E + "[38;2;0;171;205m" + E + "[53m   ");
+        BufferedImage off = shot(th, E + "[38;2;0;171;205m   ");
+        BufferedImage cleared = shot(th, E + "[38;2;0;171;205m" + E + "[53m" + E + "[55m   ");
+        int cw = on.getWidth() / COLS;
+        int ch = on.getHeight() / ROWS;
+        int top = Math.max(1, ch / 3);
+        eq("three cells of rule, in the ink of the glyph", count(on, 0, 0, on.getWidth(), top, ink), 3 * cw);
+        eq("one pixel tall, and no more", count(on, 0, 0, on.getWidth(), ch, ink), 3 * cw);
+        eq("nothing above the cell without SGR 53", count(off, 0, 0, off.getWidth(), top, ink), 0);
+        eq("and SGR 55 takes the rule away", count(cleared, 0, 0, cleared.getWidth(), top, ink), 0);
     }
 
     /** The gate's palette with the two halves of colour 1 told apart. */

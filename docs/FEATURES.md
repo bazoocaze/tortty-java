@@ -12,7 +12,9 @@ Features implemented in the Java version of TorTTY.
 - SGR 16 colors, 256 colors, and truecolor (`38;2`/`48;2`), including `:`
   subparameters. Underline styles `4:0`–`4:5` (single, double, curly, dotted,
   dashed) and underline colour (`58;5`/`58;2`, `59` reset) are drawn per cell.
-- Attributes: bold, faint, italic, underline, blink, inverse, strike.
+- Attributes: bold, faint, italic, underline (and the `4:2`…`4:5` styles:
+  double, curly, dotted, dashed, with `58` underline colour), blink, inverse,
+  strike, overline (`53`/`55`, a rule above the glyph in the glyph's own ink).
 - `bold_as_bright` (`B71`, default `off`): SGR 1 on one of the eight low palette
   colours draws the bright half, xterm's `boldColors`. It is opt-in because the
   palette is the owner's, it moves palette indexes only (a true colour is
@@ -41,6 +43,9 @@ Features implemented in the Java version of TorTTY.
 - Block/beam/underline cursor via DECSCUSR (`CSI Ps SP q`) and blink via `?12`.
 - Alternate screen (`?47`, `?1047`, `?1049`) and saved/restored cursor.
 - Scroll region (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.
+- `DECALN` (`ESC # 8`): the grid becomes `E` in the default colours, cursor and
+  margins untouched — the alignment screen `vttest` and every manual asks for,
+  and an `ESC #` with any other byte is ignored.
 - Modes: DECCKM, visible cursor (`?25`), LNM, bracketed paste (`?2004`),
   synchronized output (`?2026`, painting held until the close with a 200 ms
   ceiling), focus reporting (`?1004`), mouse (`?1000/1002/1003`, X10 encoding,
@@ -499,7 +504,9 @@ place a launch from a desktop icon can show anything.
   fade. The font is the grid's, so it follows `font_family`/`font_size` and the
   live reload.
 - **A queue**, as in python: a second notice waits instead of replacing the one
-  on screen, eight deep. A click dismisses the box and what was waiting; on an
+  on screen, eight deep — and the **same words do not open a second box**: they
+  raise a `×N` on the one they match and the clock is not restarted, so three
+  failed builds are one box, not thirty seconds of the same box (`B79`). A click dismisses the box and what was waiting; on an
   error the click also opens the configuration (`B37`) — the fix is one click
   away. A click *beside* the box is the grid's (or the strip's, or the column's):
   the pane only owns its own pixels, so the toolkit delivers the rest itself.

@@ -23,6 +23,7 @@ public final class ToastChecks {
 
     public static void run(Check c) {
         model(c);
+        theSameWordsRaiseTheCount(c);
         theLoopStopsWhileTheBoxDoesNot(c);
         contrast(c);
         resolved(c);
@@ -64,6 +65,56 @@ public final class ToastChecks {
         // a click starts the slide out, so the loop has work again
         c.is("dismissed, it is moving", q.dismiss(1400) && !q.settled(1400));
         c.is("and settles out of sight", q.idle(1400 + Toast.ANIM_MS));
+    }
+
+    /**
+     * `B79`: the same words arriving again do not open a second box — they raise a
+     * count on the one they match, and the clock does not restart, so three failed
+     * builds are one `×3` instead of thirty seconds of the same box (Rust `B38`).
+     */
+    private static void theSameWordsRaiseTheCount(Check c) {
+        Toast t = new Toast();
+        Toast.Msg again = new Toast.Msg("Compiling", "twelve files", Toast.Sev.OK);
+        t.show(again, 1000);
+        Toast.Shown first = t.visible(1000);
+        c.eq("one arrival is no count at all", first.count(), 1);
+        long deadline = t.expiresAt();
+
+        t.show(new Toast.Msg("Compiling", "twelve files", Toast.Sev.OK), 2000);
+        Toast.Shown twice = t.visible(2000);
+        c.eq("the second arrival counts", twice.count(), 2);
+        c.eq("and it is still one box", t.queued(), 0);
+        c.eq("the clock is not restarted", t.expiresAt(), deadline);
+        c.eq("the words are untouched", twice.title(), "Compiling");
+
+        t.show(new Toast.Msg("Compiling", "twelve files", Toast.Sev.OK), 2500);
+        c.eq("the third too", t.visible(2500).count(), 3);
+        c.eq("still not a queue", t.queued(), 0);
+
+        // a different severity is a different notice, even with the same words
+        t.show(new Toast.Msg("Compiling", "twelve files", Toast.Sev.WARN), 3000);
+        c.eq("another severity waits its turn", t.queued(), 1);
+        Toast.Shown queued = t.visible(deadline + 1);
+        c.eq("and shows with a count of its own", queued.count(), 1);
+        c.eq("which is the warn's title, not the ok's", queued.sev(), Toast.Sev.WARN);
+
+        // repeats of the notice that is *waiting* also count together
+        Toast q = new Toast();
+        q.show(new Toast.Msg("one", "", Toast.Sev.OK), 0);
+        q.show(new Toast.Msg("two", "", Toast.Sev.OK), 100);
+        q.show(new Toast.Msg("two", "", Toast.Sev.OK), 200);
+        c.eq("the queue holds one box, not two", q.queued(), 1);
+        Toast.Shown next = q.visible(3001);
+        c.eq("the swap carries the count", next.count(), 2);
+        c.eq("and the words", next.title(), "two");
+
+        // a new box after the old one left starts from one again
+        Toast r = new Toast();
+        r.show(new Toast.Msg("a", "", Toast.Sev.OK), 0);
+        r.show(new Toast.Msg("a", "", Toast.Sev.OK), 10);
+        r.clear();
+        r.show(new Toast.Msg("a", "", Toast.Sev.OK), 20);
+        c.eq("cleared and raised again, the count starts over", r.visible(20).count(), 1);
     }
 
     // ------------------------------------------------------------- the model

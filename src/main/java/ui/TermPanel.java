@@ -237,9 +237,11 @@ public final class TermPanel extends JPanel implements KeyListener {
         float fontPx = fontSizePt * dpi / 72f;
         Font base;
         String[] avail = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
-        boolean found = false;
-        for (String n : avail) if (n.equals(familyName)) { found = true; break; }
-        String fam = found ? familyName : "Monospaced";
+        // `font_family` is a list (`B80`): the first name that exists is the face,
+        // and the rest of the list goes ahead of the built-in chain for the glyphs
+        // it cannot draw — `Cascadia Mono, Consolas` means "this, else that"
+        java.util.List<String> wanted = Fonts.list(familyName);
+        String fam = Fonts.first(wanted, avail, "Monospaced");
         base = new Font(fam, Font.PLAIN, 12).deriveFont(fontPx);
         plain = base;
         // the real faces of the family, when it has them (`B36`): deriveFont(BOLD)
@@ -256,7 +258,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         ch = lm.getAscent() + lm.getDescent() + lm.getLeading();
         if (ch < 1) ch = 1;
         ascent = lm.getAscent();
-        initFallbacks(fontPx, avail);
+        initFallbacks(fontPx, avail, Fonts.present(wanted, avail), fam);
         term.setCellSize(cellW(), cellH());
         // the child measures the window in pixels through TIOCGWINSZ, and a
         // font change is the only thing that moves a cell (`kitten icat`)
@@ -265,7 +267,7 @@ public final class TermPanel extends JPanel implements KeyListener {
                                       term.rows * Math.max(1, Math.round(ch)) + 2 * padding));
     }
 
-    private void initFallbacks(float fontPx, String[] avail) {
+    private void initFallbacks(float fontPx, String[] avail, java.util.List<String> wanted, String base) {
         glyphFontCache.clear();
         String[] preferred = {
                 "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", "Noto Sans CJK HK",
@@ -276,6 +278,11 @@ public final class TermPanel extends JPanel implements KeyListener {
         };
         java.util.HashSet<String> have = new java.util.HashSet<>(java.util.Arrays.asList(avail));
         java.util.ArrayList<Font> out = new java.util.ArrayList<>();
+        // the reader's own list first, in the order written, and never the family
+        // already in use — it is asked before the chain anyway
+        for (String name : wanted) {
+            if (!name.equals(base)) out.add(new Font(name, Font.PLAIN, 12).deriveFont(fontPx));
+        }
         for (String name : preferred) {
             if (have.contains(name)) {
                 out.add(new Font(name, Font.PLAIN, 12).deriveFont(fontPx));
@@ -675,6 +682,13 @@ public final class TermPanel extends JPanel implements KeyListener {
                 }
                 if ((a & Term.STRIKE) != 0) {
                     g2.fillRect(xPx, yPx + cellH / 2, runW, 1);
+                }
+                // `SGR 53`: a rule above the glyph, in the ink the glyph itself
+                // uses — one pixel inside the cell so a frame of them does not
+                // merge with the row above (`B78`)
+                if ((a & Term.OVERLINE) != 0) {
+                    g2.setColor(color(rf));
+                    g2.fillRect(xPx, yPx + 1, runW, 1);
                 }
                 if (ctrlDown) {
                     g2.setColor(color(0x6CB6FF));

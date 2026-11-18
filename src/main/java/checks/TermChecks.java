@@ -23,6 +23,8 @@ public final class TermChecks {
         sgr(c);
         wideCells(c);
         charset(c);
+        decaln(c);
+        overline(c);
         scrollbackAndText(c);
         windowOps(c);
         cursorStyle(c);
@@ -217,6 +219,72 @@ public final class TermChecks {
         Check.feed(m, "e\u0301");
         c.eq("a combining mark joins the cell, NFC", m.screenText(0), "\u00e9");
         c.eq("and does not advance twice", m.cx, 1);
+    }
+
+    /**
+     * `DECALN` (`ESC # 8`): the alignment screen. `vttest` and every manual that
+     * checks a grid ask for it, and the parser used to swallow the `#8` without a
+     * trace — a terminal that ignores it looks broken exactly when someone is
+     * looking at the grid.
+     */
+    /**
+     * `SGR 53`/`55`: the rule above the text the Rust cell carries as `OVERLINE`.
+     * The Java attribute byte had the bit free and the painter drew nothing, so a
+     * header asking for it came out plain. It has to survive `SGR 0`, be cleared by
+     * `55`, and stay out of the other attributes' way.
+     */
+    private static void overline(Check c) {
+        Term t = new Term(4, 1);
+        Check.feed(t, E + "[53mhi");
+        c.is("SGR 53 sets the bit", (t.attr[0] & Term.OVERLINE) != 0);
+        c.is("and touches nothing else", (t.attr[0] & ~Term.OVERLINE) == 0);
+        Term off = new Term(2, 1);
+        Check.feed(off, E + "[53m" + E + "[55mx");
+        c.is("SGR 55 clears it", (off.attr[0] & Term.OVERLINE) == 0);
+
+        Term both = new Term(2, 1);
+        Check.feed(both, E + "[1;53mx");
+        c.is("it lives beside bold", (both.attr[0] & Term.BOLD) != 0
+                && (both.attr[0] & Term.OVERLINE) != 0);
+        Term unbold = new Term(2, 1);
+        Check.feed(unbold, E + "[1;53m" + E + "[22mx");
+        c.is("and SGR 22 does not take it away", (unbold.attr[0] & Term.OVERLINE) != 0);
+
+        Term reset = new Term(2, 1);
+        Check.feed(reset, E + "[53m" + E + "[0mx");
+        c.is("SGR 0 takes it away too", (reset.attr[0] & Term.OVERLINE) == 0);
+
+        Term strike = new Term(2, 1);
+        Check.feed(strike, E + "[9;53mx");
+        c.is("a cell can wear both rules",
+                (strike.attr[0] & Term.STRIKE) != 0 && (strike.attr[0] & Term.OVERLINE) != 0);
+    }
+
+    private static void decaln(Check c) {
+        Term t = new Term(4, 3);
+        Check.feed(t, "abc\r\n");
+        Check.feed(t, E + "#8");
+        c.eq("every cell is an E", t.screenText(0), "EEEE");
+        c.eq("and so is the last row", t.screenText(2), "EEEE");
+        c.eq("the cursor does not move", t.cx + "," + t.cy, "0,1");
+        c.eq("the ink is the default, not the pen",
+                t.attr[0] + "," + t.fg[0] + "," + t.bg[0], "0,-1,-1");
+
+        // the pen was red before the screen was filled: the E's are not
+        Term pen = new Term(2, 1);
+        Check.feed(pen, E + "[31m" + E + "#8");
+        c.eq("a pen left red does not paint the screen", pen.fg[0], Term.DEFAULT);
+
+        // `ESC #` with any other byte is not a screen fill
+        Term other = new Term(2, 1);
+        Check.feed(other, "hi" + E + "#3");
+        c.eq("another `ESC #` leaves the text alone", other.screenText(0), "hi");
+
+        // `ESC # 8` shares the `ESC` prefix with the charset designators but is
+        // not one: the G0 table is still DEC graphics after it
+        Term g0 = new Term(2, 1);
+        Check.feed(g0, E + "(0" + E + "#8q");
+        c.eq("DECALN leaves the G0 charset alone", g0.screenText(0), "\u2500E");
     }
 
     private static void charset(Check c) {

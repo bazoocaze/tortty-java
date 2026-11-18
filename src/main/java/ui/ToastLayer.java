@@ -199,7 +199,10 @@ public final class ToastLayer extends JComponent {
         if (font != null) g2.setFont(font);
         FontMetrics fm = g2.getFontMetrics();
         int pad = Math.max(1, Math.round(fm.getHeight() / 2f));
+        // the same words arrive more than once: one box, and the count on the
+        // title, so the box is measured with it rather than drawn over it (`B79`)
         String title = s.title() == null ? "" : s.title();
+        if (s.count() > 1) title = title + " \u00d7" + s.count();
         String detail = s.detail() == null ? "" : s.detail();
 
         int chrome = pad + BAR + GAP + pad;
