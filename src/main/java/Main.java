@@ -255,6 +255,8 @@ public final class Main {
         private static final long FAREWELL_MS = 250;
         /** The content photographed before the exit, written by the hook. */
         private volatile java.util.List<Snapshots.Snap> exitSnaps;
+        /** Set by the first {@link #saveSession}, so the hook keeps its hands off. */
+        private volatile boolean sessionSaved;
         private boolean debugResizing;
         /** Set while the layout moves the divider, so a drag is not confused with it. */
         private boolean syncingSide;
@@ -707,9 +709,16 @@ public final class Main {
             return false;
         }
 
-        /** Reads only the model, so the shutdown hook is safe. */
+        /**
+         * Reads only the model, so the shutdown hook is safe. Writes once: the
+         * normal exit saves while the children still answer, and the hook that
+         * `System.exit` runs afterwards must not replace that with the poorer
+         * picture it could take from a dead child.
+         */
         private void saveSession() {
             if (o.noState || cfg.restoreState == Config.RESTORE_NONE) return;
+            if (sessionSaved) return;
+            sessionSaved = true;
             // a scratch window owns nothing: writing here would overwrite the
             // session of the window that does (`B46`)
             if (scratch) return;
@@ -1942,11 +1951,15 @@ public final class Main {
             });
         }
 
+        /**
+         * The directory a tab is in, from the best of three answers
+         * ({@link state.Cwd#pick}). The middle one is why a restore keeps its
+         * directories: the state file is written on the way out, after the
+         * children are gone, when the live answer no longer exists.
+         */
         private String cwdOf(Tab t) {
             if (t == null) return null;
-            String cwd = t.pty != null ? t.pty.cwd() : null;
-            if (cwd == null || cwd.isEmpty()) cwd = t.term.cwd;
-            return (cwd == null || cwd.isEmpty()) ? null : cwd;
+            return state.Cwd.pick(t.pty != null ? t.pty.cwd() : null, t.term.shellCwd, t.term.cwd);
         }
 
         /**
@@ -2515,6 +2528,10 @@ public final class Main {
             enterExitFeed();
             waitQuiet();
             exitSnaps = lastWords();
+            // the state goes while the children can still be asked where they
+            // are: `destroy()` below takes the process entry with it, and a
+            // session written after it has no directory to save (`B73`)
+            saveSession();
             forEachTab(t -> { if (t.pty != null) t.pty.destroy(); });
             System.exit(0);
         }

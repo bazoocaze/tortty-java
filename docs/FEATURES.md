@@ -639,8 +639,13 @@ what the hot reload watches.
   run ──` marker drawn as decoration (a chrome row), so the screenshot is not
   content: it never enters the next snapshot — and the mark follows the bytes,
   not the row, so a row an app repaints is content again.
+  The directory of every tab is written **before** the children are destroyed:
+  `window.json` asks the platform where each child is while it can still answer,
+  and falls back to the directory the app last read (refreshed every second), so
+  a normal exit — which kills the children and only then runs the shutdown hook —
+  no longer saves `null` and reopens every tab at `$HOME`.
   On the way out the children are hung up first — a real `SIGHUP`, through
-  `pty/Hangup` and JNA, because pty4j's `destroy()` sends `SIGTERM` and an
+  `Platform.hangup` and JNA, because pty4j's `destroy()` sends `SIGTERM` and an
   interactive shell keeps that in its ignored set (`B73`) — and the wait for them
   ends **on the child**, with 250 ms only as a ceiling, before the picture is
   taken (Rust `B48`): the last words — a `pi` leaving the alt screen with its

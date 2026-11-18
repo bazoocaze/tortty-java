@@ -2138,3 +2138,29 @@ than as an error.
 green in ~17 s. `docs/PORTABILITY.md` carries the capability table and what each
 system would need; `docs/LIMITATIONS.md` `L5` is no longer "Unix only by design"
 but "Linux only by construction, and one package away".
+
+## 2026-11-17 — the session remembers where it was
+
+A restore reopened every tab at `$HOME`: `cwds` in `window.json` was `[null]`.
+Not the reader and not the directory walk — the order of the way out. The normal
+exit (`quitNow`) hangs the children up, photographs the tabs, then calls
+`pty.destroy()` and `System.exit(0)`, and `window.json` is written by the
+**shutdown hook** that `System.exit` runs. By then `/proc/<pid>/cwd` is gone, so
+`cwdOf` asked a dead child, got `null`, and fell back to `OSC 7`, which `sh` and
+`zsh` do not write. The signal path happened to save before destroying, which is
+why the same probe passed with `SIGTERM` and failed with the window close.
+
+Three changes. The state is now written **while the children can still be asked**
+— `saveSession()` runs in `quitNow` before `destroy()`, and a `sessionSaved` flag
+makes the hook keep its hands off instead of overwriting that with the poorer
+picture it could take afterwards. `cwdOf` asks in three steps, extracted as
+`state/Cwd.pick`: the platform's live answer, then the directory the app last
+read (kept fresh every second, and the one that survives the child), then the
+`OSC 7` the shell announced. `SessionChecks` guards the order with seven
+assertions and never spawns a child, because the order is the whole rule.
+
+Measured with `restore_state content`, two workspaces and three tabs (`/`, `/usr/share`
+and `/etc`): `window.json` went from `{"cwds":[null]}` to
+`{"cwds":["…/tortty-java","/usr/share"]}` plus `["/etc"]`, and after the restore the
+three children were in those three directories, with `ws_titles=["share","etc"]`.
+`selftest` 1735 checks.

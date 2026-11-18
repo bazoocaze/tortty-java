@@ -17,6 +17,7 @@ public final class SessionChecks {
             snapshots(c);
             sanitize(c);
             crooked(c);
+            theDirectoryComesFromTheBestAnswer(c);
             onlyOneWindowOwnsTheState(c);
         } catch (Exception e) {
             c.is("the session suite could write a temp file: " + e, false);
@@ -136,6 +137,23 @@ public final class SessionChecks {
         } finally {
             try { if (p != null) Files.deleteIfExists(p); } catch (Exception ignored) { }
         }
+    }
+
+    /**
+     * The directory a tab keeps: the live answer, the one the app last read, the
+     * one the shell announced, in that order. It is a test worth having because
+     * the state file is written after the children are hung up, when the first
+     * answer no longer exists — the bug was exactly that, and it cost the session
+     * every directory it had (`B73`).
+     */
+    private static void theDirectoryComesFromTheBestAnswer(Check c) {
+        c.eq("the live answer wins", state.Cwd.pick("/a", "/b", "/c"), "/a");
+        c.eq("without it, the last one read wins", state.Cwd.pick(null, "/b", "/c"), "/b");
+        c.eq("without that, the announced one", state.Cwd.pick(null, null, "/c"), "/c");
+        c.eq("an empty live answer is not an answer", state.Cwd.pick("", "/b", null), "/b");
+        c.eq("nor is an empty last one", state.Cwd.pick(null, "", "/c"), "/c");
+        c.eq("and nothing at all is nothing", state.Cwd.pick(null, null, null), null);
+        c.eq("a tab that died and announced nothing keeps nothing", state.Cwd.pick(null, "", ""), null);
     }
 
     private static void crooked(Check c) throws Exception {
