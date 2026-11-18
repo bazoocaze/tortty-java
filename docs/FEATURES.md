@@ -406,12 +406,13 @@ Features implemented in the Java version of TorTTY.
   shell's cwd from `/proc`), Ctrl+Shift+W closes, Alt+1..9 selects. The
   tab label is the title — `OSC 0/2` when the app sets one, else the basename of
   the directory **the tab is really in** (the cwd of the last descendant of the
-  shell, read from `/proc`, so a tab running `mc` in another directory names that
-  one), else the basename of the `OSC 7` the shell announced (only when it is a
-  directory, because it goes stale), else `tortty-java` — kept fresh by a 1 s
-  reading of `/proc` even when no cwd moved, so a restored tab does not keep the
-  name its fresh shell was born with; then `~` for the home directory, a cut at
-  24 characters and a `•` marker
+  shell, asked of the platform, so a tab running `mc` in another directory names
+  that one), else the basename of the `OSC 7` the shell announced (only when it
+  is a directory, because it goes stale), else `tortty-java` — kept fresh by a 1 s
+  reading of the child even when no cwd moved, so a restored tab does not keep the
+  name its fresh shell was born with; the home directory itself reads `~` (and a
+  title that carries the whole path, which is what a prompt writing `$PWD` sends
+  as `OSC 2`, reads `~/sub`), then a cut at 24 characters and a `•` marker
   when a background tab received a notification; the window title mirrors the
   active tab. A dead shell closes its tab; the last one closes the app. The
   wheel over the strip cycles one tab per detent (a touchpad's travel

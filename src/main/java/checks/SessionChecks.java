@@ -18,6 +18,7 @@ public final class SessionChecks {
             sanitize(c);
             crooked(c);
             theDirectoryComesFromTheBestAnswer(c);
+            theHomeDirectoryIsATilde(c);
             onlyOneWindowOwnsTheState(c);
         } catch (Exception e) {
             c.is("the session suite could write a temp file: " + e, false);
@@ -147,13 +148,35 @@ public final class SessionChecks {
      * every directory it had (`B73`).
      */
     private static void theDirectoryComesFromTheBestAnswer(Check c) {
-        c.eq("the live answer wins", state.Cwd.pick("/a", "/b", "/c"), "/a");
-        c.eq("without it, the last one read wins", state.Cwd.pick(null, "/b", "/c"), "/b");
-        c.eq("without that, the announced one", state.Cwd.pick(null, null, "/c"), "/c");
-        c.eq("an empty live answer is not an answer", state.Cwd.pick("", "/b", null), "/b");
-        c.eq("nor is an empty last one", state.Cwd.pick(null, "", "/c"), "/c");
-        c.eq("and nothing at all is nothing", state.Cwd.pick(null, null, null), null);
-        c.eq("a tab that died and announced nothing keeps nothing", state.Cwd.pick(null, "", ""), null);
+        c.eq("the live answer wins", util.Cwd.pick("/a", "/b", "/c"), "/a");
+        c.eq("without it, the last one read wins", util.Cwd.pick(null, "/b", "/c"), "/b");
+        c.eq("without that, the announced one", util.Cwd.pick(null, null, "/c"), "/c");
+        c.eq("an empty live answer is not an answer", util.Cwd.pick("", "/b", null), "/b");
+        c.eq("nor is an empty last one", util.Cwd.pick(null, "", "/c"), "/c");
+        c.eq("and nothing at all is nothing", util.Cwd.pick(null, null, null), null);
+        c.eq("a tab that died and announced nothing keeps nothing", util.Cwd.pick(null, "", ""), null);
+    }
+
+    /**
+     * The name a tab wears: the last component, except the home directory, which
+     * is `~`. The rule existed and could never fire — the title is a basename, so
+     * it never starts with `/home/<user>/` — and a tab in `$HOME` read the user's
+     * name instead of `~`.
+     */
+    private static void theHomeDirectoryIsATilde(Check c) {
+        String home = System.getProperty("user.home");
+        c.eq("the home directory is ~", util.Cwd.name(home), "~");
+        c.eq("with a trailing slash too", util.Cwd.name(home + "/"), "~");
+        c.eq("a directory in it is its own name", util.Cwd.name(home + "/src"), "src");
+        c.eq("and any other directory is too", util.Cwd.name("/usr/share"), "share");
+        c.eq("a trailing slash does not change the name", util.Cwd.name("/tmp/x/"), "x");
+        c.eq("the root has no name", util.Cwd.name("/"), null);
+        c.eq("nor does an empty answer", util.Cwd.name(""), null);
+        c.eq("a title that is the home path reads ~", util.Cwd.under(home), "~");
+        c.eq("one under it reads ~/src", util.Cwd.under(home + "/src"), "~/src");
+        c.eq("one that only looks like home is left alone", util.Cwd.under(home + "2"), home + "2");
+        c.eq("and a plain name is left alone", util.Cwd.under("share"), "share");
+        c.eq("a title that is no title is no answer", util.Cwd.under(null), null);
     }
 
     private static void crooked(Check c) throws Exception {

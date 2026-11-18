@@ -2074,13 +2074,11 @@ public final class Term {
         if (titleExplicit && !title.isEmpty()) return title;
         // A shell that does not write OSC 7: the app keeps the cwd here, taken
         // from the platform's own answer, as the Rust version does.
-        if (shellCwd != null && !shellCwd.isEmpty()) {
-            String n = new java.io.File(shellCwd).getName();
-            if (!n.isEmpty()) return n;
-        }
+        String n = util.Cwd.name(shellCwd);
+        if (n != null) return n;
         if (!cwd.isEmpty() && new java.io.File(cwd).isDirectory()) {
-            String n = new java.io.File(cwd).getName();
-            if (!n.isEmpty()) return n;
+            n = util.Cwd.name(cwd);
+            if (n != null) return n;
         }
         return "tortty-java";
     }

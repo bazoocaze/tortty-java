@@ -126,12 +126,14 @@ public final class Main {
             return (badge ? "\u2022 " : "") + shorten(term.windowTitle(), 24);
         }
 
-        /** Home becomes `~` and a long title is cut, so the bar stays usable. */
+        /**
+         * Home written `~` and a long title cut, so the bar stays usable. The
+         * `~` is a whole-path rule ({@link util.Cwd#under}): the name of a tab in
+         * `$HOME` is already `~` — the one this used to miss, because the title is
+         * a basename and can never start with `$HOME/`.
+         */
         private static String shorten(String s, int max) {
-            String home = System.getProperty("user.home");
-            if (home != null && !home.isEmpty() && s.startsWith(home + "/")) {
-                s = "~" + s.substring(home.length());
-            }
+            s = util.Cwd.under(s);
             return s.length() <= max ? s : s.substring(0, max - 1) + "\u2026";
         }
     }
@@ -1953,13 +1955,13 @@ public final class Main {
 
         /**
          * The directory a tab is in, from the best of three answers
-         * ({@link state.Cwd#pick}). The middle one is why a restore keeps its
+         * ({@link util.Cwd#pick}). The middle one is why a restore keeps its
          * directories: the state file is written on the way out, after the
          * children are gone, when the live answer no longer exists.
          */
         private String cwdOf(Tab t) {
             if (t == null) return null;
-            return state.Cwd.pick(t.pty != null ? t.pty.cwd() : null, t.term.shellCwd, t.term.cwd);
+            return util.Cwd.pick(t.pty != null ? t.pty.cwd() : null, t.term.shellCwd, t.term.cwd);
         }
 
         /**
@@ -2011,6 +2013,9 @@ public final class Main {
                     m.put("cursor", new int[] { term.cx, term.cy });
                     m.put("title", term.windowTitle());
                     m.put("cwd", term.cwd);
+                    // the directory the app read from the child (`B73`), which is
+                    // what the title is made of when the shell writes no `OSC 7`
+                    m.put("shell_cwd", term.shellCwd);
                     m.put("alt", term.alt);
                     // what the program last said about itself (`OSC 9;4`), or
                     // nothing: the chrome draws a bar while this is not null

@@ -2164,3 +2164,25 @@ and `/etc`): `window.json` went from `{"cwds":[null]}` to
 `{"cwds":["…/tortty-java","/usr/share"]}` plus `["/etc"]`, and after the restore the
 three children were in those three directories, with `ws_titles=["share","etc"]`.
 `selftest` 1735 checks.
+
+## 2026-11-17 — the tilde that never came
+
+The tab label had a `~` rule that could not fire. `shorten()` replaced the home
+prefix only when the string **started** with `$HOME/`, and the string it was given
+is a basename (`jose`), so the one case it was written for — a tab sitting in the
+home directory — never matched, and that tab read the user's name. A program that
+sets `OSC 2` to `$PWD` was the only title it ever shortened.
+
+The rule moved to `util/Cwd` and now has three answers: `name(dir)` is `~` for the
+home directory and the last component otherwise, `under(title)` maps a title that
+carries the whole path (`/home/me/src` is `~/src`, and `/home/me2` is left alone). `Term.windowTitle()` uses the first, so a tab in `$HOME`
+reads `~`; the chip applies the second before the 24-character cut. A wrong
+`/home/me2` stays `/home/me2` — the prefix trap is a check.
+
+`SessionChecks.theHomeDirectoryIsATilde` holds it, twelve assertions, no child. The
+`state` reply also grew `shell_cwd` — the directory the app read from the child —
+because it is what the label is made of when the shell writes no `OSC 7`, and
+guessing that cost an hour: `user.home` comes from the password entry, not from
+`$HOME`, so a probe with its own `HOME` still labelled tabs with the owner's home.
+Measured on Xvfb: `~`, `dados`, `~/dados/desenv`, and `/home/jose2/x` untouched.
+`selftest` 1747 checks.
