@@ -2219,3 +2219,35 @@ were already implemented (`Term.java` clamps `penUl` to `1..5`, `drawUnderline`
 has the four strokes, `TermChecks:194` asserts `4:3` is the curly one). The id
 went to dragging a tab to another place in the strip instead, which the Rust
 version does with half a label as the threshold and Java does not do at all.
+
+## 2026-11-18 — the strip's menu, after two wrong turns
+
+`B81` was registered as "dragging a tab to another place in the strip" and never
+should have been: `bindTabBar` has had the drag since `B25` (the `anchorX` guard
+that stops a shaky hand walking the tab to the end, half the label as the
+threshold, `moveTab` rebuilding the pane). A live drag moved
+`[tortty-java, ALFA, BRAVO]` to `[ALFA, tortty-java, BRAVO]` before a line was
+written. That is twice in one batch — the underline styles `4:2`…`4:5` were the
+first — and both times the mistake was the same: searching for a *name* (`CURLY`,
+"tab drag") instead of reading the file that would have to change.
+
+What was not implemented is the menu. Only the workspace column had one; a
+right-click on a tab or on the empty strip did nothing at all, while Rust has
+`TAB_MENU` (`New tab`, `Close tab`) and `BAR_MENU` (`New tab`) in
+`crates/app/src/chrome.rs:643`. Now `barMenu` opens those, hanging from the
+pointer, with the rows as constants in `ui.Chrome` so a check reads them without
+a window (`checks/MenuChecks`, 9 assertions: a tab offers two rows, the empty
+strip offers exactly the opening one and nothing a tab cannot do, no row carries
+the ellipsis that means "this opens a dialog", and the list cannot be appended to
+at runtime).
+
+Two things measured, not assumed: the tab under the pointer is the subject of the
+row — right-click on `tortty-java` with `BRAVO` in front, *Close tab*, and
+`tortty-java` goes and the remaining tabs keep their order — and the click
+**does** bring that tab forward, because `BasicTabbedPaneUI`'s press handler
+selects on any button, not just the left one. So the menu reads the subject from
+the strip again instead of trusting the selection; the comment says so, because
+the first version of it claimed the opposite.
+
+Measured: `selftest` 1789 → 1798 checks, `render-check` 106 unchanged (a menu is
+a toolkit window, not painted by the app).

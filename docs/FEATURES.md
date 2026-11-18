@@ -423,7 +423,11 @@ Features implemented in the Java version of TorTTY.
   wheel over the strip cycles one tab per detent (a touchpad's travel
   accumulates, a direction change drops the rest); a drag with the button held
   reorders, and the tab only moves after passing half of its own label, so a
-  shake does not wobble it (`B25`).
+  shake does not wobble it (`B25`). A right-click **on a tab** opens Rust's
+  `TAB_MENU` — *New tab*, *Close tab* — and on the **empty strip** past the last
+  tab, `BAR_MENU`: *New tab* only. The rows act on the tab that was clicked (the
+  toolkit brings it forward on the press), and *Close tab* closes that one, not
+  whatever happened to be in front (`B81`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
   name, tab count), hidden while there is only one. The column wears the
   terminal's palette — `background`/`foreground`, the selected card leaned

@@ -471,6 +471,7 @@ public final class Main {
                 private int anchorX;
 
                 @Override public void mousePressed(MouseEvent e) {
+                    if (e.isPopupTrigger()) { barMenu(w, e); return; }
                     if (e.getButton() != MouseEvent.BUTTON1) return;
                     int i = tabAt(w, e.getX(), e.getY());
                     if (i < 0) return;
@@ -499,10 +500,43 @@ public final class Main {
                     from = dest;
                 }
 
-                @Override public void mouseReleased(MouseEvent e) { from = -1; }
+                @Override public void mouseReleased(MouseEvent e) {
+                    from = -1;
+                    // `isPopupTrigger` and not `BUTTON3`: the platform decides
+                    // which button and which edge of the click opens a menu, and
+                    // it differs between them (X11 opens on the press, others on
+                    // the release, so both edges ask)
+                    if (e.isPopupTrigger()) barMenu(w, e);
+                }
             };
             w.pane.addMouseListener(drag);
             w.pane.addMouseMotionListener(drag);
+        }
+
+        /**
+         * The strip's menu (`B81`): on a tab, open one beside it and close **it**;
+         * on the empty strip right of the last tab, only open. Rust's
+         * `TAB_MENU`/`BAR_MENU`, and its rule that the rows belong to the click:
+         * the subject is read from the strip again instead of taken from the
+         * selection, because the toolkit has already brought the tab under the
+         * pointer forward on the press (`BasicTabbedPaneUI` selects on any
+         * button) — so the row closes the tab that was clicked, never another.
+         */
+        private void barMenu(Workspace w, MouseEvent e) {
+            int i = tabAt(w, e.getX(), e.getY());
+            JPopupMenu m = new JPopupMenu();
+            JMenuItem neu = new JMenuItem(ui.Chrome.BAR_MENU.get(0));
+            neu.addActionListener(a -> { newTab(w, cwdOf(w.activeTab()), false); focusTerminal(); });
+            m.add(neu);
+            if (i >= 0 && i < w.tabs.size()) {
+                Tab t = w.tabs.get(i);
+                JMenuItem close = new JMenuItem(ui.Chrome.TAB_MENU.get(1));
+                close.addActionListener(a -> { closeTab(w, t); focusTerminal(); });
+                m.add(ui.Chrome.rule(theme.bg, theme.fg));
+                m.add(close);
+            }
+            ui.Chrome.menuSized(m);
+            m.show(w.pane, e.getX(), e.getY());
         }
 
         /** Index of the tab under {@code (x, y)}, or -1 outside the strip. */

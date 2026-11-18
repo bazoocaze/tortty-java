@@ -35,6 +35,16 @@ public final class Chrome {
      */
     private static final float PT_TIP = PT - 1f;
 
+    /**
+     * The two menus of the strip (`B81`), as Rust's `TAB_MENU` and `BAR_MENU`: a
+     * tab can be closed or a new one opened beside it, and the **empty strip**
+     * right of the last tab can only open one. They are rows here, not menus, so
+     * a check can read them without a window.
+     */
+    public static final java.util.List<String> TAB_MENU = java.util.List.of("New tab", "Close tab");
+
+    public static final java.util.List<String> BAR_MENU = java.util.List.of("New tab");
+
     /** The dpi the chrome's points are measured at; the grid's, from the app. */
     private static float dpi = 96f;
 
