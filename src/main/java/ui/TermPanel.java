@@ -381,6 +381,34 @@ public final class TermPanel extends JPanel implements KeyListener {
     /** Installs the grid's context-menu hook (`B85`); {@code null} turns it off. */
     public void setPopup(java.util.function.Consumer<java.awt.event.MouseEvent> hook) { popup = hook; }
 
+    /**
+     * Forgets the modifier keys. The window lost the focus, so their releases went
+     * to somebody else and no key event will ever say they came up — the Ctrl-held
+     * underline would outlive the key until the next press (`B87`).
+     *
+     * Only the modifiers: the key bookkeeping of kitty flag 2 is the panel's own
+     * and a workspace switch must not forget that Super is still down.
+     */
+    /**
+     * Notes whether Ctrl is down, from a key event. The single entry point so the
+     * state a paint depends on can be set the same way a test sets it: a synthetic
+     * `KeyEvent` dispatched at a component with no window wanders into the focus
+     * manager and never comes back.
+     */
+    public void ctrlHeld(boolean held) {
+        if (ctrlDown != held) {
+            ctrlDown = held;
+            requestFullRepaint();
+        }
+    }
+
+    public void forgetModifiers() {
+        if (ctrlDown) {
+            ctrlDown = false;
+            requestFullRepaint();
+        }
+    }
+
     /** The link at a cell: the one it states (`OSC 8`), else one its text writes (`B87`). */
     private String linkAtCell(String[] plain, int x, int y) {
         String stated = term.linkAtView(x, y);
@@ -1061,9 +1089,7 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     @Override public void keyPressed(KeyEvent e) {
         if (LATENCY) System.err.printf("LAT key %d t=%d%n", e.getKeyCode(), System.nanoTime());
-        boolean wasCtrl = ctrlDown;
-        ctrlDown = e.isControlDown();
-        if (wasCtrl != ctrlDown) requestFullRepaint();
+        ctrlHeld(e.isControlDown());
         if (localKey(e.getKeyCode(), e.getModifiersEx())) {
             e.consume();
             return;
@@ -1380,9 +1406,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     @Override public void keyReleased(KeyEvent e) {
         if (LATENCY) System.err.printf("LAT key-up %d mods=%x ch=%x t=%d%n",
                 e.getKeyCode(), e.getModifiersEx(), (int) e.getKeyChar(), System.nanoTime());
-        boolean wasCtrl = ctrlDown;
-        ctrlDown = e.isControlDown();
-        if (wasCtrl != ctrlDown) requestFullRepaint();
+        ctrlHeld(e.isControlDown());
         downKeys.remove(e.getKeyCode());
         if (term.kbdFlags != 0) {
             byte[] bytes = input.Keys.encodeEvent(e.getKeyCode(), e.getKeyChar(),

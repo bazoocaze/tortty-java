@@ -432,6 +432,10 @@ public final class Main {
             frame.addWindowFocusListener(new java.awt.event.WindowAdapter() {
                 @Override public void windowLostFocus(java.awt.event.WindowEvent e) {
                     input.SuperKey.lost();
+                    // a modifier released while somebody else had the focus sends no
+                    // key event to us, and the Ctrl-held underline would stay painted
+                    // until the next press (`B87`)
+                    for (Workspace w : workspaces) for (Tab t : w.tabs) t.panel.forgetModifiers();
                 }
             });
             if (o.debugSocket != null) startDebugServer();

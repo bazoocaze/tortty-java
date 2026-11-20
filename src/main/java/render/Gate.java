@@ -89,6 +89,7 @@ public final class Gate {
         theDialogsTakeTheChromesFont();
         theToolTipRunsAPointUnderTheChrome();
         clicksBesideTheToastAreTheGrids();
+        theLinkUnderlineDoesNotOutliveTheKey();
 
         System.out.println(failures == 0
                 ? "render-check: " + checks + " checks, PASSED"
@@ -842,6 +843,43 @@ public final class Gate {
             }
             return n;
         }
+    }
+
+    /**
+     * Ctrl held underlines a printed URL (`B87`), and the window losing the focus
+     * must take the underline down: the key's release went to somebody else, so no
+     * key event will ever say it came up.
+     */
+    private static void theLinkUnderlineDoesNotOutliveTheKey() {
+        Term t = new Term(COLS, ROWS);
+        t.setTheme(theme());
+        t.cursorVisible = false;
+        TermPanel p = panel(t);
+        feed(t, E + "[0m" + E + "[2J" + E + "[Hhttps://example.com/x");
+
+        is("without Ctrl nothing is underlined", linkInk(paint(p, t), p) == 0);
+
+        // the state a key event sets, through the same seam the handlers use: a
+        // synthetic KeyEvent dispatched at a component with no window wanders into
+        // the focus manager and never comes back
+        p.ctrlHeld(true);
+        is("held Ctrl underlines the URL it reads", linkInk(paint(p, t), p) > 0);
+
+        // ... and then the focus goes away while the key is still down
+        p.forgetModifiers();
+        is("a lost focus takes the underline with it", linkInk(paint(p, t), p) == 0);
+    }
+
+    /**
+     * The link blue painted on the first row, where the underline goes. Nothing
+     * else on that screen uses this colour, so its presence is the underline.
+     */
+    private static int linkInk(int[] px, TermPanel p) {
+        int ink = 0x6CB6FF;
+        int w = p.getWidth(), h = Math.min(p.cellH(), px.length / Math.max(1, w));
+        int n = 0;
+        for (int i = 0; i < w * h; i++) if ((px[i] & 0xFFFFFF) == ink) n++;
+        return n;
     }
 
     private static Shot shot(String name, String content) {

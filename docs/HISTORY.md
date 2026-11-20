@@ -2335,3 +2335,21 @@ as the text is in **columns** — a wide character takes two, and without that t
 URI was truncated and the scan found nothing. Live on Xvfb: `echo "veja
 https://doc.rust-lang.org/cargo/"` underlines under Ctrl, and the grid's menu
 offers *Open link* bright over it with *Copy* and *Paste* dimmed.
+
+The owner then used it and found the seam between the two halves: Ctrl underlined
+the URL, the click opened the browser, and coming back the underline stayed until
+Ctrl was pressed and released again. The release had gone to the browser, so no
+key event ever told the panel the key was up — the flag was right about the world
+as it knew it. `TermPanel.forgetModifiers()` now drops the modifiers and repaints,
+and `Main.windowLostFocus` calls it on every tab beside the `SuperKey` note that
+was already there. Measured live on Xvfb with a real window manager: Ctrl held
+underlines both the typed line and the printed one, and moving the focus to
+another window with Ctrl still physically down takes the underline away by
+itself.
+
+The check for it cost two wrong turns worth recording. It began with a synthetic
+`KeyEvent` dispatched at the panel, which in a component with no window wanders
+into the focus manager and never comes back — two `--render-check` runs with no
+output and a hot CPU, for a check about our own flag. The seam is now
+`TermPanel.ctrlHeld(boolean)`, the same one the key handlers use, so the check
+tests the state and the paint and not the toolkit's plumbing.
