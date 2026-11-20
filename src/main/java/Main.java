@@ -430,6 +430,13 @@ public final class Main {
             // losing the window's focus is the honest sign that the key state can
             // no longer be trusted.
             frame.addWindowFocusListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowGainedFocus(java.awt.event.WindowEvent e) {
+                    // the tab in front is being looked at again: whatever asked for
+                    // attention while we were away is answered (`B86`)
+                    Tab f = activeTab();
+                    if (f != null && f.badge) ack(f);
+                }
+
                 @Override public void windowLostFocus(java.awt.event.WindowEvent e) {
                     input.SuperKey.lost();
                     // a modifier released while somebody else had the focus sends no
@@ -1897,6 +1904,10 @@ public final class Main {
                 // tab may put text on it while another one is in front
                 t.panel.checkClipboard();
                 if (activeTab() == t) {
+                    // a tab in front of an active window is being looked at, whatever
+                    // raised a badge on it: the `windowGainedFocus` event may not
+                    // come at all, so the state heals here as well (`B86`)
+                    if (t.badge && frame.isActive()) ack(t);
                     syncFrameTitle();
                     // a background tab keeps a badge instead of a toast, as in
                     // the Rust version; the front one raises the window notice
@@ -1904,6 +1915,9 @@ public final class Main {
                     if (notif != null) {
                         // `ui` is a boolean in this method: the package name is shadowed
                         notice("Notification", notif, Toast.Sev.OK, Toast.NOTIF_MS);
+                        // a toast nobody is in front of to see: the tab keeps a
+                        // badge until the window comes back (`B86`)
+                        if (Attention.badgesNotification(frame.isActive(), true)) markBadge(t);
                     }
                 } else if (!t.badge && term.notifs != t.ackedNotifs) {
                     t.badge = true;
@@ -1924,8 +1938,8 @@ public final class Main {
                         if (w != null) updateTitles(w);
                         syncSide();
                     } else if (ask == Attention.Ask.BEEP) {
-                        // the panel only hears the bell of the tab in front; a
-                        // background tab's beep is the window's to make
+                        // the panel hears only the tab in front, so a background
+                        // tab's beep is the window's to make
                         java.awt.Toolkit.getDefaultToolkit().beep();
                     }
                 }

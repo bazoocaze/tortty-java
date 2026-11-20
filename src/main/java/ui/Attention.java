@@ -36,14 +36,23 @@ public final class Attention {
     /**
      * What a bell in {@code tab} should do, given the window and the front tab.
      *
+     * Who already did something is part of the rule: the panel hears the bell of
+     * the tab **in front** — `checkNotifications()` runs only for that one — so an
+     * audible bell is already heard there whatever the focus, and asking again
+     * would make it ring twice. Only a tab that is not in front needs the window
+     * to speak for it.
+     *
      * @param windowActive whether the window has the focus
      * @param front        whether this is the tab in front of the front workspace
      * @param bellMode     {@link #NONE}, {@link #VISUAL} or {@link #AUDIBLE}
      */
     public static Ask ask(boolean windowActive, boolean front, int bellMode) {
-        boolean unseen = !windowActive || !front;
-        if (bellMode == VISUAL) return unseen ? Ask.BADGE : Ask.NOTHING;
-        if (bellMode == AUDIBLE) return unseen ? Ask.BEEP : Ask.NOTHING;
+        if (bellMode == VISUAL) {
+            // the flash is the panel's, and nobody sees a flash they are not
+            // looking at
+            return windowActive && front ? Ask.NOTHING : Ask.BADGE;
+        }
+        if (bellMode == AUDIBLE) return front ? Ask.NOTHING : Ask.BEEP;
         return Ask.NOTHING;
     }
 

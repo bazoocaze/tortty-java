@@ -2353,3 +2353,21 @@ into the focus manager and never comes back — two `--render-check` runs with n
 output and a hot CPU, for a check about our own flag. The seam is now
 `TermPanel.ctrlHeld(boolean)`, the same one the key handlers use, so the check
 tests the state and the paint and not the toolkit's plumbing.
+
+The owner asked how the attention half had turned out, and reading it back found
+two things. The rule had the bell ring **twice** for an audible tab in front of an
+unfocused window: `checkNotifications()` already beeps for the tab in front, and
+the rule beeped again because the window had no focus — the panel is the one who
+speaks for the front tab, whatever the focus, so the rule now asks nothing there.
+And a notification arriving while the window was away raised a toast nobody could
+see; it now keeps a badge until the window comes back, which `windowGainedFocus`
+answers. The rule had been checked against a table and the table was wrong about
+who else acts.
+
+The badge that answers for a notification has a second guard: `windowGainedFocus`
+answers it, and so does the feed itself — a tab in front of an active window acks
+whatever raised a badge on it. Two ways because the event is not certain: the X
+test harness could not make `xdotool windowactivate` deliver a second gained-focus
+at all, and a badge nobody clears would sit on the tab forever. What that harness
+did prove, by accident and on purpose, is the bell's half: a `BEL` arriving while
+another window has the focus raises the dot on the tab.

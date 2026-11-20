@@ -544,12 +544,13 @@ place a launch from a desktop icon can show anything.
   the pane only owns its own pixels, so the toolkit delivers the rest itself.
 - `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
   background tab keeps its badge, as before.
-- **A bell that rings where nobody is looking** — a background tab, or a
-  window out of focus — raises the same badge a notification does, and an
-  audible `bell` still beeps wherever the tab lives, since the panel only hears
-  the tab in front. The Rust version asks the window manager for attention
-  instead; Java has no portable way to ask, so the asking stays inside our own
-  window (`B86`).
+- **A bell or a notification that arrives where nobody is looking** raises the
+  badge on the tab — and so on the workspace card — until the tab is visited or
+  the window comes back. A visual `bell` in the tab in front still just flashes;
+  an audible one is the panel's beep for the tab in front and the window's for a
+  background tab, never both. The Rust version asks the window manager for
+  attention instead; Java has no portable way to ask, so the asking stays inside
+  our own window (`B86`).
 - The colours are the terminal's own (`B40`): the hue is the palette's
   red/green/yellow (so `OSC 4` themes the box live), the fill is the front
   tab's background tinted with it (a light theme gets a light box and dark

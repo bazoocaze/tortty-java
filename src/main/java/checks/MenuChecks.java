@@ -54,8 +54,10 @@ public final class MenuChecks {
                 ui.Attention.ask(false, true, ui.Attention.VISUAL), ui.Attention.Ask.BADGE);
         c.eq("an audible bell in a background tab beeps",
                 ui.Attention.ask(true, false, ui.Attention.AUDIBLE), ui.Attention.Ask.BEEP);
-        c.eq("and out of focus too",
-                ui.Attention.ask(false, true, ui.Attention.AUDIBLE), ui.Attention.Ask.BEEP);
+        c.eq("but the tab in front is already heard by its own panel, so it asks nothing",
+                ui.Attention.ask(true, true, ui.Attention.AUDIBLE), ui.Attention.Ask.NOTHING);
+        c.eq("and that holds with the window out of focus: a beep is heard anyway",
+                ui.Attention.ask(false, true, ui.Attention.AUDIBLE), ui.Attention.Ask.NOTHING);
         c.eq("with no bell configured nothing asks",
                 ui.Attention.ask(false, false, ui.Attention.NONE), ui.Attention.Ask.NOTHING);
         c.is("a notification in front and in focus is its toast, not a badge",
