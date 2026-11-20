@@ -378,6 +378,16 @@ Features implemented in the Java version of TorTTY.
   child is not tracking the mouse (or with Shift); a detent and a touchpad
   fraction are distinguished, and the fraction accumulates until it completes
   a notch.
+- Links come in two kinds. A cell can **state** one with `OSC 8`, and most
+  programs do not; what `git log`, `cargo` and `grep` print is text. So the
+  visible rows are also **read**: a printed `https://`, `http://`, `file://`,
+  `ftp://` or `mailto:` is a link for Ctrl+click, for the menu's *Open link* and
+  for the Ctrl-held underline. The scan is conservative on purpose — the same
+  five schemes the opener accepts (an unknown one, `javascript:`/`data:`, is not
+  a link at all), the sentence's full stop, comma and unbalanced bracket trimmed
+  off, a soft wrap glued into one URL while a hard newline is not, and a host
+  that must carry a dot or be `localhost` (`B87`, ported from Rust's
+  `links.rs`). It runs when somebody asks, so the feed pays nothing (`B87`).
 - Visible selection (drag, double-click on word, triple-click on the whole
   logical line) with inversion, including history. **Alt+drag** takes a **block**:
   the same columns on every row, dragged from any corner, copied one line each —
@@ -534,6 +544,12 @@ place a launch from a desktop icon can show anything.
   the pane only owns its own pixels, so the toolkit delivers the rest itself.
 - `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
   background tab keeps its badge, as before.
+- **A bell that rings where nobody is looking** — a background tab, or a
+  window out of focus — raises the same badge a notification does, and an
+  audible `bell` still beeps wherever the tab lives, since the panel only hears
+  the tab in front. The Rust version asks the window manager for attention
+  instead; Java has no portable way to ask, so the asking stays inside our own
+  window (`B86`).
 - The colours are the terminal's own (`B40`): the hue is the palette's
   red/green/yellow (so `OSC 4` themes the box live), the fill is the front
   tab's background tinted with it (a light theme gets a light box and dark

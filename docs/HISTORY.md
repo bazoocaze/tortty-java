@@ -2295,3 +2295,43 @@ grid scroll — the huge `REP` fills the line, it does not stop at the edge.
 `B86` (window attention) is the one left, and it is blocked on a decision rather
 than on time: the urgency hint is an X11 property of our own window and the JDK
 does not give out the window id.
+
+## 2026-11-20 — the owner's two answers: attention stays home, and links are read
+
+`B86` was blocked on a decision, and the owner made it: keep the asking **inside
+our own window**. So a bell that rings where nobody is looking — a background
+tab, or a window out of focus — raises the same badge a notification does, and
+an audible bell beeps wherever the tab lives (the panel only ever hears the tab in
+front, which was a second, quieter bug: a background tab's bell was swallowed
+whole). The window manager is never asked, and the rule is one pure function,
+`ui/Attention.ask(windowActive, front, bellMode)`, so the table is checked without
+a window: a visual bell in front and in focus only flashes; in a background tab
+or out of focus it is a badge; an audible one is a beep; `bell none` asks nothing.
+
+The owner also tested `B85`'s *Open link* on a URL and it did nothing — and he was
+right, because everything Java had only read `OSC 8`, the way a cell **states** a
+link, which almost no program uses. Rust has a second half Java never ported:
+`crates/core/src/links.rs`, 480 lines that read the text. `term/Links.java` is
+that half, with the same rules rather than approximately the same: the five
+schemes the opener accepts and no others (`javascript:` and `data:` are not
+links), a trailing full stop, comma or quotes trimmed, a closing bracket removed
+only when it is unbalanced (`…/Foo_(bar)` keeps its `)`, `(see https://x)` does
+not), a soft wrap glued into one URL and a hard newline splitting two, a host
+that needs a dot or `localhost` so `http://build` in somebody's network is not
+clickable, a word ending in a scheme (`xhttp://`) not a link, and a cap of 512
+links per scan.
+
+Cost was the design constraint, as usual: the scan runs when somebody asks — a
+click, the menu, or Ctrl held — never in the feed. The painter scans **once per
+paint** and only while Ctrl is down (`Term.plainLinkCells()`), because the first
+version asked the grid per cell and would have rescanned the whole screen for
+every character drawn.
+
+Measured: `selftest` 1825 → 1862 (`links` 29, the bell's table 8), `render-check`
+106 unchanged. Three of the new assertions failed first and every one was mine:
+a `mailto:` built by gluing `/x` onto every scheme is not a mailto, a 40-column
+grid wraps the URL I meant to keep on one row, and a row of cells must be as wide
+as the text is in **columns** — a wide character takes two, and without that the
+URI was truncated and the scan found nothing. Live on Xvfb: `echo "veja
+https://doc.rust-lang.org/cargo/"` underlines under Ctrl, and the grid's menu
+offers *Open link* bright over it with *Copy* and *Paste* dimmed.

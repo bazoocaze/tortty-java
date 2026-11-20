@@ -12,6 +12,7 @@ import javax.swing.JFrame;
 import config.Keymap;
 import platform.Platform;
 import platform.Platforms;
+import ui.Attention;
 import ui.Cards;
 import ui.Chrome;
 import ui.Toast;
@@ -83,6 +84,12 @@ public final class Main {
         javax.swing.Timer syncTimer;
         /** Notifications already seen: what is newer is a badge. */
         long ackedNotifs;
+        /**
+         * Bells already seen (`B86`). A bell is the grid's to show — a flash or a
+         * beep — and where neither can be seen it raises a badge instead, so the
+         * asking stays inside our own window.
+         */
+        long bellSeen;
         boolean badge;
         /** The progress report the chrome has already drawn (`OSC 9;4`). */
         long progressSeen;
@@ -1559,6 +1566,7 @@ public final class Main {
 
         private void ack(Tab t) {
             t.ackedNotifs = t.term.notifs;
+            t.bellSeen = t.term.bellSeq;
             if (t.badge) {
                 t.badge = false;
                 Workspace w = workspaceOf(t);
@@ -1898,6 +1906,24 @@ public final class Main {
                     Workspace w = workspaceOf(t);
                     if (w != null) updateTitles(w);
                     syncSide();
+                }
+                // a bell that rings where nobody is looking — a tab not in front,
+                // or a window out of focus — gets the asking we can do inside our
+                // own window (`B86`): a badge for the visual bell, and a beep for
+                // the audible one, which the panel only makes for the tab in front.
+                if (term.bellSeq != t.bellSeen) {
+                    t.bellSeen = term.bellSeq;
+                    Attention.Ask ask = Attention.ask(frame.isActive(), activeTab() == t, cfg.bell);
+                    if (ask == Attention.Ask.BADGE && !t.badge) {
+                        t.badge = true;
+                        Workspace w = workspaceOf(t);
+                        if (w != null) updateTitles(w);
+                        syncSide();
+                    } else if (ask == Attention.Ask.BEEP) {
+                        // the panel only hears the bell of the tab in front; a
+                        // background tab's beep is the window's to make
+                        java.awt.Toolkit.getDefaultToolkit().beep();
+                    }
                 }
                 // a progress report is chrome, not the grid: the tab label and
                 // the card the workspace wears have to be redrawn, and only when

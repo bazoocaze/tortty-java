@@ -44,6 +44,25 @@ public final class MenuChecks {
         c.is("the rows are the same ones the keymap can reach",
                 Chrome.CARD_MENU.contains("Move up") && Chrome.CARD_MENU.contains("Move down"));
 
+        // the bell's asking (`B86`): the window's focus and the tab in front
+        // decide, and a mode that does nothing gets nothing
+        c.eq("a visual bell in front and in focus only flashes",
+                ui.Attention.ask(true, true, ui.Attention.VISUAL), ui.Attention.Ask.NOTHING);
+        c.eq("a visual bell in a background tab is a badge",
+                ui.Attention.ask(true, false, ui.Attention.VISUAL), ui.Attention.Ask.BADGE);
+        c.eq("a visual bell with the window out of focus is too",
+                ui.Attention.ask(false, true, ui.Attention.VISUAL), ui.Attention.Ask.BADGE);
+        c.eq("an audible bell in a background tab beeps",
+                ui.Attention.ask(true, false, ui.Attention.AUDIBLE), ui.Attention.Ask.BEEP);
+        c.eq("and out of focus too",
+                ui.Attention.ask(false, true, ui.Attention.AUDIBLE), ui.Attention.Ask.BEEP);
+        c.eq("with no bell configured nothing asks",
+                ui.Attention.ask(false, false, ui.Attention.NONE), ui.Attention.Ask.NOTHING);
+        c.is("a notification in front and in focus is its toast, not a badge",
+                !ui.Attention.badgesNotification(true, true));
+        c.is("and anywhere else it is a badge", ui.Attention.badgesNotification(false, true)
+                && ui.Attention.badgesNotification(true, false));
+
         // "Rename…" asks; these act. The ellipsis is the only signal the reader
         // gets before the click, so it must not be spent on a row that closes
         // something without a word.

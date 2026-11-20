@@ -2066,6 +2066,42 @@ public final class Term {
     }
 
     /** Same as {@link #linkAt}, but for the visible row (history included). */
+    /**
+     * The plain-text links of the visible grid (`B87`), one entry per cell: the
+     * URI that covers it, or {@code null}. Built when somebody asks — Ctrl held,
+     * a click, the menu — so the feed pays nothing and a screen of text costs one
+     * scan.
+     *
+     * `OSC 8` is the only way a cell *states* a link and most programs do not use
+     * it; what `git log` and `cargo` print is text, and this is where that text
+     * becomes clickable.
+     */
+    public String[] plainLinkCells() {
+        int[][] cells = new int[rows][];
+        boolean[] wrapped = new boolean[rows];
+        for (int y = 0; y < rows; y++) {
+            cells[y] = new int[cols];
+            System.arraycopy(cp, y * cols, cells[y], 0, cols);
+            wrapped[y] = rowWrapped[y];
+        }
+        String[] out = new String[rows * cols];
+        for (Links.Link l : Links.scan(cells, wrapped)) {
+            for (Links.Run r : l.runs()) {
+                for (int k = 0; k < r.len(); k++) {
+                    int i = r.row() * cols + r.col() + k;
+                    if (i >= 0 && i < out.length) out[i] = l.uri();
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The first plain-text link covering a cell, or {@code null} — one scan. */
+    public String plainLinkAt(int x, int y) {
+        if (x < 0 || y < 0 || x >= cols || y >= rows) return null;
+        return plainLinkCells()[y * cols + x];
+    }
+
     public String linkAtView(int x, int y) {
         if (x < 0 || y < 0 || x >= cols || y >= rows) return null;
         int[] l = lineLink(y);

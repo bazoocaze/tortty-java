@@ -1,5 +1,6 @@
 package ui;
 
+import term.Links;
 import term.Term;
 import term.Color;
 import term.Theme;
@@ -156,7 +157,9 @@ public final class TermPanel extends JPanel implements KeyListener {
                     }
                 }
                 if (e.getButton() == MouseEvent.BUTTON1 && e.isControlDown()) {
-                    String uri = term.linkAtView(cellX(e), cellY(e));
+                    // the cell may state its link (`OSC 8`) or simply print it
+                    // (`B87`), and Ctrl+click takes either
+                    String uri = linkAtCell(term.plainLinkCells(), cellX(e), cellY(e));
                     if (uri != null) {
                         openLink(uri);
                         return;
@@ -378,6 +381,13 @@ public final class TermPanel extends JPanel implements KeyListener {
     /** Installs the grid's context-menu hook (`B85`); {@code null} turns it off. */
     public void setPopup(java.util.function.Consumer<java.awt.event.MouseEvent> hook) { popup = hook; }
 
+    /** The link at a cell: the one it states (`OSC 8`), else one its text writes (`B87`). */
+    private String linkAtCell(String[] plain, int x, int y) {
+        String stated = term.linkAtView(x, y);
+        if (stated != null) return stated;
+        return plain == null ? null : plain[y * term.cols + x];
+    }
+
     /** Whether a selection exists right now — what "Copy" acts on. */
     public boolean hasSelection() { return selAX >= 0 && (selAX != selBX || selAbsAY != selAbsBY); }
 
@@ -385,7 +395,7 @@ public final class TermPanel extends JPanel implements KeyListener {
     public String linkAt(int px, int py) {
         int x = Math.max(0, Math.min(term.cols - 1, (px - padding) / Math.max(1, cellW())));
         int y = Math.max(0, Math.min(term.rows - 1, (py - padding) / Math.max(1, cellH())));
-        return term.linkAtView(x, y);
+        return linkAtCell(term.plainLinkCells(), x, y);
     }
 
     /** Opens a link the way a Ctrl+click does, so the menu and the mouse agree. */
@@ -565,6 +575,10 @@ public final class TermPanel extends JPanel implements KeyListener {
 
         final int cols = term.cols, rows = term.rows;
         final int cellW = cellW(), cellH = cellH();
+        // the plain-text links of the screen (`B87`): scanned once per paint and
+        // only while the pointer is asking for them, so a frame without Ctrl pays
+        // nothing at all
+        final String[] plain = ctrlDown ? term.plainLinkCells() : null;
         final int baselineOffset = Math.round(ascent);
 
         if (full) {
@@ -724,9 +738,13 @@ public final class TermPanel extends JPanel implements KeyListener {
                     g2.fillRect(xPx, yPx + 1, runW, 1);
                 }
                 if (ctrlDown) {
+                    // one scan for the whole paint (`B87`): asking the grid per
+                    // cell would rescan the screen text for every character drawn
                     g2.setColor(color(0x6CB6FF));
                     for (int xx = x; xx < run; xx++) {
-                        if (term.linkAtView(xx, y) != null) g2.fillRect(padding + xx * cellW, yPx + cellH - 2, cellW, 1);
+                        if (linkAtCell(plain, xx, y) != null) {
+                            g2.fillRect(padding + xx * cellW, yPx + cellH - 2, cellW, 1);
+                        }
                     }
                 }
                 // the other matches of the query: the same blue, two pixels
@@ -1888,12 +1906,11 @@ public final class TermPanel extends JPanel implements KeyListener {
 
     private void openLink(String uri) {
         try {
+            // one source for the schemes (`B87`): what the scanner offers is
+            // exactly what this will hand to the desktop, so an underline never
+            // promises a click that is refused
+            if (!Links.opens(uri)) return;
             java.net.URI u = new java.net.URI(uri);
-            String scheme = u.getScheme();
-            if (scheme == null) return;
-            scheme = scheme.toLowerCase(java.util.Locale.ROOT);
-            if (!(scheme.equals("http") || scheme.equals("https") || scheme.equals("file")
-                    || scheme.equals("ftp") || scheme.equals("mailto"))) return;
             if (java.awt.Desktop.isDesktopSupported()) {
                 java.awt.Desktop.getDesktop().browse(u);
             }
