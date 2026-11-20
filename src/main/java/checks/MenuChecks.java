@@ -23,12 +23,35 @@ public final class MenuChecks {
         c.is("the strip can do nothing a tab cannot",
                 Chrome.TAB_MENU.containsAll(Chrome.BAR_MENU));
 
+        // the grid's is Rust's GRID_MENU, and its link row is the only one that
+        // depends on where the pointer is (`B85`)
+        c.eq("the grid offers four rows", Chrome.GRID_MENU.size(), 4);
+        c.eq("copy, paste, link, tab",
+                String.join(",", Chrome.GRID_MENU), "Copy,Paste,Open link,New tab");
+        c.is("the strip's and the grid's opening row are the same words",
+                Chrome.GRID_MENU.get(3).equals(Chrome.TAB_MENU.get(0)));
+        c.is("and the grid never offers a dialog", Chrome.GRID_MENU.stream().noneMatch(r -> r.endsWith("\u2026")));
+        c.is("no grid row is blank", Chrome.GRID_MENU.stream().noneMatch(String::isBlank));
+
+        // the card's menu is Rust's CARD_MENU: five rows, and the two moves are
+        // in the middle so the list's order is edited where it is read (`B83`)
+        c.eq("a card offers five rows", Chrome.CARD_MENU.size(), 5);
+        c.eq("it opens and renames first",
+                Chrome.CARD_MENU.get(0) + "," + Chrome.CARD_MENU.get(1), "New workspace,Rename\u2026");
+        c.eq("the moves are the middle rows",
+                Chrome.CARD_MENU.get(2) + "," + Chrome.CARD_MENU.get(3), "Move up,Move down");
+        c.eq("and closing is the last word", Chrome.CARD_MENU.get(4), "Close workspace");
+        c.is("the rows are the same ones the keymap can reach",
+                Chrome.CARD_MENU.contains("Move up") && Chrome.CARD_MENU.contains("Move down"));
+
         // "Rename…" asks; these act. The ellipsis is the only signal the reader
         // gets before the click, so it must not be spent on a row that closes
         // something without a word.
         boolean asks = false;
         for (String row : Chrome.TAB_MENU) asks |= row.endsWith("\u2026");
         c.is("no strip row opens a dialog", !asks);
+        long asking = Chrome.CARD_MENU.stream().filter(r -> r.endsWith("\u2026")).count();
+        c.eq("and the card has exactly the one that does", asking, 1L);
         c.is("and no row is blank", Chrome.TAB_MENU.stream().noneMatch(String::isBlank));
 
         // A constant that can be appended to is not a constant: the menus are

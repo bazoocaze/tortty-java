@@ -119,6 +119,13 @@ public final class Term {
     private int penFg = DEFAULT, penBg = DEFAULT;
     private byte penAttr;
     private byte penUl;
+
+    /**
+     * The last graphic character this screen took (`B82`): what `REP` repeats.
+     * A space, as in xterm and Rust, so a `CSI 5 b` before any output draws five
+     * of them instead of nothing.
+     */
+    private int lastChar = ' ';
     private int penUlColor = DEFAULT;
     private boolean insert;
 
@@ -1392,6 +1399,7 @@ public final class Term {
             ulColor[i + 1] = penUlColor;
             link[i + 1] = penLink;
         }
+        lastChar = c;
         dirty[cy] = true;
         cx += w;
         // `?7l`: the last column is the end of the line, and the next glyph
@@ -2187,6 +2195,16 @@ public final class Term {
                 if (r == 0 && c == 0) trace(t -> t.home++);
                 cx = c; cy = r; wrapPending = false;
             }
+            // `REP` (`CSI Ps b`): the last graphic character again, N times, in
+            // the pen it is written with now — so a program draws a rule by
+            // setting the colour and repeating the glyph. The count is clamped to
+            // one screen: a `CSI 999999999 b` from a program is a hang, and no
+            // repeat beyond a page of cells can be seen anyway.
+            case 'b' -> {
+                int n = Math.min(Math.max(1, p0 >= 0 ? p0 : 1), Math.max(1, cols * rows));
+                int ch = lastChar;
+                for (int k = 0; k < n; k++) putChar(ch);
+            }
             case 'A' -> { int n = (p0 >= 0 ? p0 : 1); int min = cy < top ? 0 : top; cy = Math.max(min, cy - n); wrapPending = false; }
             case 'B' -> { int n = (p0 >= 0 ? p0 : 1); int max = cy > bot ? rows - 1 : bot; cy = Math.min(max, cy + n); wrapPending = false; }
             case 'C' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.min(cols - 1, cx + n); wrapPending = false; }
@@ -2333,7 +2351,12 @@ public final class Term {
                 if (code == 5) {
                     try { childOut.write(new byte[]{0x1b, '[', '0', 'n'}); } catch (Exception ignored) {}
                 } else if (code == 6) {
-                    String r = String.format(java.util.Locale.ROOT, "\u001b[%d;%dR", cy + 1, cx + 1);
+                    // `CSI ? 6 n` is DECXCPR and its answer **carries the `?`**
+                    // (`CSI ? r;cR`); `CSI 6 n` is the plain DSR. A program that
+                    // asked the private question parses the plain answer as an
+                    // answer to something else — vim's own detection does (`B84`).
+                    String r = String.format(java.util.Locale.ROOT, priv ? "\u001b[?%d;%dR" : "\u001b[%d;%dR",
+                            cy + 1, cx + 1);
                     try { childOut.write(r.getBytes(java.nio.charset.StandardCharsets.UTF_8)); } catch (Exception ignored) {}
                 }
             }

@@ -45,6 +45,23 @@ public final class Chrome {
 
     public static final java.util.List<String> BAR_MENU = java.util.List.of("New tab");
 
+    /**
+     * The grid's menu (`B85`), as Rust's `GRID_MENU`: what a cell can do —
+     * copy what is selected, paste, follow the link it holds, open a tab. The
+     * link row is only ever usable over a link, so the rows are decided at the
+     * click and not here.
+     */
+    public static final java.util.List<String> GRID_MENU =
+            java.util.List.of("Copy", "Paste", "Open link", "New tab");
+
+    /**
+     * A workspace card's menu (`B83`), as Rust's `CARD_MENU`: five rows, the two
+     * moves in the middle so the list's order is edited where it is read. The
+     * first and the last row of the list disable their move.
+     */
+    public static final java.util.List<String> CARD_MENU = java.util.List.of(
+            "New workspace", "Rename\u2026", "Move up", "Move down", "Close workspace");
+
     /** The dpi the chrome's points are measured at; the grid's, from the app. */
     private static float dpi = 96f;
 

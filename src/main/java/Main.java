@@ -514,6 +514,52 @@ public final class Main {
         }
 
         /**
+         * The grid's menu (`B85`): Rust's `GRID_MENU` — copy, paste, open link,
+         * new tab. The rows are decided **at the click**, the way Rust keeps them
+         * with the click: copy needs a selection, paste needs text in the
+         * clipboard, open link needs an `OSC 8` target under the pointer, and a
+         * row that cannot act is dimmed instead of lying.
+         *
+         * The grid belongs to the child when it asked for the mouse: then a
+         * right-click is the child's and `Shift` asks for ours, the same rule the
+         * selection follows.
+         */
+        private void gridMenu(Workspace w, Tab t, MouseEvent e) {
+            if (!(e.isShiftDown() || t.term.mouseMode == 0)) return;
+            String link = t.panel.linkAt(e.getX(), e.getY());
+            JPopupMenu m = new JPopupMenu();
+            JMenuItem copy = new JMenuItem(ui.Chrome.GRID_MENU.get(0));
+            copy.setEnabled(t.panel.hasSelection());
+            copy.addActionListener(a -> { t.panel.copySelectionNow(); focusTerminal(); });
+            JMenuItem paste = new JMenuItem(ui.Chrome.GRID_MENU.get(1));
+            paste.setEnabled(clipboardHasText());
+            paste.addActionListener(a -> { t.panel.pasteClipboardNow(); focusTerminal(); });
+            JMenuItem open = new JMenuItem(ui.Chrome.GRID_MENU.get(2));
+            open.setEnabled(link != null);
+            open.addActionListener(a -> { if (link != null) t.panel.open(link); focusTerminal(); });
+            JMenuItem neu = new JMenuItem(ui.Chrome.GRID_MENU.get(3));
+            neu.addActionListener(a -> { newTab(w, cwdOf(t), false); focusTerminal(); });
+            m.add(copy);
+            m.add(paste);
+            m.add(open);
+            m.add(ui.Chrome.rule(theme.bg, theme.fg));
+            m.add(neu);
+            ui.Chrome.menuSized(m);
+            m.show(t.panel, e.getX(), e.getY());
+        }
+
+        /** Whether there is text to paste — what decides the Paste row (`B85`). */
+        private static boolean clipboardHasText() {
+            try {
+                java.awt.datatransfer.Clipboard cb =
+                        java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+                return cb.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor);
+            } catch (RuntimeException e) {
+                return false; // no clipboard (headless): the row is dimmed
+            }
+        }
+
+        /**
          * The strip's menu (`B81`): on a tab, open one beside it and close **it**;
          * on the empty strip right of the last tab, only open. Rust's
          * `TAB_MENU`/`BAR_MENU`, and its rule that the rows belong to the click:
@@ -1319,10 +1365,21 @@ public final class Main {
             neu.addActionListener(e -> { newWorkspace(cwdOf(activeTab()), false); focusTerminal(); });
             JMenuItem ren = new JMenuItem("Rename\u2026");
             ren.addActionListener(e -> rename(i));
+            // the same two moves the keymap has (`ws_move_up`/`ws_move_down`) and
+            // the drag was built on: Rust's `CARD_MENU` lists five rows, and until
+            // now the menu was the one way in that did not offer them (`B83`)
+            JMenuItem up = new JMenuItem("Move up");
+            up.addActionListener(e -> { moveWorkspace(i, i - 1); focusTerminal(); });
+            up.setEnabled(i > 0);
+            JMenuItem down = new JMenuItem("Move down");
+            down.addActionListener(e -> { moveWorkspace(i, i + 1); focusTerminal(); });
+            down.setEnabled(i < workspaces.size() - 1);
             JMenuItem close = new JMenuItem("Close workspace");
             close.addActionListener(e -> { closeWorkspace(i); focusTerminal(); });
             m.add(neu);
             m.add(ren);
+            m.add(up);
+            m.add(down);
             m.add(Chrome.rule(theme.bg, theme.fg));
             m.add(close);
             Chrome.menuSized(m);
@@ -1449,6 +1506,7 @@ public final class Main {
             }
             panel.setPty(tab.pty);
             wire(tab);
+            panel.setPopup(e -> gridMenu(w, tab, e));
             tab.pty.start();
             // the label must be right from the first frame, not one timer tick
             // later

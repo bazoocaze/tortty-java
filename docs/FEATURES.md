@@ -43,9 +43,17 @@ Features implemented in the Java version of TorTTY.
 - Block/beam/underline cursor via DECSCUSR (`CSI Ps SP q`) and blink via `?12`.
 - Alternate screen (`?47`, `?1047`, `?1049`) and saved/restored cursor.
 - Scroll region (DECSTBM), ED/EL/IL/DL/ICH/DCH/ECH.
+- `REP` (`CSI Ps b`): the last graphic character again, N times, in the pen of
+  the moment — so a rule is a colour and a repeat. A count with no character
+  before it repeats a space (as xterm does), a wide glyph stays wide, a combining
+  mark is not repeated, and the count is clamped to a page of cells: a program
+  cannot make the parser spin with `CSI 999999999 b` (`B82`).
 - `DECALN` (`ESC # 8`): the grid becomes `E` in the default colours, cursor and
   margins untouched — the alignment screen `vttest` and every manual asks for,
   and an `ESC #` with any other byte is ignored.
+- Reports: `CSI 5 n` (`CSI 0 n`), `CSI 6 n` (`CSI r;cR`) and `CSI ? 6 n`
+  (`CSI ? r;cR`, DECXCPR — the `?` is part of the answer, and a program that
+  asked the private question reads the plain one as something else, `B84`).
 - Modes: DECCKM, visible cursor (`?25`), LNM, bracketed paste (`?2004`),
   synchronized output (`?2026`, painting held until the close with a 200 ms
   ceiling), focus reporting (`?1004`), mouse (`?1000/1002/1003`, X10 encoding,
@@ -427,9 +435,19 @@ Features implemented in the Java version of TorTTY.
   `TAB_MENU` — *New tab*, *Close tab* — and on the **empty strip** past the last
   tab, `BAR_MENU`: *New tab* only. The rows act on the tab that was clicked (the
   toolkit brings it forward on the press), and *Close tab* closes that one, not
-  whatever happened to be in front (`B81`).
+  whatever happened to be in front (`B81`). On the **grid**, a right-click opens
+  Rust's `GRID_MENU` — *Copy*, *Paste*, *Open link*, *New tab* — with the rows
+  decided **at the click**: *Copy* needs a selection, *Paste* text in the
+  clipboard, *Open link* an `OSC 8` target under the pointer, and a row that
+  cannot act is dimmed rather than lying. The grid is the child's when it asked
+  for the mouse, so there a right-click is the child's and `Shift` asks for ours
+  (`B85`).
 - Workspaces: a named set of tabs, listed in a **column on the left** (number,
-  name, tab count), hidden while there is only one. The column wears the
+  name, tab count), hidden while there is only one. A card's right-click menu has
+  five rows, as Rust's `CARD_MENU`: *New workspace*, *Rename…*, *Move up*, *Move
+  down*, *Close workspace* — the moves in the middle, so the list's order is
+  edited where it is read, and the first and last card disable the move that has
+  nowhere to go (`B83`). The column wears the
   terminal's palette — `background`/`foreground`, the selected card leaned
   toward the palette's green and marked with a `palette[12]` bar — and its text,
   like the tab strip's, is **15 points at the desktop's dpi**, the same scale the

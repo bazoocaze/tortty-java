@@ -2251,3 +2251,47 @@ the first version of it claimed the opposite.
 
 Measured: `selftest` 1789 → 1798 checks, `render-check` 106 unchanged (a menu is
 a toolkit window, not painted by the app).
+
+## 2026-11-18 — `REP`, the card's moves, the `?` of DECXCPR, and the grid's menu
+
+Four of the five in the list, each checked against the Rust source before a line
+was written — the previous batch's mistake was searching for names instead of
+opening the file, so this time every item has a `file:line` behind it.
+
+`REP` (`CSI Ps b`, `B82`): the parser had no `case 'b'` at all, so
+`printf 'x\033[20b'` printed one `x`. It now repeats the last graphic character
+in the pen of the moment — `lastChar` is recorded where a cell is written, not
+where a byte is read, so a combining mark is not what gets repeated and a wide
+glyph keeps its pair. The count is clamped to a page of cells: Rust loops
+`0..n` over a `u32`, which is a hang a program can ask for, and no repeat bigger
+than the screen can be seen anyway.
+
+The card's menu (`B83`) gained Rust's `CARD_MENU` order — five rows with *Move
+up* and *Move down* in the middle, dimmed at the ends of the list — because the
+keymap and the drag could move a workspace and the menu, the only path a mouse
+user has, could not.
+
+`CSI ? 6 n` (`B84`) answered `CSI r;cR` without its `?`, so a program that asked
+DECXCPR read a plain DSR. The answer now carries the prefix, which is the whole
+content of the private form.
+
+The grid's menu (`B85`) is Rust's `GRID_MENU`, and the interesting part is that
+its rows belong to the click: `Copy` needs a selection, `Paste` text in the
+clipboard, `Open link` an `OSC 8` target under the pointer, and the grid stays
+the child's when it asked for the mouse (`Shift` asks for ours, the rule the
+selection already followed). `TermPanel` grew a popup hook that reports the
+press and nothing else — the panel says where, the app decides what. Measured on
+Xvfb: over plain text with nothing selected the first three rows are grey and
+*New tab* alone is bright; with a selection (which `copy_on_select` had already
+put in the clipboard) and the pointer over a link, all four are live.
+
+Measured: `selftest` 1809 → 1825 (`rep` 11, the menus 20, `decxcpr` 5),
+`render-check` 106 unchanged. Three of the new assertions failed first and all
+three were mine, not the code's: `screenText` trims a row so blanks read as `""`,
+`screenText` **composes** so `e` + U+0301 reads as `é` while `REP` writes a plain
+`e` beside it (the cells are what say which is which), and 9 cells on an 8-cell
+grid scroll — the huge `REP` fills the line, it does not stop at the edge.
+
+`B86` (window attention) is the one left, and it is blocked on a decision rather
+than on time: the urgency hint is an X11 property of our own window and the JDK
+does not give out the window id.

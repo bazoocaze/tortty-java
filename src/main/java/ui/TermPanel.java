@@ -31,6 +31,13 @@ public final class TermPanel extends JPanel implements KeyListener {
     private int bellMode;
     private boolean copyOnSelect = true;
 
+    /**
+     * Who takes a right-click on the grid (`B85`). The panel only says where and
+     * when; the app decides whether the rows are the child's (it asked for the
+     * mouse) or ours, and what they can do.
+     */
+    private java.util.function.Consumer<java.awt.event.MouseEvent> popup;
+
     private float cw, ch;
     private float ascent;
     private Font plain, bold, italic, boldItalic;
@@ -126,6 +133,12 @@ public final class TermPanel extends JPanel implements KeyListener {
         addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) { requestFocusInWindow(); }
             @Override public void mousePressed(MouseEvent e) {
+                // the platform decides which button and which edge opens a menu,
+                // so both edges ask and the first `true` wins
+                if (e.isPopupTrigger()) {
+                    if (popup != null) popup.accept(e);
+                    return;
+                }
                 requestFocusInWindow();
                 syncSelectionGeneration();
                 if (e.getButton() == MouseEvent.BUTTON1) {
@@ -180,6 +193,10 @@ public final class TermPanel extends JPanel implements KeyListener {
                 sendMouse(e, true);
             }
             @Override public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    if (popup != null) popup.accept(e);
+                    return;
+                }
                 if (draggingScrollbar) {
                     draggingScrollbar = false;
                     return;
@@ -357,6 +374,22 @@ public final class TermPanel extends JPanel implements KeyListener {
     }
 
     public void setBellMode(int mode) { this.bellMode = mode; }
+
+    /** Installs the grid's context-menu hook (`B85`); {@code null} turns it off. */
+    public void setPopup(java.util.function.Consumer<java.awt.event.MouseEvent> hook) { popup = hook; }
+
+    /** Whether a selection exists right now — what "Copy" acts on. */
+    public boolean hasSelection() { return selAX >= 0 && (selAX != selBX || selAbsAY != selAbsBY); }
+
+    /** The `OSC 8` link at a pixel, or {@code null} — what "Open link" acts on. */
+    public String linkAt(int px, int py) {
+        int x = Math.max(0, Math.min(term.cols - 1, (px - padding) / Math.max(1, cellW())));
+        int y = Math.max(0, Math.min(term.rows - 1, (py - padding) / Math.max(1, cellH())));
+        return term.linkAtView(x, y);
+    }
+
+    /** Opens a link the way a Ctrl+click does, so the menu and the mouse agree. */
+    public void open(String uri) { openLink(uri); }
     public void setCopyOnSelect(boolean on) { this.copyOnSelect = on; }
 
     /**
@@ -1655,9 +1688,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         return x >= 0 && y >= 0 && x < term.cols * cellW() && y < term.rows * cellH();
     }
 
-    private boolean hasSelection() {
-        return selAX >= 0 && (selAX != selBX || selAbsAY != selAbsBY);
-    }
+
 
     /** The drag's two anchors, as the shape they mean (`term.Selection`). */
     private Selection.Span selectionSpan() {

@@ -24,6 +24,8 @@ public final class TermChecks {
         wideCells(c);
         charset(c);
         decaln(c);
+        rep(c);
+        decxcpr(c);
         overline(c);
         scrollbackAndText(c);
         windowOps(c);
@@ -1054,5 +1056,89 @@ public final class TermChecks {
         c.eq("growing reveals the history line instead of keeping it above", tall.historySize(), 0);
         c.eq("and it comes back as the first row", tall.screenText(0), "a");
         c.eq("the screen keeps its own lines", tall.screenText(1), "b");
+    }
+
+    /**
+     * `REP` (`CSI Ps b`, `B82`): the last graphic character again, N times, in
+     * the pen of the moment. Rust's `rep_repeats_the_last_character` is the
+     * first of these; the rest are the corners that make it a terminal and not a
+     * for loop — what it repeats when nothing was printed, and what it does not
+     * repeat at all.
+     */
+    private static void rep(Check c) {
+        Term t = new Term(8, 2);
+        Check.feed(t, "a" + E + "[3b");
+        c.eq("three more of the last character", t.screenText(0).substring(0, 4), "aaaa");
+        c.eq("and the cursor moved with them", t.cx, 4);
+
+        Term none = new Term(4, 1);
+        Check.feed(none, E + "[2b");
+        // `screenText` trims a row, so the blanks are read from the cells
+        c.eq("with nothing printed yet it repeats a space",
+                (none.cp[0] == ' ' && none.cp[1] == ' ') + "," + none.cx, "true,2");
+
+        // no parameter is one repeat, as in xterm
+        Term bare = new Term(4, 1);
+        Check.feed(bare, "z" + E + "[b");
+        c.eq("a bare REP is one repeat", bare.screenText(0).substring(0, 2), "zz");
+
+        // the pen of the moment, not the pen of the character: a rule is drawn
+        // by setting the colour and repeating what was there
+        Term pen = new Term(4, 1);
+        Check.feed(pen, "x" + E + "[31m" + E + "[2b");
+        c.eq("the repeat takes the new ink", pen.fg[0] + "," + pen.fg[1] + "," + pen.fg[2],
+                Term.DEFAULT + "," + 1 + "," + 1);
+
+        // a wide glyph stays wide: `putChar` is what repeats it, so the pair of
+        // cells and the continuation marker come along
+        Term wide = new Term(6, 1);
+        Check.feed(wide, "\u4e16" + E + "[2b");
+        c.eq("a wide character repeats as a wide one", wide.cp[0] + "," + wide.cp[1] + "," + wide.cp[2],
+                "19990," + Term.WIDE_CONT + ",19990");
+        c.eq("and its pair too", wide.cp[3], Term.WIDE_CONT);
+
+        // a combining mark is not a graphic character to repeat
+        Term mark = new Term(4, 1);
+        Check.feed(mark, "e\u0301" + E + "[1b");
+        // the marked cell keeps its cluster (and the row reads `é`), and the
+        // repeat is the plain `e` beside it — `screenText` composes, so the cells
+        // are what says which is which
+        c.eq("the marked cell is still one composed glyph", mark.cp[0], 0x00E9);
+        c.eq("and the repeat is a plain e", mark.cp[1] + "," + (mark.cluster[1] == null),
+                "" + (int) 'e' + ",true");
+
+        // a count no program should be able to hang the parser with: clamped to
+        // a page of cells, and the screen is simply full
+        Term huge = new Term(4, 2);
+        Check.feed(huge, "q" + E + "[999999999b");
+        // clamped to a page of cells: 9 cells on 8 scroll the grid by one, and
+        // the point is that the call returns at all
+        c.eq("a huge count fills the line instead of hanging", huge.screenText(0), "qqqq");
+        c.eq("and the cursor is past the wrap", huge.cx, 1);
+    }
+
+    /**
+     * The two cursor reports (`B84`): `CSI 6 n` is DSR and its answer is
+     * `CSI r;cR`; `CSI ? 6 n` is DECXCPR and its answer **carries the `?`**. The
+     * `?` is the whole message — a program that asked the private question reads
+     * a plain answer as the answer to something else.
+     */
+    private static void decxcpr(Check c) {
+        Term t = new Term(6, 3);
+        Check.feed(t, "\r\n  ");
+        c.eq("the row is counted from one, and the column too",
+                reply(t, E + "[6n"), E + "[2;3R");
+        c.eq("the private question is answered with its `?`",
+                reply(t, E + "[?6n"), E + "[?2;3R");
+        c.eq("and asking twice does not merge the answers",
+                reply(t, E + "[6n" + E + "[?6n"), E + "[2;3R" + E + "[?2;3R");
+        c.eq("a status report is still `CSI 0 n`", reply(t, E + "[5n"), E + "[0n");
+        c.eq("and an unknown `n` is silent", reply(t, E + "[9n"), "");
+    }
+
+    /** What the grid wrote back to the child, after feeding {@code s}. */
+    private static String reply(Term t, String s) {
+        Check.feed(t, s);
+        return new String(t.takeChildOut(), java.nio.charset.StandardCharsets.UTF_8);
     }
 }
