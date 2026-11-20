@@ -19,6 +19,7 @@ public final class SessionChecks {
             crooked(c);
             theDirectoryComesFromTheBestAnswer(c);
             theHomeDirectoryIsATilde(c);
+            theWindowCarriesTheProgramName(c);
             onlyOneWindowOwnsTheState(c);
         } catch (Exception e) {
             c.is("the session suite could write a temp file: " + e, false);
@@ -177,6 +178,22 @@ public final class SessionChecks {
         c.eq("one that only looks like home is left alone", util.Cwd.under(home + "2"), home + "2");
         c.eq("and a plain name is left alone", util.Cwd.under("share"), "share");
         c.eq("a title that is no title is no answer", util.Cwd.under(null), null);
+    }
+
+    /**
+     * The frame's name: the tab's title and the program's own, the way a browser
+     * writes it (`~ - tortty-java`). The suffix is composed outside
+     * `Term.windowTitle()` on purpose — that string is also the tab label and the
+     * debug answer — so it is proved here and never leaks into either.
+     */
+    private static void theWindowCarriesTheProgramName(Check c) {
+        c.eq("a tab in the home directory", util.WindowTitle.of("~"), "~ - tortty-java");
+        c.eq("and a program's own title", util.WindowTitle.of("mc"), "mc - tortty-java");
+        c.eq("the fallback is not said twice", util.WindowTitle.of("tortty-java"), "tortty-java");
+        c.eq("nor is an empty title", util.WindowTitle.of(""), "tortty-java");
+        c.eq("nor is no title", util.WindowTitle.of(null), "tortty-java");
+        c.eq("a title already wearing it stays",
+                util.WindowTitle.of("x - tortty-java"), "x - tortty-java");
     }
 
     private static void crooked(Check c) throws Exception {

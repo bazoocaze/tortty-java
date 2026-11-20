@@ -318,7 +318,7 @@ public final class Main {
             }
             session = (stateWanted && !scratch) ? Session.load() : new Session();
 
-            frame = new JFrame("tortty-java");
+            frame = new JFrame(util.WindowTitle.APP);
             // the close button is ours, not the toolkit's: `EXIT_ON_CLOSE` calls
             // `System.exit` on its own, which leaves before `windowClosing` gets
             // to drain the children (`B48`) — and, with a flooded event loop,
@@ -1633,7 +1633,7 @@ public final class Main {
 
         private void syncFrameTitle() {
             Tab t = activeTab();
-            String title = t == null ? "tortty-java" : t.term.windowTitle();
+            String title = util.WindowTitle.of(t == null ? "" : t.term.windowTitle());
             if (!title.equals(frame.getTitle())) frame.setTitle(title);
         }
 

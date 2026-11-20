@@ -2127,7 +2127,7 @@ public final class Term {
             n = util.Cwd.name(cwd);
             if (n != null) return n;
         }
-        return "tortty-java";
+        return util.WindowTitle.APP;
     }
 
     private void csiByte(int b) {

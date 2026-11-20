@@ -436,8 +436,10 @@ Features implemented in the Java version of TorTTY.
   name its fresh shell was born with; the home directory itself reads `~` (and a
   title that carries the whole path, which is what a prompt writing `$PWD` sends
   as `OSC 2`, reads `~/sub`), then a cut at 24 characters and a `•` marker
-  when a background tab received a notification; the window title mirrors the
-  active tab. A dead shell closes its tab; the last one closes the app. The
+  when a background tab received a notification; the window title is that title
+  followed by ` - tortty-java`, the way a browser names its window, and plain
+  `tortty-java` when the tab has no title of its own (never twice). A dead shell
+  closes its tab; the last one closes the app. The
   wheel over the strip cycles one tab per detent (a touchpad's travel
   accumulates, a direction change drops the rest); a drag with the button held
   reorders, and the tab only moves after passing half of its own label, so a

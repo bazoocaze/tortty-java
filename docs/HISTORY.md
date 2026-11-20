@@ -2371,3 +2371,13 @@ test harness could not make `xdotool windowactivate` deliver a second gained-foc
 at all, and a badge nobody clears would sit on the tab forever. What that harness
 did prove, by accident and on purpose, is the bell's half: a `BEL` arriving while
 another window has the focus raises the dot on the tab.
+
+## 2026-11-20 — the window wears the program's name
+
+The owner looked at Chrome, saw it name its window `page - Chrome`, and asked for
+the same here. `util.WindowTitle.of` appends ` - tortty-java` to the title of the
+tab in front; the rule sits outside `Term.windowTitle()` because that string is
+also the tab label (cut at 24 characters) and the debug answer, and a decorated
+title there would leak into both. A tab with no title of its own — and the
+fallback itself — reads plain `tortty-java`, never doubled, and six checks in the
+session suite pin those cases.
