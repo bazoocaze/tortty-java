@@ -6,7 +6,7 @@
 
   <groupId>tortty</groupId>
   <artifactId>tortty-java</artifactId>
-  <version>0.0.21</version>
+  <version>0.0.22</version>
 
   <properties>
     <maven.compiler.release>21</maven.compiler.release>

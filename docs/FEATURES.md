@@ -547,8 +547,8 @@ place a launch from a desktop icon can show anything.
 - `OSC 9`/`777` of the front tab becomes a `Notification` notice (8 s); a
   background tab keeps its badge, as before.
 - **A bell or a notification that arrives where nobody is looking** raises the
-  badge on the tab — and so on the workspace card — until the tab is visited or
-  the window comes back. A visual `bell` in the tab in front still just flashes;
+  badge: a dot before the tab's name and a yellow dot on the workspace card,
+  either one until the tab is visited or the window comes back. A visual `bell` in the tab in front still just flashes;
   an audible one is the panel's beep for the tab in front and the window's for a
   background tab, never both. The Rust version asks the window manager for
   attention instead; Java has no portable way to ask, so the asking stays inside

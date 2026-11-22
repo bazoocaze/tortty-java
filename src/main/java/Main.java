@@ -175,9 +175,15 @@ public final class Main {
             return t == null ? "" : t.term.windowTitle();
         }
 
-        /** A parked tab with a pending notification tints the whole workspace. */
+        /**
+         * The workspace asks to be looked at: a parked tab with a pending
+         * notification, or any tab wearing the badge — a bell that rang where
+         * nobody was looking raises the same one (`B86`).
+         */
         boolean alert() {
-            for (Tab t : tabs) if (t.term.notifs != t.ackedNotifs) return true;
+            for (Tab t : tabs) {
+                if (t.badge || t.term.notifs != t.ackedNotifs) return true;
+            }
             return false;
         }
 
@@ -1248,7 +1254,7 @@ public final class Main {
                         .append(w.tabs.size() == 1 ? " tab" : " tabs");
                 Tab t = w.activeTab();
                 if (t != null) sb.append(": ").append(escape(t.term.windowTitle()));
-                if (w.alert()) sb.append("<br>has a notification");
+                if (w.alert()) sb.append("<br>asks for attention");
                 sb.append("<br><i>Ctrl+Shift+").append(i + 1)
                         .append(" select \u00b7 double click rename \u00b7 middle click close</i>");
                 return sb.toString();

@@ -2300,10 +2300,9 @@ does not give out the window id.
 
 `B86` was blocked on a decision, and the owner made it: keep the asking **inside
 our own window**. So a bell that rings where nobody is looking — a background
-tab, or a window out of focus — raises the same badge a notification does, and
-an audible bell beeps wherever the tab lives (the panel only ever hears the tab in
-front, which was a second, quieter bug: a background tab's bell was swallowed
-whole). The window manager is never asked, and the rule is one pure function,
+tab, or a window out of focus — raises the badge, and an audible bell beeps
+wherever the tab lives. (The first cut also beeped for the tab in front and rang
+twice there; the entry further down tells that story.) The window manager is never asked, and the rule is one pure function,
 `ui/Attention.ask(windowActive, front, bellMode)`, so the table is checked without
 a window: a visual bell in front and in focus only flashes; in a background tab
 or out of focus it is a badge; an audible one is a beep; `bell none` asks nothing.
@@ -2381,3 +2380,11 @@ also the tab label (cut at 24 characters) and the debug answer, and a decorated
 title there would leak into both. A tab with no title of its own — and the
 fallback itself — reads plain `tortty-java`, never doubled, and six checks in the
 session suite pin those cases.
+
+"What does a notification mean?" the owner then asked, because `FEATURES` promised
+a badge "on the tab and on the workspace card" and only the tab had one. He was
+right: `alert()` decided the card's dot by comparing notification counters, so a
+bell — which raises the badge without touching them — tinted nothing in the
+column, the one place a background workspace is looked at. It now answers to the
+badge as well, and the hint says *asks for attention* rather than *has a
+notification*, since a bell is not one.

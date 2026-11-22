@@ -7,8 +7,9 @@ package ui;
  * every notification raise the urgency hint. Java has no portable way to ask
  * (the hint is an X11 property of our own window and the JDK does not give out
  * the window id), so the decision was to keep the asking **inside our own
- * window**: a bell that rings where nobody is looking raises the same badge a
- * notification does, and an audible bell still beeps wherever the tab lives.
+ * window**: a bell that rings where nobody is looking wears the same badge a
+ * notification leaves on a tab, and an audible bell still beeps wherever the tab
+ * lives.
  *
  * The rule is one pure function so it can be checked without a window: it only
  * needs to know whether the window has focus, whether the tab is in front, and
@@ -27,7 +28,7 @@ public final class Attention {
     public enum Ask {
         /** The grid is in front and the window has focus: the flash is enough. */
         NOTHING,
-        /** A badge on the tab, and so on the workspace card: the asking we have. */
+        /** The badge on the tab, and so the card's dot: the asking we have. */
         BADGE,
         /** A beep, which is the window's and works wherever the tab lives. */
         BEEP
