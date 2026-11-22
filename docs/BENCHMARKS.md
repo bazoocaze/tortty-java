@@ -241,3 +241,47 @@ reverted; the counters that measured it stayed (`state` reports `feeds`,
 `feed_bytes`, `feeds_per_mb`), because the next lever — yielding only when the
 event queue has work — needs exactly that number.
 
+
+## The hold that ends the slice when nothing waits (2026-11-22, `B74`)
+
+The predecessor section named the lever and left it untested: "yield only when
+the event queue has work". It was implemented as a **hold** — the slice still
+ends a visit, but the visit continues if a look at the event queue finds nothing
+but repaints, up to `util.Pace.DRAIN_HOLD_MAX_MS` (120 ms).
+
+Protocol as always: `tools/bench-ab.py`, display of its own, `80x24`, font 17,
+`--no-vsync`, 800 frames of `doomfire`, 6 interleaved pairs, both jars built from
+the same tree (A = `0.0.23`, B = A plus the hold).
+
+| side | runs | median | range |
+|---|---|---|---|
+| A (`0.0.23`, deadline) | 306.6 · 301.8 · 304.8 · 314.6 · 331.0 · 337.0 | **310.6** | 301.8–337.0 |
+| B (hold) | 340.3 · 330.9 · 345.6 · 343.7 · 406.5 · 378.6 | **344.65** | 330.9–406.5 |
+
+**+11.0%**, and B won **all six pairs** (306→340, 302→331, 305→346, 315→344,
+331→406, 337→379), so this is not the drift that made the first attempt look
+like −14%: that run started at 1.86 GHz and ended at 4.29 GHz, while every pair
+here is two runs under one clock.
+
+### The two wrong turns, because the first one looked right
+
+1. **Asking the queue `peekEvent()` and treating a pending repaint as work.**
+   Measured with a probe on the debug socket: `visits_extended = 0` next to 50
+   visits that ran out of slice, and B/A **0.993** — nothing happened, because a
+   flood posts a repaint with every feed.
+2. **Asking for input and for `INVOCATION_*`.**  Still `visits_extended = 0`, and
+   the needle (`visits_work_id`, since removed) answered **1200**:
+   `InvocationEvent.INVOCATION_DEFAULT`. A repaint's repair work reaches the queue
+   as an *invocation*, not as a `PaintEvent`, so every visit was told to stop for
+   the flood's own noise.
+
+With `INVOCATION_*` out of the list, the same probe read
+`visits_extended = 86`, `visits_slice = 9`, `visits_empty = 21` — the hold was
+discharging — and the table above is what it bought.
+
+**Cost, stated:** while the backlog is deep the grid paints at the hold's pace
+(≤120 ms, about 8 fps) instead of the slice's (≤48 ms), and work scheduled with
+`invokeLater` or a Swing timer can land up to one hold late. A keystroke is not:
+keys, the pointer, focus, resize and a close are what the look asks for, and each
+is answered at the next slice edge (≤48 ms), which is where the old deadline
+answered it too.

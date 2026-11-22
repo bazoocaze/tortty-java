@@ -34,6 +34,25 @@ public final class Pace {
     /** The ceiling on that wait, so a flood cannot hold the way out hostage. */
     public static final long EXIT_DRAIN_MAX_MS = 300;
 
+    /**
+     * The most a drain may hold the event loop while nothing is waiting for it
+     * (`B74`): the slice ends a visit, this ends the extensions that follow.
+     */
+    public static final long DRAIN_HOLD_MAX_MS = 120;
+
+    /**
+     * Whether a drain that has spent its slice may keep feeding (`B74`). The
+     * slice exists to let the loop breathe: deliver a key, paint the grid, run
+     * the way out. When nothing but a repaint waits, there is nobody to breathe
+     * for, and the only bound left is the hold — measured at 341 fps against 130
+     * with a flat 4 ms slice, and 791 when the reader is never throttled, which
+     * is where the hold is trying to land without keeping a keystroke behind it
+     * (`BENCHMARKS.md`).
+     */
+    public static boolean keepFeeding(boolean workWaiting, long startNs, long nowNs) {
+        return !workWaiting && nowNs - startNs < DRAIN_HOLD_MAX_MS * 1_000_000L;
+    }
+
     /** How long a drain may run for {@code inboxBytes} waiting (`B73`, `L23`). */
     public static long sliceMs(int inboxBytes) {
         long ms = DRAIN_MIN_MS + Math.max(0, inboxBytes) / SLICE_STEP_BYTES;

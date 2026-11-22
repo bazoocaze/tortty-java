@@ -251,6 +251,12 @@ public final class Main {
         private volatile long lastFeedNs = System.nanoTime();
         /** How many feed calls reached a grid, and how many bytes (`L23`). */
         private long statFeeds;
+        /** How often a visit ran past its slice with nothing waiting (`B74`). */
+        private long statExtends;
+        /** How often it stopped at the slice with something waiting (`B74`). */
+        private long statClockYields;
+        /** How often the inbox emptied before the slice was spent (`B74`). */
+        private long statEmptyEnds;
         private long statBytes;
         /**
          * Set the moment a way out is asked for — the close button, `SIGTERM`,
@@ -266,6 +272,30 @@ public final class Main {
         /** How long the exit waits for the child to stop talking (`L23`). */
         private static final long EXIT_QUIET_MS = util.Pace.EXIT_QUIET_MS;
         private static final long EXIT_DRAIN_MAX_MS = util.Pace.EXIT_DRAIN_MAX_MS;
+        /**
+         * What a held drain looks for before it keeps feeding past its slice
+         * (`B74`). Repaints are missing on purpose: they are the flood's own
+         * noise, and a held drain paints when it lets go anyway. `INVOCATION_*`
+         * is missing for a measured reason: the repair work a repaint schedules
+         * reaches the queue as an `InvocationEvent`, so asking for it answered
+         * yes on every visit (measured `visits_extended = 0` next to 50 visits
+         * that ran out of slice), which is the one answer that keeps the slice
+         * exactly as it was.
+         */
+        private static final int[] WORK_IDS = {
+            java.awt.event.KeyEvent.KEY_PRESSED,
+            java.awt.event.KeyEvent.KEY_RELEASED,
+            java.awt.event.KeyEvent.KEY_TYPED,
+            java.awt.event.MouseEvent.MOUSE_PRESSED,
+            java.awt.event.MouseEvent.MOUSE_RELEASED,
+            java.awt.event.MouseEvent.MOUSE_CLICKED,
+            java.awt.event.MouseEvent.MOUSE_WHEEL,
+            java.awt.event.MouseEvent.MOUSE_DRAGGED,
+            java.awt.event.FocusEvent.FOCUS_GAINED,
+            java.awt.event.ComponentEvent.COMPONENT_RESIZED,
+            java.awt.event.WindowEvent.WINDOW_CLOSING,
+            java.awt.event.WindowEvent.WINDOW_STATE_CHANGED,
+        };
         /**
          * The ceiling on waiting for the children to leave once the hangup went
          * out (`B48`). It is a ceiling, not a schedule: a shell leaves on
@@ -1749,12 +1779,14 @@ public final class Main {
                     return;
                 }
             }
-            long deadline = System.nanoTime() + slice(t) * 1_000_000L;
+            long start = System.nanoTime();
+            long deadline = start + slice(t) * 1_000_000L;
             while (true) {
                 byte[] chunk;
                 synchronized (t.inbox) {
                     chunk = quitting ? null : pollChunk(t);
                     if (chunk == null) {
+                        statEmptyEnds++;
                         t.inbox.clear();
                         t.inboxBytes = 0;
                         t.drainPosted = false;
@@ -1764,10 +1796,34 @@ public final class Main {
                 }
                 if (t.stopFeed) return;
                 feedGuarded(t, chunk, true);
-                if (System.nanoTime() >= deadline) {
+                long now = System.nanoTime();
+                if (now < deadline) continue;
+                // the slice is spent: keep it only if nothing else wants the
+                // loop, and only as far as the hold (`B74`)
+                if (!util.Pace.keepFeeding(workWaiting(), start, now)) {
+                    statClockYields++;
                     yieldDrain(t);
                     return;
                 }
+                statExtends++;
+                deadline = now + slice(t) * 1_000_000L;
+            }
+        }
+
+        /**
+         * True when something other than a repaint waits on the event loop
+         * (`B74`): a key, the pointer, focus, a resize, a close, or work another
+         * thread or a timer handed to it. A repaint is deliberately not work —
+         * a flood posts one with every feed, so it would answer yes for ever,
+         * and a held drain paints anyway when it lets go.
+         */
+        private boolean workWaiting() {
+            try {
+                java.awt.EventQueue q = java.awt.Toolkit.getDefaultToolkit().getSystemEventQueue();
+                for (int id : WORK_IDS) if (q.peekEvent(id) != null) return true;
+                return false;
+            } catch (RuntimeException e) {
+                return true;   // no queue to ask: behave as before, yield on the clock
             }
         }
 
@@ -2211,6 +2267,11 @@ public final class Main {
                     m.put("feed_bytes", statBytes);
                     m.put("feeds_per_mb", statBytes == 0 ? 0.0
                             : Math.round(statFeeds * 1e6 / statBytes) / 1e3);
+                    // and where a visit ended (`B74`): the deadline, an extension,
+                    // or an empty inbox — which of the three the flood pays for
+                    m.put("visits_slice", statClockYields);
+                    m.put("visits_extended", statExtends);
+                    m.put("visits_empty", statEmptyEnds);
                     // the grid on screen: a mouse test needs the cell the pointer
                     // is over, and only the app knows where Swing put the panel
                     int[] grid = new int[] {0, 0, 0, 0};

@@ -270,6 +270,10 @@ Features implemented in the Java version of TorTTY.
   `2004`, `2026`, `66`) as `CSI ? Ps ; Pm $ y`, with `Pm` 1 = set, 2 = reset and
   0 = not recognised — what vim, tmux and mc ask before they trust a mode. The
   ANSI forms (`4` IRM, `20` LNM) are answered too.
+- `CHA` under two spellings (`B89`): `CSI Ps G` puts the cursor in column `Ps`,
+  and so does HPA's old final byte — a grave accent after `CSI Ps` — clamped to
+  the last column. xterm documents the two as one command, and programs written
+  for the VT100 still send the older one.
 - `?6` origin mode and `?7` autowrap (`B39`): with `?7l` the last column is the
   end of the line — the next glyph overwrites it and no wrap is armed (a wide
   glyph backs up into the last two cells); with `?6h` `CUP`/`HVP`/`VPA` count
@@ -305,10 +309,12 @@ Features implemented in the Java version of TorTTY.
 - Reader thread with a **bounded inbox** per tab and an exit watcher: the reader
   stops once a tab's inbox passes 2 MB, so a child that floods fills the pty and
   blocks on `write` — the backpressure a real terminal gives — instead of growing
-  a queue until the JVM dies; the event loop feeds in 4 ms slices, 32 ms while
-  the inbox is deep (the round trip out of `invokeLater` costs the child more
-  than the slice itself — see `BENCHMARKS`), so a click, a repaint or the way out
-  is never behind megabytes of output (`L23`).
+  a queue until the JVM dies; the event loop feeds in slices that ramp with the
+  backlog (4 ms for a trickle, 48 ms when 2 MB wait) and keeps going past the
+  slice while the event queue holds nothing but repaints, up to a 120 ms hold
+  (`B74`: +11% on `doomfire`, 310.6 → 344.65 fps median — see `BENCHMARKS`), so a
+  keystroke, the pointer, a resize or the way out is never behind more than one
+  slice (`L23`).
 - Resize via the platform: the grid and the pixel half of `TIOCSWINSZ` in one
   call, because the wire clears the pixels whenever it carries the grid.
 - Configurable shell (config `shell`, `--cmd`), resolved by the platform: the one
@@ -717,7 +723,8 @@ what the hot reload watches.
   prints the real size now. `pty/PtyChecks` reads the struct back from a real
   child.
 - Leaving is bounded (`L23`): the drain's slice ramps with the backlog (4 ms for a
-  trickle, up to 48 ms when 2 MB are waiting — `util/Pace`), the way out hands the
+  trickle, up to 48 ms when 2 MB are waiting, extended to a 120 ms hold while
+  nothing but repaints wait — `util/Pace`), the way out hands the
   feeding of each grid to its own reader without losing a queued byte and then
   **waits for the child to stop talking** (30 ms of silence, 300 ms at most)
   before taking the picture, and the grid is taken away from every feeder first,

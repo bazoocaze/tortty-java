@@ -46,11 +46,17 @@ reused.
   hypothesis for the rest was the chunk itself — merging what the reader hands
   over — and it was **measured false**: the pty already delivers 58 KB per read,
   so a run feeds 0.017 times per MB and coalescing up to 64 KB moved throughput
-  by 1%. What is left is the **yield**: the slice hands the loop back on a
-  deadline whether or not anything is waiting for it, and only the run with no
-  slice bound reaches 791 fps. The next lever is to yield only when the event
-  queue actually has something; `feeds`/`feed_bytes`/`feeds_per_mb`, reported by
-  the debug socket's `state`, exist so the next claim can be read and not felt.
+  by 1%. The remaining lever was the **yield**: the slice handed the loop back on
+  a deadline whether or not anything was waiting for it. A visit now continues
+  past its slice while the event queue holds nothing but repaints, up to a 120 ms
+  hold (`util/Pace.DRAIN_HOLD_MAX_MS`), which measured **+11%** (median 310.6 →
+  344.65 fps, B winning all six interleaved pairs — the table and the two wrong
+  turns are in [`BENCHMARKS.md`](BENCHMARKS.md)). It is not parity yet: a deep
+  backlog still paints at the hold's pace (about 8 fps) instead of every slice,
+  work queued with `invokeLater` or a Swing timer can land one hold late, and the
+  unthrottled reader remains the ceiling. `feeds`/`feed_bytes`/`feeds_per_mb` and
+  `visits_slice`/`visits_extended`/`visits_empty`, reported by the debug socket's
+  `state`, exist so the next claim can be read and not felt.
 
 ## Graphics and images
 

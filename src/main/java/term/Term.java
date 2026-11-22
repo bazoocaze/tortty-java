@@ -2247,7 +2247,9 @@ public final class Term {
             case 'D' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, cx - n); wrapPending = false; }
             case 'E' -> { int n = (p0 >= 0 ? p0 : 1); int max = cy > bot ? rows - 1 : bot; cy = Math.min(max, cy + n); cx = 0; wrapPending = false; }
             case 'F' -> { int n = (p0 >= 0 ? p0 : 1); int min = cy < top ? 0 : top; cy = Math.max(min, cy - n); cx = 0; wrapPending = false; }
-            case 'G' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, Math.min(cols - 1, n - 1)); wrapPending = false; }
+            // the grave accent is HPA's old final byte, and xterm still answers
+            // it: the two are one command with two spellings (`B89`)
+            case 'G', '`' -> { int n = (p0 >= 0 ? p0 : 1); cx = Math.max(0, Math.min(cols - 1, n - 1)); wrapPending = false; }
             case 'd' -> {
                 int r = (p0 >= 0 ? p0 - 1 : 0);
                 cy = origin ? Math.max(top, Math.min(bot, r + top)) : Math.max(0, Math.min(rows - 1, r));

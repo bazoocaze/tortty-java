@@ -2394,3 +2394,21 @@ eight pixels. The divider had four — half a target for the same gesture, and t
 only thing in the window dragged with no room to spare. Six now, wide enough to
 grab and narrow enough to stay a line (`B88`). Measured on Xvfb: the band is
 columns 171 to 176, six pixels, and the column either side keeps its width.
+
+## 2026-11-22 — CHA's second spelling, and a drain that keeps working (`B89`, `B74`)
+
+**Context.** The Rust inventory left two gaps: its `VT.md` says HPA's old final
+byte is accepted, and the backlog's `B74` said the drain yields on a deadline
+"whether or not anything is waiting", which the chunk experiment had already
+named as the last lever for the flood rate.
+
+**Activities.** `CSI Ps` + a grave accent now reaches the same arm as `CSI Ps G`,
+with two checks (the move and the clamp); the drain gained `Pace.keepFeeding` and
+a `workWaiting()` that asks the event queue for keys, the pointer, focus, a
+resize and a close — never for repaints — bounded by a 120 ms hold.
+
+**Result.** Two wrong turns, both measured: `visits_extended = 0` with a repaint
+in the list, and again with `INVOCATION_*`, where a needle showed the queue was
+full of `INVOCATION_DEFAULT` — a repaint's repair work arrives as an invocation.
+Without it the hold discharges and `bench-ab.py` reads **+11%** (310.6 → 344.65
+fps median, B winning all six pairs); gate green, selftest 1877, render 109.

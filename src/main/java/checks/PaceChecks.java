@@ -34,6 +34,21 @@ public final class PaceChecks {
         c.is("and nothing goes past it", Pace.sliceMs(64 * 1024 * 1024) == Pace.DRAIN_MAX_MS);
         c.is("the ceiling stays far under what a person notices", Pace.DRAIN_MAX_MS <= 64);
 
+        // a drain keeps feeding past its slice only while nothing waits (`B74`)
+        long ns = 1_000_000L;
+        c.is("nothing waiting keeps the drain at work",
+                Pace.keepFeeding(false, 0, Pace.DRAIN_MAX_MS * ns));
+        c.is("a keystroke ends the visit at the slice",
+                !Pace.keepFeeding(true, 0, Pace.DRAIN_MIN_MS * ns));
+        c.is("and the hold ends it even with nothing waiting",
+                !Pace.keepFeeding(false, 0, Pace.DRAIN_HOLD_MAX_MS * ns));
+        c.is("one millisecond under it is still the drain's",
+                Pace.keepFeeding(false, 0, (Pace.DRAIN_HOLD_MAX_MS - 1) * ns));
+        c.is("the hold is longer than any slice, or it would never extend",
+                Pace.DRAIN_HOLD_MAX_MS > Pace.DRAIN_MAX_MS);
+        c.is("and short enough that a frozen grid is never the picture",
+                Pace.DRAIN_HOLD_MAX_MS <= 150);
+
         // the exit waits for silence, not for a clock
         long ms = 1_000_000L;
         c.is("29 ms of silence is not quiet yet",

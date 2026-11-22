@@ -84,6 +84,11 @@ public final class TermChecks {
         c.eq("CUD", t.cy, 3);
         Check.feed(t, E + "[5G");
         c.eq("CHA", t.cx, 4);
+        // the same command under HPA's old final byte (`B89`)
+        Check.feed(t, E + "[1`");
+        c.eq("HPA's old final byte is CHA", t.cx, 0);
+        Check.feed(t, E + "[99`");
+        c.eq("and it clamps like CHA", t.cx, 9);
         Check.feed(t, E + "[2d");
         c.eq("VPA", t.cy, 1);
         Check.feed(t, E + "[2E");
