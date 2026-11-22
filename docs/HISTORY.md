@@ -2076,7 +2076,7 @@ the default theme. Two things made it more than a one-liner. First, `setUI` call
 `installDefaults`, which puts Metal's `SplitPane.border` *back* after
 `Main` had cleared it, and that border is the bevel: it has to be cleared again
 afterwards. Second, while the split is not showing — which is every headless check —
-the divider component is never painted at all, and the 4 px gap shows the *split's*
+the divider component is never painted at all, and the gap shows the *split's*
 background instead; both are set to the ink, so the check and the window agree even
 though only one of them paints.
 
@@ -2388,3 +2388,9 @@ bell — which raises the badge without touching them — tinted nothing in the
 column, the one place a background workspace is looked at. It now answers to the
 badge as well, and the hint says *asks for attention* rather than *has a
 notification*, since a bell is not one.
+
+The owner noticed the drag handle felt narrow and asked what the scrollbar uses:
+eight pixels. The divider had four — half a target for the same gesture, and the
+only thing in the window dragged with no room to spare. Six now, wide enough to
+grab and narrow enough to stay a line (`B88`). Measured on Xvfb: the band is
+columns 171 to 176, six pixels, and the column either side keeps its width.

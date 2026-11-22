@@ -205,6 +205,11 @@ public final class Main {
         private CardLayout cardLayout;
         private JSplitPane split;
         private Side side;
+        /** How wide the drag handle between the column and the grid is. Six, not
+         * four: the scrollbar's thumb is eight and this is dragged the same way,
+         * so four was half a target (`B88`). */
+        private static final int DIVIDER_W = 6;
+
         private int sideW = 150;
         private boolean sideShown;
         /**
@@ -339,7 +344,7 @@ public final class Main {
             sideW = Math.min(Side.MAX_W, Math.max(sideW, side.minW));
             split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, side, host);
             split.setBorder(null);
-            split.setDividerSize(4);
+            split.setDividerSize(DIVIDER_W);
             Chrome.divider(split, cfg.theme().bg, cfg.theme().fg);
             split.setContinuousLayout(true);
             split.setFocusable(false);
@@ -1372,7 +1377,7 @@ public final class Main {
                 syncingSide = true;
                 try {
                     side.setPreferredSize(new Dimension(want ? sideW : 0, 0));
-                    split.setDividerSize(want ? 4 : 0);
+                    split.setDividerSize(want ? DIVIDER_W : 0);
                     split.setDividerLocation(want ? sideW : 0);
                 } finally {
                     syncingSide = false;

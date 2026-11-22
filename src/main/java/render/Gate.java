@@ -651,7 +651,7 @@ public final class Gate {
         javax.swing.JSplitPane sp = new javax.swing.JSplitPane(javax.swing.JSplitPane.HORIZONTAL_SPLIT,
                 new javax.swing.JPanel(), new javax.swing.JPanel());
         sp.setBorder(null);
-        sp.setDividerSize(4);
+        sp.setDividerSize(6);
         Chrome.divider(sp, 0x000000, 0xD6D6D6);
         sp.setSize(200, 60);
         sp.doLayout();
@@ -663,7 +663,7 @@ public final class Gate {
         g.dispose();
         save("divider", img);
         int want = Chrome.mix(new Color(0x000000), new Color(0xD6D6D6), 0.20f).getRGB() & 0xFFFFFF;
-        eq("the divider size survives the look", sp.getDividerSize(), 4);
+        eq("the divider size survives the look", sp.getDividerSize(), 6);
         // The divider component itself paints nothing outside a showing window, so
         // what the check sees in the gap is the split's background — the same colour,
         // set by the same call.

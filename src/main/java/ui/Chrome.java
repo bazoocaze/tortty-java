@@ -232,7 +232,7 @@ public final class Chrome {
         }
         ui.ink = mix(new Color(bg), new Color(fg), DIVIDER_MIX);
         // Both routes, the same colour, on purpose: the divider paints it, and the
-        // split's background is what shows in the 4 px gap when the divider does not
+        // split's background is what shows in the gap when the divider does not
         // paint at all (which is what happens while the split is not showing — a
         // headless check sees only this one).
         split.setBackground(ui.ink);

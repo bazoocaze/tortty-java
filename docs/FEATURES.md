@@ -784,7 +784,7 @@ what the hot reload watches.
   `dist/install.sh` is the stable URL — it carries no version and asks
   `/releases/latest`. Windows and macOS get the jar, run with their own Java.
 - Window chrome follows the palette: the tab strip, the workspace cards, the
-  context menu, the dialog fonts, the tooltip's size — and the 4 px bar that the
+  context menu, the dialog fonts, the tooltip's size — and the 6 px bar that the
   hand drags between the column and the grid. That bar was the last piece of
   Metal left in the window: a light gradient with a dark line down its middle and
   a 1 px bevel around the split, none of which belonged to either side. It is now
