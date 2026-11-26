@@ -2434,3 +2434,28 @@ was wrong: variants that skip the rasterizing, or the emulation, gain only 12.7%
 and 10.4% over a pty ceiling of 415.8 fps, a paint is 13 ms of CPU and not 26, the
 atlas is slower than the draw it would replace, and the flood's samples sit in
 the CSI parser's `StringBuilder` — `B92` carries that, `B91` was rewritten. Gate green, selftest 1877, render 109.
+
+## 2026-11-25 — the parser stops making paper (`B92`)
+
+**Context.** The flood's profile put 64% of its samples in
+`AbstractStringBuilder.ensureCapacityInternal`, reached from `Term.dispatchCsi`
+and `Term.sgr`: every colour sequence — and a fire lays one down per cell —
+built a `StringBuilder`, copied each parameter into a `String` to read the number
+back out of it, and asked for two fresh arrays of 32.
+
+**Activities.** Both parses now walk the digits where they already are, between
+the separators of `csiBuf`, into a reused `int[32]`; `sgr` keeps its `:` map in a
+reused `char[32]`, since a subparameter is still `4:2` and not a new parameter.
+A number that is empty, that is not made of digits, or that is past `int` range
+still answers -1, which is what `Integer.parseInt` answered before, and
+`TermChecks.csiParamsInPlace` asserts the cases a working program leans on: the
+empty token, the trailing separator, `38:2:…` and `58;5;…` subparameters, and a
+count too large to be a number.
+
+**Result.** +11.1% at 61x18 (611.6 → 679.3 fps) and +9.9% at 80x24 (382.6 →
+420.5), interleaved pairs: 672 k → 746 k cells/s and 735 k → 807 k, which is
+63.5% and 88.2% of each pty ceiling, against the 56% and 79% the garbage had left
+us. Counted rather than inferred, the garbage went with it: 12 s of the fire at
+80x24 was 30 young pauses and ~270 ms stopped before, 14 and 13 pauses and ~105 ms
+after. The gap to Rust on its own grid narrows from ~1.65× to ~1.45× per cell.
+Gate green, selftest 1890, render 109.

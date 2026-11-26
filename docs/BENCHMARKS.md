@@ -387,5 +387,30 @@ sit in `AbstractStringBuilder.ensureCapacityInternal` under
 `Term.dispatchCsi`/`Term.sgr`** — every CSI sequence allocates a `StringBuilder`,
 a `String` per parameter and a `new int[32]`/`new char[32]`, and a fire lays
 down one sequence per cell. That garbage is also what the paint's wall time is
-waiting on. Parsing the parameters in place is `B92`, and it is the only lever
+waiting on. Parsing the parameters in place was `B92`, and it was the only lever
 this investigation found with the numbers on its side.
+
+**`B92`: the parameters read where they lie.** One change and nothing else:
+`dispatchCsi` and `sgr` walk the digits inside `csiBuf` into a reused `int[32]`
+— two reused arrays for the subparameter separators — instead of building a
+`StringBuilder`, a `String` per parameter and a `new int[32]`/`new char[32]`.
+Interleaved pairs, 800 frames, five pairs, same display, same governor, one jar
+per side; the grids are both here because the bill is per cell:
+
+| grid | before | after | gain | cells/s before → after | of its pty ceiling |
+|---|---|---|---|---|---|
+| 61x18 (Rust's protocol) | 611.6 fps | **679.3** | **+11.1%** | 672 k → 746 k | 56% → **63.5%** |
+| 80x24 (this protocol) | 382.6 fps | **420.5** | **+9.9%** | 735 k → 807 k | 79% → **88.2%** |
+
+The pty ceilings are the ones measured above: 1 174 k cells/s at 61x18 and
+916 k at 80x24. Rust documents 965-1 032 fps on 61x18, i.e. 1.06-1.13 M cells/s,
+so the Java version goes from ~1.65× its per-cell bill to ~1.45×: the parser was
+real and it is not the whole story.
+
+**The garbage itself, counted.** The same 12 s of the same fire, at 80x24, with
+`-Xlog:gc` and two runs a side: **30 young pauses on both old runs (281.6 and
+257.7 ms stopped, worst 18.3), 14 and 13 on the new ones (107.0 and 102.3 ms,
+worst 12.9)** — fewer than half the pauses and 60% less time stopped, and each
+new run spends one `Remark` and one `Cleanup` on an old-gen cycle that the old
+build never reached. What is left of those 105 ms is what a cell *writes*, not
+the paper around reading it.

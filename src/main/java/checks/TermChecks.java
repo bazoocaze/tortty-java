@@ -26,6 +26,7 @@ public final class TermChecks {
         decaln(c);
         rep(c);
         decxcpr(c);
+        csiParamsInPlace(c);
         overline(c);
         scrollbackAndText(c);
         windowOps(c);
@@ -1139,6 +1140,42 @@ public final class TermChecks {
                 reply(t, E + "[6n" + E + "[?6n"), E + "[2;3R" + E + "[?2;3R");
         c.eq("a status report is still `CSI 0 n`", reply(t, E + "[5n"), E + "[0n");
         c.eq("and an unknown `n` is silent", reply(t, E + "[9n"), "");
+    }
+
+    /**
+     * The parameters read in place (`B92`) answer what the old reader answered:
+     * empty tokens are -1, a trailing separator adds one, digits stop at the
+     * first non-digit, and anything past `int` is refused rather than wrapped.
+     */
+    private static void csiParamsInPlace(Check c) {
+        Term t = new Term(8, 3);
+        Check.feed(t, E + "[2;3H");
+        c.eq("two parameters put the cursor at row 1, column 2", t.cy * 100 + t.cx, 102);
+        Check.feed(t, E + "[;3H");
+        c.eq("an empty first token counts as one, so the row returns to the top",
+                t.cy * 100 + t.cx, 2);
+        Check.feed(t, E + "[2H");
+        c.eq("one parameter leaves the column alone", t.cy, 1);
+        Check.feed(t, E + "[99999999999999999999;1H");
+        c.eq("a number past int is refused, not wrapped", t.cy * 100 + t.cx, 0);
+        Check.feed(t, E + "[3;1H");
+        c.eq("and the cursor moves again afterwards", t.cy * 100 + t.cx, 200);
+
+        Term s = new Term(8, 1);
+        Check.feed(s, E + "[4;3;38;2;7;8;9mq");
+        c.eq("a style and a truecolour in one sequence still add up",
+                s.fg[0], Color.TRUECOLOR | Color.rgb(7, 8, 9));
+        c.eq("and the attributes before it survive", s.attr[0],
+                (byte) (Term.ITALIC | Term.UNDERLINE));
+        Check.feed(s, E + "[38:2:11:12:13mw");
+        c.eq("the subparameter spelling reaches the same colour",
+                s.fg[1], Color.TRUECOLOR | Color.rgb(11, 12, 13));
+        Check.feed(s, E + "[0;4:5;53me");
+        c.eq("a zero, a style and a rule in one sequence",
+                s.ul[2] * 1000 + (s.attr[2] & Term.OVERLINE), 5000 + Term.OVERLINE);
+        Check.feed(s, E + "[mr");
+        c.eq("a bare SGR drops the attributes", s.attr[3], (byte) 0);
+        c.eq("and takes the colours back to the default", s.fg[3], Color.DEFAULT);
     }
 
     /** What the grid wrote back to the child, after feeding {@code s}. */

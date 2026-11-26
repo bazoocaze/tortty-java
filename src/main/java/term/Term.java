@@ -1653,6 +1653,10 @@ public final class Term {
      * `DCS` of its own, {@code ESC P <p1>;<p2>;<p3> q <body> ST}. Anything else is
      * still not ours and is dropped.
      */
+    /** Parameter scratch, reused by every sequence (`B92`). */
+    private final int[] csiParams = new int[32];
+    private final int[] sgrParams = new int[32];
+    private final char[] sgrSep = new char[32];
     private final StringBuilder dcsBuf = new StringBuilder();
     private boolean dcsOverflow = false;
     /** An unwrapped payload, waiting for the end of the chunk that carried it. */
@@ -2162,6 +2166,34 @@ public final class Term {
         // 0x7f ignore
     }
 
+    /**
+     * The number between two separators of the CSI buffer, read where it lies
+     * (`B92`). A fire lays one colour sequence down per cell, and reading a
+     * parameter used to build a `StringBuilder`, a `String` per parameter and two
+     * arrays per sequence — the garbage the profile found under 64% of the flood's
+     * samples. Answers -1 for an empty token, for anything but digits and for
+     * anything past `int` range, which is what `Integer.parseInt` answered.
+     */
+    private int csiNum(int from, int to) {
+        if (from >= to) return -1;
+        int i = from;
+        boolean neg = false;
+        byte b0 = csiBuf[i];
+        if (b0 == (byte) '-' || b0 == (byte) '+') {
+            neg = b0 == (byte) '-';
+            if (++i == to) return -1;
+        }
+        long v = 0;
+        for (; i < to; i++) {
+            int d = csiBuf[i] - '0';
+            if (d < 0 || d > 9) return -1;
+            v = v * 10 + d;
+            if (v > 2147483648L) return -1;
+        }
+        if (neg) return v > 2147483648L ? -1 : (int) -v;
+        return v > Integer.MAX_VALUE ? -1 : (int) v;
+    }
+
     private int parseNum(String s) {
         if (s == null || s.isEmpty()) return -1;
         try { return Integer.parseInt(s); } catch (NumberFormatException e) { return -1; }
@@ -2189,7 +2221,7 @@ public final class Term {
     }
 
     private void dispatchCsi(int fin) {
-        int[] params = new int[32];
+        int[] params = csiParams;
         int npar = 0;
         int i = 0;
         boolean priv = false;
@@ -2199,19 +2231,17 @@ public final class Term {
             prefix = (char) csiBuf[0];
             if (csiBuf[0] == '?') priv = true;
         }
-        StringBuilder tok = new StringBuilder();
+        int start = i;
         while (i < csiLen) {
-            byte b = csiBuf[i++];
+            byte b = csiBuf[i];
             if (b == (byte) ';' || b == (byte) ':') {
-                if (npar < params.length) params[npar++] = parseNum(tok.toString());
-                tok.setLength(0);
+                if (npar < params.length) params[npar++] = csiNum(start, i);
+                start = ++i;
             } else {
-                tok.append((char) b);
+                i++;
             }
         }
-        if (tok.length() > 0 || (csiLen > i && (csiBuf[csiLen - 1] == ';' || csiBuf[csiLen - 1] == ':'))) {
-            if (npar < params.length) params[npar++] = parseNum(tok.toString());
-        }
+        if (i > start && npar < params.length) params[npar++] = csiNum(start, i);
 
         int p0 = npar > 0 ? params[0] : -1;
         int p1 = npar > 1 ? params[1] : -1;
@@ -2547,32 +2577,32 @@ public final class Term {
     private void sgr() {
         // Re-parse params from csiBuf, keeping whether ':' was used so that
         // SGR subparameters (4:2, 38:2...) are not mistaken for new parameters.
-        int[] params = new int[32];
-        char[] sep = new char[32];
+        int[] params = sgrParams;
+        char[] sep = sgrSep;
         int npar = 0;
         int i = 0;
         if (csiLen > 0 && (csiBuf[0] == '?' || csiBuf[0] == '>' || csiBuf[0] == '<' || csiBuf[0] == '=' || csiBuf[0] == '!')) {
             i = 1;
         }
-        StringBuilder tok = new StringBuilder();
+        int start = i;
         char pending = 0;
         while (i < csiLen) {
-            byte b = csiBuf[i++];
+            byte b = csiBuf[i];
             if (b == (byte) ';' || b == (byte) ':') {
                 if (npar < params.length) {
                     sep[npar] = pending;
-                    params[npar++] = parseNum(tok.toString());
+                    params[npar++] = csiNum(start, i);
                 }
                 pending = (char) b;
-                tok.setLength(0);
+                start = ++i;
             } else {
-                tok.append((char) b);
+                i++;
             }
         }
-        if (tok.length() > 0 || (csiLen > 0 && (csiBuf[csiLen - 1] == ';' || csiBuf[csiLen - 1] == ':'))) {
+        if (i > start || (csiLen > 0 && (csiBuf[csiLen - 1] == ';' || csiBuf[csiLen - 1] == ':'))) {
             if (npar < params.length) {
                 sep[npar] = pending;
-                params[npar++] = parseNum(tok.toString());
+                params[npar++] = csiNum(start, i);
             }
         }
         if (npar == 0) {

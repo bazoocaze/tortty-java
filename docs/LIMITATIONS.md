@@ -59,13 +59,13 @@ reused.
   [`BENCHMARKS.md`](BENCHMARKS.md)) — work queued with `invokeLater` or a Swing
   timer can land one hold late, and the unthrottled reader remains the ceiling.
   The picture has a second ceiling nobody had measured: a paint of this grid takes
-  **13 ms of CPU and 14.6% of the loop**, and variants that drop the paint, or the
-  emulation, gain 12.7% and 10.4% against a pty ceiling of 415.8 fps — so the
-  loop costs about 10% of what the pty delivers at 80x24 — and at 61x18, where the
-  pty's ceiling is 1 070 fps, the app keeps 56% of it, because its bill is per cell
-  and frames are only smaller (`~700 k cells/s` in both grids, against the pty's
-  916 k-1 174 k). `B92` in [`BACKLOG.md`](BACKLOG.md) is the parser garbage the
-  profile puts 64% of the samples in. `feeds`/`feed_bytes`/`feeds_per_mb`,
+  **13 ms of CPU and 14.6% of the loop** (measured before `B92`), and variants that
+  drop the paint, or the emulation, gain 12.7% and 10.4% against a pty ceiling of
+  415.8 fps — so the loop costs about 10% of what the pty delivers at 80x24. The
+  bill is per cell, so the small grid is the honest ruler: the app went from
+  `~700 k cells/s` in both grids to **807 k at 80x24 and 746 k at 61x18** once the
+  parser stopped allocating (88% and 63.5% of each pty ceiling), against Rust's
+  1.06-1.13 M. What is left is the paint and the feed path, not the parser. `feeds`/`feed_bytes`/`feeds_per_mb`,
   `visits_slice`/`visits_extended`/`visits_empty` and `paints`, reported by the
   debug socket's `state`, exist so the next claim can be read and not felt.
 
