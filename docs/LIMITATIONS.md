@@ -52,11 +52,18 @@ reused.
   hold (`util/Pace.DRAIN_HOLD_MAX_MS`), which measured **+11%** (median 310.6 →
   344.65 fps, B winning all six interleaved pairs — the table and the two wrong
   turns are in [`BENCHMARKS.md`](BENCHMARKS.md)). It is not parity yet: a deep
-  backlog still paints at the hold's pace (about 8 fps) instead of every slice,
-  work queued with `invokeLater` or a Swing timer can land one hold late, and the
-  unthrottled reader remains the ceiling. `feeds`/`feed_bytes`/`feeds_per_mb` and
-  `visits_slice`/`visits_extended`/`visits_empty`, reported by the debug socket's
-  `state`, exist so the next claim can be read and not felt.
+  backlog paints at the hold's pace, not at the slice's — a visit now ends at 80 ms
+  so the queue can paint (`util/Pace.PAINT_STALE_MS`), which is 8.4 → 10 paints a
+  second for nothing measurable, where 40 ms gives 14.8 for 9% of the throughput
+  and painting from the drain itself gives the same 14.8 for 12% (the table is in
+  [`BENCHMARKS.md`](BENCHMARKS.md)) — work queued with `invokeLater` or a Swing
+  timer can land one hold late, and the unthrottled reader remains the ceiling.
+  The picture has a second ceiling nobody had measured: one paint of this grid is
+  26 ms, spent in ~1 700 draw calls of a single cell each, so it is the calls and
+  not the pacing that bound the cadence (`B91` in
+  [`BACKLOG.md`](BACKLOG.md)). `feeds`/`feed_bytes`/`feeds_per_mb`,
+  `visits_slice`/`visits_extended`/`visits_empty` and `paints`, reported by the
+  debug socket's `state`, exist so the next claim can be read and not felt.
 
 ## Graphics and images
 
@@ -77,6 +84,3 @@ reused.
   not been written yet (`docs/PORTABILITY.md` has the cost of each). So "Unix
   only" is no longer a shape the code has; it is an implementation nobody has
   written.
-- **`L7` — no splits.** Tabs (`B20`) and workspaces (`B21`) exist; two terminals
-  side by side in one view does not, and it needs the layout and the shortcuts
-  that go with it before it is worth having.

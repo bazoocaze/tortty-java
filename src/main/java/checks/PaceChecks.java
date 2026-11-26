@@ -49,6 +49,12 @@ public final class PaceChecks {
         c.is("and short enough that a frozen grid is never the picture",
                 Pace.DRAIN_HOLD_MAX_MS <= 150);
 
+        // the picture cannot wait longer than the visit it rides on (`B90`)
+        c.is("the picture is given the loop before the hold runs out",
+                Pace.PAINT_STALE_MS > 0 && Pace.PAINT_STALE_MS < Pace.DRAIN_HOLD_MAX_MS);
+        c.is("and not so often that the hold never happens",
+                Pace.PAINT_STALE_MS >= Pace.DRAIN_MAX_MS);
+
         // the exit waits for silence, not for a clock
         long ms = 1_000_000L;
         c.is("29 ms of silence is not quiet yet",

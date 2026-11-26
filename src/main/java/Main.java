@@ -1799,8 +1799,10 @@ public final class Main {
                 long now = System.nanoTime();
                 if (now < deadline) continue;
                 // the slice is spent: keep it only if nothing else wants the
-                // loop, and only as far as the hold (`B74`)
-                if (!util.Pace.keepFeeding(workWaiting(), start, now)) {
+                // loop (`B74`), and never past the staleness of the picture,
+                // which the queue paints as soon as this returns (`B90`)
+                if (now - start >= util.Pace.PAINT_STALE_MS * 1_000_000L
+                        || !util.Pace.keepFeeding(workWaiting(), start, now)) {
                     statClockYields++;
                     yieldDrain(t);
                     return;
@@ -2272,6 +2274,7 @@ public final class Main {
                     m.put("visits_slice", statClockYields);
                     m.put("visits_extended", statExtends);
                     m.put("visits_empty", statEmptyEnds);
+                    m.put("paints", activeTab() == null ? 0 : activeTab().panel.paints);
                     // the grid on screen: a mouse test needs the cell the pointer
                     // is over, and only the app knows where Swing put the panel
                     int[] grid = new int[] {0, 0, 0, 0};

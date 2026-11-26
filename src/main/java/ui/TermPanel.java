@@ -79,6 +79,8 @@ public final class TermPanel extends JPanel implements KeyListener {
     private boolean blinkOn = true;
     private boolean damagePaintPending;
     private boolean fullPaintPending = true;
+    /** Paintings the grid made, reported by the debug socket (`B90`). */
+    public long paints;
     /** The draw gate (`L4`): on unless `--no-vsync` asked for painting flat out. */
     private boolean vsync = true;
     private final FrameGate frameGate = new FrameGate();
@@ -600,6 +602,7 @@ public final class TermPanel extends JPanel implements KeyListener {
         final boolean full = fullPaintPending || !damagePaintPending || term.viewOff() > 0;
         fullPaintPending = false;
         damagePaintPending = false;
+        paints++;
 
         final int cols = term.cols, rows = term.rows;
         final int cellW = cellW(), cellH = cellH();

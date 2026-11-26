@@ -285,3 +285,53 @@ discharging — and the table above is what it bought.
 keys, the pointer, focus, resize and a close are what the look asks for, and each
 is answered at the next slice edge (≤48 ms), which is where the old deadline
 answered it too.
+
+## The picture that waits behind the hold (2026-11-25, `B90`)
+
+The hold bought throughput by not returning to the event loop, and the grid's
+repaint was in the queue behind it: during a deep flood the picture moved about
+8 times a second. The obvious repair — paint it from inside the drain, or hand
+the loop back sooner — is a trade, so it was measured. Same condition
+(`bench-ab.py`, schedutil, 80x24 font 17, 800 frames, 6 interleaved pairs);
+*paper* is the paint cadence read from the new `paints` counter of the debug
+socket, over a 2.5 s window of the same flood.
+
+| how the visit ends | paints/s | feeds/s | fps (bench) |
+|---|---|---|---|
+| hold only, up to 120 ms (`B74`, the base) | 8.4 | 3 855 | 343.7 |
+| hold, and the drain paints at 80 ms | 14.8 | 3 528 | 302.0 (**−12.1%**) |
+| hold, and the drain paints at 40 ms | 28.4 | 2 607 | — (−32% feeds) |
+
+The two pacing variants were then re-measured on a quieter machine, in one
+sitting, base first and base again for the second (the absolute number moves with
+the machine: 343.7 then 375.1 and 376.6 for the same base jar):
+
+| how the visit ends | paints/s | feeds/s | fps (bench) |
+|---|---|---|---|
+| hold only, the base of that sitting | 8.4 | 3 855 | 375.1 / 376.6 |
+| hold, cut at 80 ms (**chosen**) | 10.0 | 3 826 | 377.5 (**+0.7%**) |
+| hold, cut at 40 ms | 14.8 | 3 633 | 336.5 (**−10.7%**) |
+
+The repeat was worth it: the first sitting ran a probe beside the bench, and the
+40 ms row moved from −9.4% to −10.7% — the direction was right, the number was
+optimistic.
+
+Two things fall out. Painting from the drain costs more than letting the queue
+do it: 80 ms of the same cadence costs 12.1% instead of 9.4%, because
+`paintImmediately` flushes the repaint manager on top of the paint itself. And
+the knob is not linear — 40 ms is the knee, where 48% more picture costs 9% of
+the throughput, while 80 ms buys 19% for nothing measurable. The gate keeps
+80 ms (`Pace.PAINT_STALE_MS`), the price of a visit is stated in `L23`, and
+`paints` next to `visits_slice` makes the next claim readable.
+
+**Why not simply paint faster.** Because a paint of this grid already costs
+26 ms (`prof`'s `draw_ms_call`, 8x24 cells at font 17), and that is the ceiling
+behind every row above: 8 paints/s already spend a fifth of the event loop
+drawing. The cause is the number of draw calls, not the glyphs: a full-screen
+fresh paint makes **~1 700 runs**, near one per cell, because a cell's ink is
+its own — 1 700 calls of a single character at ~15 us each. Caching the shaped
+glyph vector (a `GlyphVector` per text and font, `drawGlyphVector` instead of
+`drawString`) moved the paint by nothing, which is the measurement that says
+the cost is the call and not the shaping. Drawing them in fewer calls — an atlas
+or a batched path — is `B91`, and until it lands the cadence is what the table
+above says it is.

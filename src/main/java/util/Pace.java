@@ -41,6 +41,16 @@ public final class Pace {
     public static final long DRAIN_HOLD_MAX_MS = 120;
 
     /**
+     * How stale the picture may get while a drain holds the loop (`B90`). The
+     * hold lives because a visit is cheaper than a round trip through the event
+     * loop, and the picture waits behind it; a visit longer than this ends and
+     * lets the queue paint. The price is in `docs/BENCHMARKS.md`: at 40 ms the
+     * picture wins 76% more frames for 11% of the throughput, at 80 ms it wins
+     * 19% for nothing measurable.
+     */
+    public static final long PAINT_STALE_MS = 80;
+
+    /**
      * Whether a drain that has spent its slice may keep feeding (`B74`). The
      * slice exists to let the loop breathe: deliver a key, paint the grid, run
      * the way out. When nothing but a repaint waits, there is nobody to breathe

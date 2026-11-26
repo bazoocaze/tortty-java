@@ -2412,3 +2412,23 @@ in the list, and again with `INVOCATION_*`, where a needle showed the queue was
 full of `INVOCATION_DEFAULT` — a repaint's repair work arrives as an invocation.
 Without it the hold discharges and `bench-ab.py` reads **+11%** (310.6 → 344.65
 fps median, B winning all six pairs); gate green, selftest 1877, render 109.
+
+## 2026-11-25 — the picture behind the hold (`B90`)
+
+**Context.** `B74` bought 11% by keeping the drain in the loop, and paid for it
+with the picture: a deep backlog painted once per hold, about 8 times a second,
+because the repaint sat in the queue behind the drain. The `L7` row also fell:
+"splits" is a feature nobody promised, not a limitation.
+
+**Activities.** The visit now ends at 80 ms whatever the hold wanted
+(`Pace.PAINT_STALE_MS`), so the queue paints between visits; `state` gained
+`paints`, the cadence the picture actually got. Four variants were built and
+measured — cut the visit at 80 and at 40 ms, and paint from the drain at both —
+before one was kept.
+
+**Result.** 80 ms is free: 8.4 → 10 paints a second for +0.7% of the throughput,
+measured twice because the first sitting ran a probe beside the bench. 40 ms is
+the knee (14.8 paints, −10.7%), painting from the drain costs more than yielding
+(same 14.8, −12.1%), and 40 ms from the drain is a third of the flood. The reason none of them go far: a paint is 26 ms, in ~1 700
+draw calls of one cell each, and caching the shaped glyph moved it by nothing —
+`B91` now carries that. Gate green, selftest 1877, render 109.

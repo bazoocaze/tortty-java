@@ -633,7 +633,8 @@ what the hot reload watches.
   `tabs`/`active`/`titles` (and `tab_rects`, the screen coordinates of each tab
   label, `B25`), `grid_rect` (the grid panel on screen, for a mouse test) and
   `side_scroll`/`side_visible`/`side_rects` (the card list as it is drawn,
-  `B32`), and `feeds`/`feed_bytes`/`feeds_per_mb` — the drain's own bill (`L23`);
+  `B32`), `feeds`/`feed_bytes`/`feeds_per_mb` — the drain's own bill (`L23`) — and
+  `paints`, the cadence the picture actually got (`B90`);
   `screen` returns the visible rows of the active tab
   (history included) and `resize` applies to every tab.
 - `draw`, `parse`, and `pty` counters in the format consumed by `benchrun.py`.
@@ -813,5 +814,5 @@ what the hot reload watches.
 
 ## Limitations
 
-See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L7`, `L13`,
-`L18`, `L22`, `L23`, `L24`).
+See [`LIMITATIONS.md`](LIMITATIONS.md) (`L3`, `L5`, `L13`, `L18`, `L22`,
+`L23`).
