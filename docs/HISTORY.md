@@ -2429,6 +2429,8 @@ before one was kept.
 **Result.** 80 ms is free: 8.4 → 10 paints a second for +0.7% of the throughput,
 measured twice because the first sitting ran a probe beside the bench. 40 ms is
 the knee (14.8 paints, −10.7%), painting from the drain costs more than yielding
-(same 14.8, −12.1%), and 40 ms from the drain is a third of the flood. The reason none of them go far: a paint is 26 ms, in ~1 700
-draw calls of one cell each, and caching the shaped glyph moved it by nothing —
-`B91` now carries that. Gate green, selftest 1877, render 109.
+(same 14.8, −12.1%), and 40 ms from the drain is a third of the flood. The reason none of them go far was measured next, and the first answer
+was wrong: variants that skip the rasterizing, or the emulation, gain only 12.7%
+and 10.4% over a pty ceiling of 415.8 fps, a paint is 13 ms of CPU and not 26, the
+atlas is slower than the draw it would replace, and the flood's samples sit in
+the CSI parser's `StringBuilder` — `B92` carries that, `B91` was rewritten. Gate green, selftest 1877, render 109.

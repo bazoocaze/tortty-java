@@ -324,14 +324,44 @@ the throughput, while 80 ms buys 19% for nothing measurable. The gate keeps
 80 ms (`Pace.PAINT_STALE_MS`), the price of a visit is stated in `L23`, and
 `paints` next to `visits_slice` makes the next claim readable.
 
-**Why not simply paint faster.** Because a paint of this grid already costs
-26 ms (`prof`'s `draw_ms_call`, 8x24 cells at font 17), and that is the ceiling
-behind every row above: 8 paints/s already spend a fifth of the event loop
-drawing. The cause is the number of draw calls, not the glyphs: a full-screen
-fresh paint makes **~1 700 runs**, near one per cell, because a cell's ink is
-its own — 1 700 calls of a single character at ~15 us each. Caching the shaped
-glyph vector (a `GlyphVector` per text and font, `drawGlyphVector` instead of
-`drawString`) moved the paint by nothing, which is the measurement that says
-the cost is the call and not the shaping. Drawing them in fewer calls — an atlas
-or a batched path — is `B91`, and until it lands the cadence is what the table
-above says it is.
+### Where the flood's time actually goes (2026-11-25, the baselines)
+
+The first reading of this section said a paint costs 26 ms and that the paint was
+the ceiling. Both halves were wrong, and the second version was measured by
+building variants that do less: one that feeds the grid and never rasterizes a
+frame, and one that drops every chunk instead of feeding it (the pty alone).
+Same protocol, 5 pairs each.
+
+| what the app does | fps | against today |
+|---|---|---|
+| today: emulate and paint | 366.3 / 376.8 | — |
+| emulate, never rasterize | 412.9 | **+12.7%** |
+| drop every chunk (pty only) | 415.8 | **+10.4%** |
+
+Three things fall out, and they are the reason the paragraphs below were
+rewritten:
+
+* The harness has a ceiling and it is close: the pty alone delivers **415.8**
+  fps, so everything the app does — parsing, painting, scheduling — costs about
+  **10%** on top of that. There is no 10x left in the flood; there is 10%.
+* The paint is not 26 ms of work. Measured on one run with the loop's own CPU
+  counter beside it, a paint takes **13 ms of CPU and 14.6% of the loop**, and
+  the 26 ms is wall time — a pause, GC and scheduling included, not arithmetic.
+* The two variants overlap because removing either leaves the other alone on the
+  loop: the paint is worth ~11-13% and the emulation ~9-10%, and they cannot be
+  added.
+
+**Where that 13 ms of paint goes.** Not into Java2D: the same 1 700 one-cell
+draws on the same grid, at the same size and hints, cost **3.1 ms** into a
+memory image, 4.2 ms onto the X surface, and 3.9 ms through a volatile image
+with a blit — measured with a standalone program, on the same Xvfb. Not into
+shaping either: caching the `GlyphVector` per text and font moved the paint by
+nothing. And not into an atlas, which is *slower*: blitting a cached cell bitmap
+costs 5.6 ms against 3.1 for the draw. What is left is the row loop's own
+per-cell bookkeeping, and the profile says where: **64% of the flood's samples
+sit in `AbstractStringBuilder.ensureCapacityInternal` under
+`Term.dispatchCsi`/`Term.sgr`** — every CSI sequence allocates a `StringBuilder`,
+a `String` per parameter and a `new int[32]`/`new char[32]`, and a fire lays
+down one sequence per cell. That garbage is also what the paint's wall time is
+waiting on. Parsing the parameters in place is `B92`, and it is the only lever
+this investigation found with the numbers on its side.

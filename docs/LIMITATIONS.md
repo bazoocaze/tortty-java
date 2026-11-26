@@ -58,10 +58,12 @@ reused.
   and painting from the drain itself gives the same 14.8 for 12% (the table is in
   [`BENCHMARKS.md`](BENCHMARKS.md)) — work queued with `invokeLater` or a Swing
   timer can land one hold late, and the unthrottled reader remains the ceiling.
-  The picture has a second ceiling nobody had measured: one paint of this grid is
-  26 ms, spent in ~1 700 draw calls of a single cell each, so it is the calls and
-  not the pacing that bound the cadence (`B91` in
-  [`BACKLOG.md`](BACKLOG.md)). `feeds`/`feed_bytes`/`feeds_per_mb`,
+  The picture has a second ceiling nobody had measured: a paint of this grid takes
+  **13 ms of CPU and 14.6% of the loop**, and variants that drop the paint, or the
+  emulation, gain 12.7% and 10.4% against a pty ceiling of 415.8 fps — so the
+  whole loop costs about 10% of what the pty could deliver, and the room is that
+  (`B92` in [`BACKLOG.md`](BACKLOG.md) is the parser garbage the profile puts
+  64% of the samples in). `feeds`/`feed_bytes`/`feeds_per_mb`,
   `visits_slice`/`visits_extended`/`visits_empty` and `paints`, reported by the
   debug socket's `state`, exist so the next claim can be read and not felt.
 
