@@ -338,12 +338,36 @@ Same protocol, 5 pairs each.
 | emulate, never rasterize | 412.9 | **+12.7%** |
 | drop every chunk (pty only) | 415.8 | **+10.4%** |
 
+### The unit is cells, not frames (same day, the grid changed)
+
+`fps` is not comparable across grids: a frame of 61x18 carries 43 KB and one of
+80x24 carries 73 KB, so the pty hands the small grid nearly twice the frames. The
+pty's own ceiling, measured with a Python reader that only discards bytes
+(64 KB reads):
+
+| grid | pty alone | cells/s | the app today | the app, no raster |
+|---|---|---|---|---|
+| 80x24 | 477 fps · 35.0 MB/s | 916 k | 376.8 fps · 27.7 MB/s (79%) | 412.9 fps |
+| 61x18 | 1 070 fps · 45.8 MB/s | 1 174 k | 596.9 fps · 25.6 MB/s (56%) | 660.2 fps |
+
+The app's own rate is **~700 k cells/s in both grids** (723 k and 655 k), which is
+why the smaller grid makes it look further behind: the bill is per cell and the
+frames are only smaller. `doomfire.py` is not the limit at either grid — alone it
+writes 750 fps to `/dev/null`, above the 477 the pty allows.
+
+For scale, the Rust terminal documents 965-1032 fps at 61x18 with the same child
+(41-44 MB/s, ~1.1 M cells/s), which is the pty's ceiling on that grid: at Rust's
+own protocol the Java version is about **40% behind**, and the per-cell work below
+is where the 40% lives.
+
 Three things fall out, and they are the reason the paragraphs below were
 rewritten:
 
-* The harness has a ceiling and it is close: the pty alone delivers **415.8**
-  fps, so everything the app does — parsing, painting, scheduling — costs about
-  **10%** on top of that. There is no 10x left in the flood; there is 10%.
+* The harness has a ceiling and it is close *in its own grid*: the pty alone
+  delivers **415.8** fps at 80x24, so everything the app does costs about **10%**
+  there — but on Rust's 61x18 the same ceiling is 1 070 fps and the app keeps only
+  56% of it, because its bill is per cell. How much room is left is a question
+  about the grid, never about fps alone.
 * The paint is not 26 ms of work. Measured on one run with the loop's own CPU
   counter beside it, a paint takes **13 ms of CPU and 14.6% of the loop**, and
   the 26 ms is wall time — a pause, GC and scheduling included, not arithmetic.
